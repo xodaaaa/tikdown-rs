@@ -1,13 +1,64 @@
 # e02s01-tasks.yaml
 story_id: e02s01
 title: "create_supervised_task y registro de tareas"
-status: todo
+status: passing
 bcps: 3
+risk: P0
+context: infra
 tasks:
-  - id: e02s01-t01
+  - id: 1
     description: >-
-      Helper supervisado create_supervised_task() — única vía para tareas de fondo (principio §0.10,
-      nunca asyncio.create_task directo en ningún módulo). Registro de tareas activas; errores no
-      silenciosos; drenaje en apagado (T9: AsyncIOScheduler.shutdown(wait=True) cancela los jobs).
+      Implementar core/tasks.py: create_supervised_task(coro, name) — única vía para tareas de
+      fondo (principio §0.10, nunca asyncio.create_task directo fuera del helper). Envuelve la
+      corrutina en try/except, loguea excepciones con contexto estructurado (stdlib logging, nunca
+      structlog; interpolar el nombre en el mensaje — L-B4). Registra la tarea en _task_refs.
+      [OK] asyncio stdlib.
+    verify: "uv run python -c \"from tikdown_rs.core.tasks import create_supervised_task, cancel_pending_tasks; assert create_supervised_task and cancel_pending_tasks\""
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "async"
+  - id: 2
+    description: >-
+      add_done_callback SÍNCRONO (T1, crítico): el callback que audita el resultado es una función
+      síncrona que lee task.exception() (incluye cancelación) — NUNCA un callback async (crea la
+      corrutina pero no la ejecuta). Registro indexado por id(task), nunca por nombre (T30).
+      El callback limpia la tarea del registro al completar.
     verify: "uv run pytest tests/daemon/test_supervised.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "async"
+  - id: 3
+    description: >-
+      cancel_pending_tasks(timeout) (T28): cancela explícitamente las tareas pendientes del registro
+      (referencias Task reales). El drenaje del apagado usa ESTO (T27/T28), no
+      AsyncIOScheduler.shutdown(wait=True) que cancela en vez de esperar (T9).
+    verify: "uv run pytest tests/daemon/test_supervised.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "async"
+  - id: 4
+    description: >-
+      Tests en tests/daemon/test_supervised.py (F.I.R.S.T.): crea/registra tareas, audita
+      excepciones (el callback corre y captura el error — T1), cancela tareas pendientes (T28),
+      índice por id(task) con tareas del mismo nombre (T30).
+    verify: "uv run pytest tests/daemon/test_supervised.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "async"
+        - "unit"
