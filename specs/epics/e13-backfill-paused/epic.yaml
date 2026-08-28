@@ -1,0 +1,11 @@
+# epic.yaml — e13-backfill-paused
+epic_id: e13
+slug: backfill-paused
+title: "Recogida automática de backfills pausados (backfill.paused + slot cross-proceso)"
+status: planned
+scope_ref: "EPIC-BACKFILL-PAUSED"
+stories:
+  - id: e13s01
+    title: "Estado 'paused' real + recogida automática + slot cross-proceso (T22)"
+    bcps: 6
+    delta: ADDED
