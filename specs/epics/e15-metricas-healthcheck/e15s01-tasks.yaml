@@ -1,0 +1,68 @@
+# e15s01-tasks.yaml
+story_id: e15s01
+title: "daemon status ampliado + healthcheck con cookies/disco/errores (T19/T50)"
+status: failing
+bcps: 5
+risk: P2
+context: domain
+tasks:
+  - id: 1
+    description: >-
+      services/status.py (nuevo): collect_status(session, settings) — reúne métricas para
+      daemon status (§3): (a) estado de cookies — count valid/invalid/inconclusive + expirando
+      (expiration_date próxima, < 7 días); (b) disco — free_percent (core/disk, T69) + umbral
+      disk_warning_free_percent; (c) últimos errores — videos status='failed' ordenados por
+      updated_at desc, top 5, con timestamp/categoría/cuenta; (d) contención db_busy_count_5min
+      leída de daemon_state (T19, nunca del proceso CLI). Lógica en services (nunca en cli/).
+    verify: "uv run pytest tests/status/test_status.py -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "status"
+        - "metrics"
+  - id: 2
+    description: >-
+      cli/daemon.py: status usa collect_status() y muestra: cookies (válidas/expirando), disco
+      (libre %, umbral, alerta si por debajo), últimos errores (timestamp, categoría, cuenta),
+      contención detallada (db_busy_count_5min + count de videos failed). Salida ASCII pura
+      (L-A5) o rich — consistente con el resto de la CLI.
+    verify: "uv run pytest tests/status/test_status.py -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "status"
+        - "cli"
+  - id: 3
+    description: >-
+      cli/daemon.py: healthcheck ampliado — además del heartbeat fresco (T50, <= 3x intervalo),
+      considera: (a) al menos 1 cookie válida; (b) disco con espacio suficiente (free_percent >
+      disk_warning_free_percent); (c) sin errores críticos recientes (videos failed en las
+      últimas 24h con categoría definitive, count bajo umbral). SIN validaciones de red (T50/§22.1:
+      el healthcheck corre cada ~30s, no debe ser pesado). Exit 0/1.
+    verify: "uv run pytest tests/status/test_status.py -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "healthcheck"
+        - "cli"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_status.py — collect_status con cookies variadas (valid/
+      invalid/expirando), disco mockeado (T69: shutil.disk_usage inyectado), videos failed
+      (últimos errores), contención de daemon_state; healthcheck: heartbeat fresco + cookie
+      válida + disco OK → exit 0; sin cookie o disco bajo → exit 1; sin errores críticos
+      recientes. SQLite :memory: + StaticPool (T69).
+    verify: "uv run pytest tests/status/ -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "status"
+        - "unit"

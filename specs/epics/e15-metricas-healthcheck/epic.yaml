@@ -1,0 +1,11 @@
+# epic.yaml — e15-metricas-healthcheck
+epic_id: e15
+slug: metricas-healthcheck
+title: "Métricas y healthcheck más ricos (cookies, disco, errores, contención)"
+status: planned
+scope_ref: "EPIC-METRICAS-HEALTHCHECK"
+stories:
+  - id: e15s01
+    title: "daemon status ampliado + healthcheck con cookies/disco/errores (T19/T50)"
+    bcps: 5
+    delta: ADDED
