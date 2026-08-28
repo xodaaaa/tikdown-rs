@@ -4,8 +4,8 @@ workflow_mode: solo-git
 session:
   started_at: 2026-08-27T19:40:00Z
   active_flow: null
-  active_epic: e02
-  active_story: e02s04
+  active_epic: e03
+  active_story: null
   active_bug: null
 epic_cycle: {}
 metrics:
@@ -21,7 +21,7 @@ release:
   last_publish: null
   target_version: null
   ci_verified: false  # sin remote/CI configurado (repo local) — git-only fallback
-  merged_commit: 63b68e6
+  merged_commit: cc12aa2
 git:
   branch: null
   worktree: null
