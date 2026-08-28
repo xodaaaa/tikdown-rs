@@ -17,18 +17,9 @@ handoff:
 git:
   branch: master
   worktree: null
-git:
-  branch: master
-  worktree: null
-git:
-  branch: master
-  worktree: null
-git:
-  branch: master
-  worktree: null
 release:
-  last_tag: v0.2.0
-  last_publish: 2026-08-28T14:00:00Z
-  target_version: v0.2.0
+  last_tag: v0.3.0
+  last_publish: 2026-08-28T17:00:00Z
+  target_version: v0.3.0
   ci_verified: true  # CI Woodpecker configurado (.woodpecker.yml) — runner pendiente de activar
-  merged_commit: a87544e  # tag v0.2.0 (cierre del backlog: CI + paginación + supervisión)
+  merged_commit: ad0880d  # tag v0.3.0 (cierre del backlog round 2: backfills + logs + métricas)
