@@ -90,9 +90,18 @@ async def run_backfill(
             if upload_date >= scope_cursor:
                 continue  # fuera de alcance del cursor (break implícito)
 
-            # Descargar con el motor (e04s01)
-            result = await engine.download(entry["url"], archive_path=None)
-            status = result.get("status", "downloaded")
+            # Descargar con el motor (e04s01). Fallo de UN vídeo NO aborta el
+            # feed (T5: transitorio nunca definitivo) — se registra y continúa;
+            # el daemon reintenta los fallidos en el siguiente ciclo.
+            try:
+                result = await engine.download(entry["url"], archive_path=None)
+                status = result.get("status", "downloaded")
+            except Exception as exc:  # noqa: BLE001 - T5: no dejar wedged
+                LOG.warning(
+                    "backfill.video_failed",
+                    extra={"username": username, "url": entry.get("url"), "exc": repr(exc)},
+                )
+                continue
             if status == "downloaded":
                 cursor = upload_date  # avanza el cursor móvil (L-F1)
                 account.backfill_done += 1  # F-09: done acumulativo
