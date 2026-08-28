@@ -1,7 +1,7 @@
 # e11s01-tasks.yaml
 story_id: e11s01
 title: "Paginación /list con botones inline (T38, §6.3, F-18)"
-status: failing
+status: passing
 bcps: 5
 risk: P1
 context: domain
@@ -15,7 +15,7 @@ tasks:
       vacía → "No hay cuentas". La lógica NO toca la red ni PTB — testeable puro.
     verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -29,7 +29,7 @@ tasks:
       anterior/siguiente. Encoding presupuestado: acción corta 'listp' + epoch + página.
     verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -45,7 +45,7 @@ tasks:
       página + editar mensaje. El handler se registra en TelegramBot.start().
     verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -59,7 +59,7 @@ tasks:
       procesar. El throttle es por chat (no global), compartido entre comandos y callbacks.
     verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -74,7 +74,7 @@ tasks:
       CallbackQuery/Message; nunca red real (T69).
     verify: "uv run pytest tests/telegram/ -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
