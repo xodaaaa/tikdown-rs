@@ -1,19 +1,78 @@
 # e02s02-tasks.yaml
 story_id: e02s02
 title: "Selfcheck de impersonación TLS + ffmpeg/ffprobe + Fernet"
-status: todo
+status: passing
 bcps: 5
+risk: P0
+context: infra
 tasks:
-  - id: e02s02-t01
+  - id: 1
     description: >-
-      Selfcheck (§4.1): _get_available_impersonate_targets con try/except amplio (API interna de
-      yt-dlp no estable); distingue 3 causas (curl-cffi ausente / versión no soportada / targets
-      vacíos pese a librería correcta); los targets son objetos ImpersonateTarget, no strings (L-D1).
-      Sonda ffmpeg/ffprobe ejecutables (T46). Clave Fernet: permisos 0600 sobre clave existente (T7)
-      + descifra una cookie almacenada (T16, distingue tabla ausente de error real).
+      Implementar core/verify.py: selfcheck_impersonation() — _get_available_impersonate_targets con
+      try/except amplio (API interna no estable). Distingue 3 causas (T6): curl-cffi ausente,
+      versión no soportada, targets vacíos pese a librería correcta. Los targets son OBJETOS
+      ImpersonateTarget (L-D1). Sin targets → SystemExit(1). [OK] yt-dlp nightly instalado.
     verify: "uv run pytest tests/daemon/test_selfcheck.py -q"
-    status: todo
-  - id: e02s02-t02
-    description: "Tests con mocks de yt-dlp/ffmpeg: 3 causas de fallo, éxito, clave 0600, tabla ausente vs corrupción."
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "selfcheck"
+  - id: 2
+    description: >-
+      core/verify.py: sonda ffmpeg/ffprobe (T46) — verifica que ambos son ejecutables (dependencia
+      dura) y reporta versión. selfcheck_completo() orquesta: impersonación + ffmpeg/ffprobe + crypto.
+      Compara versión yt-dlp con yt_dlp.version.__version__ (T4).
     verify: "uv run pytest tests/daemon/test_selfcheck.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "selfcheck"
+  - id: 3
+    description: >-
+      Implementar core/crypto.py: carga/genera fernet.key con permisos 0600 TAMBIÉN sobre clave
+      existente (T7, corregir con warning si no es posible). Generación atómica con O_EXCL
+      (open('xb'), T67): el perdedor relee la existente. Tolerar archivo vacío en la ventana de
+      creación (releer, L-E2). Jerarquía: FERNET_KEY env → DATA_DIR/fernet.key → generar.
+      [OK] cryptography.
+    verify: "uv run pytest tests/crypto/test_crypto.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "crypto"
+        - "security"
+  - id: 4
+    description: >-
+      core/verify.py: selfcheck crypto (T16) — intenta descifrar una cookie almacenada con la clave
+      activa; distingue 'tabla ausente' (esquema sin migrar → informativo, no fallo) de error real
+      de permisos/corrupción/bloqueo (→ FAIL).
+    verify: "uv run pytest tests/daemon/test_selfcheck.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "selfcheck"
+  - id: 5
+    description: >-
+      Tests (F.I.R.S.T., §14): tests/daemon/test_selfcheck.py — 3 causas de fallo (mock yt-dlp),
+      éxito, ffmpeg/ffprobe (mock shutil.which), tabla ausente vs corrupción (T16), versión T4.
+      tests/crypto/test_crypto.py — 0600 sobre existente (T7), O_EXCL (T67), archivo vacío (L-E2).
+      FERNET_KEY generada al vuelo en fixture, nunca constante (F-12/§14).
+    verify: "uv run pytest tests/daemon/test_selfcheck.py tests/crypto/test_crypto.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "crypto"
+        - "unit"
