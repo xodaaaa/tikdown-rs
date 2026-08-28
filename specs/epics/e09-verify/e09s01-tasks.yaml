@@ -1,13 +1,61 @@
 # e09s01-tasks.yaml
 story_id: e09s01
 title: "videos integrity (tamaño + SHA-256 + ffprobe)"
-status: todo
+status: failing
 bcps: 4
+risk: P1
+context: domain
 tasks:
-  - id: e09s01-t01
+  - id: 1
     description: >-
-      services/integrity: verificación de integridad por vídeo (tamaño + SHA-256 + ffprobe), con
-      I/O pesada (hash, ffprobe) vía asyncio.to_thread (T12); ffprobe invocado con lista de
-      argumentos + '--' antes de la ruta (T13). Comando videos integrity [username].
+      services/integrity.py: verify_video(path) — tamaño > 0 + SHA-256 (hashlib) + ffprobe (pista de
+      vídeo, duración > 0, codecs). I/O pesada (hash, ffprobe) SIEMPRE vía asyncio.to_thread (T12);
+      ffprobe con lista de argumentos + '--' antes de la ruta (T13: nombre con - = opción). Devuelve
+      resultado (ok/razón).
     verify: "uv run pytest tests/integrity/test_integrity.py -q"
-    status: todo
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "integrity"
+        - "verify"
+  - id: 2
+    description: >-
+      services/videos.py: handle_download_result con expected_has_video (T55) — si
+      expected_has_video=false → status='skipped' (sin reintentos, sin fallo, se archiva el ID); si
+      true y sin pista de vídeo → error_category='integrity' (fallo real, nunca 'downloaded' sin
+      verificar, §4.6). Best-effort en limpiezas posteriores (T14).
+    verify: "uv run pytest tests/integrity/test_integrity.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "integrity"
+        - "classification"
+  - id: 3
+    description: >-
+      cli/videos.py: videos integrity [username] — verifica todos los vídeos de una cuenta o todos
+      si no se especifica (§3); reporta OK/FAIL por vídeo (ASCII puro L-A5).
+    verify: "uv run pytest tests/integrity/test_integrity.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "videos"
+        - "cli"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_integrity.py — verify_video con ffprobe mockeado (T12), T13
+      (argumentos con --), T55 (slideshow → skipped, expected_video sin pista → integrity), T14
+      (best-effort). SQLite :memory: + StaticPool; nunca entorno real (T69).
+    verify: "uv run pytest tests/integrity/ -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "integrity"
+        - "unit"

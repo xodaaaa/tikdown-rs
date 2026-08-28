@@ -41,3 +41,17 @@ def apply_retry_penalty(video: Video, error_category: str) -> None:
     if error_category == "network":
         return  # T64: no incrementa retry_count ni consume presupuesto
     video.retry_count += 1
+
+
+def classify_integrity(expected_has_video: bool, has_video_stream: bool) -> str:
+    """Clasifica el resultado de integridad (T55, §4.6).
+
+    - expected_has_video=False → 'skipped' (slideshow, no es fallo).
+    - expected=True sin pista → 'integrity' (fallo real).
+    - ok → 'downloaded'.
+    """
+    if not expected_has_video:
+        return "skipped"  # T55: slideshow, sin reintentos ni fallo
+    if not has_video_stream:
+        return "integrity"  # fallo real de integridad
+    return "downloaded"
