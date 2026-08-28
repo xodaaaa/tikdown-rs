@@ -1,0 +1,43 @@
+story_id: e03s01
+verified_at: "2026-08-28T05:00:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "CRUD cuentas: add/list/pause/resume/notify/check"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 62
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T04:59:00Z"
+    note: "Single contiguous run — 62 passed"
+  manual:
+    steps:
+      - step: "add normaliza @ + then_monitor (T60)"
+        expected: "username sin @, mode history, bandera True"
+        actual: "OK: usuario1, history, then_monitor True"
+        passed: true
+      - step: "pause/resume simétrico"
+        expected: "paused False tras resume"
+        actual: "OK: False"
+        passed: true
+      - step: "notify (L-G3)"
+        expected: "notify_on_download True"
+        actual: "OK: True"
+        passed: true
+      - step: "check marca last_check_at (T20)"
+        expected: "last_check_at no nulo"
+        actual: "OK: True"
+        passed: true
+gaps:
+  closed: true

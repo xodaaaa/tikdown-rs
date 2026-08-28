@@ -1,20 +1,62 @@
 # e03s01-tasks.yaml
 story_id: e03s01
 title: "CRUD de cuentas (services/accounts)"
-status: todo
+status: passing
 bcps: 6
+risk: P1
+context: domain
 tasks:
-  - id: e03s01-t01
+  - id: 1
     description: >-
-      services/accounts: add (username sin @, --mode history|monitor, --then-monitor), list, pause,
-      resume, notify --on/--off, remove (con confirmación), check @user (fuerza comprobación manual
-      con motor y clave reales, T20, respeta throttle 30s), stats. Capa 100% independiente de cli/
-      y daemon/ (principio §0.5).
+      services/accounts.py: add(username sin @, mode='history', then_monitor=False) — NO arranca el
+      monitor global (T60). list() con estado y conteos. pause(username)/resume(username) (par
+      simétrico). remove(username). stats(username). set_notify(username, on) — notify_on_download
+      (L-G3). Capa 100% independiente de cli/daemon (principio §0.5). [OK] SQLAlchemy async.
     verify: "uv run pytest tests/accounts/test_accounts.py -q"
-    status: todo
-  - id: e03s01-t02
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "accounts"
+        - "services"
+  - id: 2
     description: >-
-      Comandos CLI del grupo accounts (rich, --json, ASCII puro L-A5) orquestando services/accounts
-      sin duplicar lógica (regla de oro §3).
+      services/accounts.py: check(username) — fuerza comprobación manual con MOTOR Y CLAVE REALES
+      (T20, nunca simulados), respetando throttle de 30s (last_check_at). Normaliza username
+      lstrip('@'). Actualiza last_check_at tras comprobar.
+    verify: "uv run pytest tests/accounts/test_accounts.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "accounts"
+        - "services"
+  - id: 3
+    description: >-
+      cli/accounts.py: comandos del grupo accounts (§3) orquestando services/accounts sin duplicar
+      lógica (regla de oro): add (--mode, --then-monitor), list, pause, resume, remove (con
+      confirmación), stats, notify --on/--off, check. rich + --json + ASCII puro (L-A5).
     verify: "uv run pytest tests/cli/test_accounts_cli.py -q"
-    status: todo
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "accounts"
+        - "cli"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): tests/accounts/test_accounts.py — add (defaults, mode, then_monitor
+      no arranca monitor T60), list, pause/resume, remove, stats, notify (L-G3), check (T20: motor
+      real, throttle 30s). tests/cli/test_accounts_cli.py — orquestación. SQLite :memory: +
+      StaticPool; mocks de motor para check; nunca entorno real (T69).
+    verify: "uv run pytest tests/accounts/test_accounts.py tests/cli/test_accounts_cli.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "accounts"
+        - "unit"
