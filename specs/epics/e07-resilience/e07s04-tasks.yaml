@@ -1,0 +1,13 @@
+# e07s04-tasks.yaml
+story_id: e07s04
+title: "Contención SQLite (db_busy_count_5min + retries)"
+status: todo
+bcps: 3
+tasks:
+  - id: e07s04-t01
+    description: >-
+      Manejo de SQLITE_BUSY/locked (§5.8): contador rotativo db_busy_count_5min persistido en
+      daemon_state; reintentos con backoff corto para sesiones cortas; daemon status muestra el
+      contador leído de daemon_state, NUNCA del proceso CLI propio (T19).
+    verify: "uv run pytest tests/db/test_busy_handling.py -q"
+    status: todo

@@ -1,0 +1,53 @@
+# Release plan — TikDown-rs
+release:
+  version: 0.1.0
+  bump_hint: minor
+  codename: "archivo-inicial"
+# Orden WSJF: el valor más alto llega antes. Tracer bullet: e01 (fundación) →
+# e03 (cuentas) → e04 (backfill) entregan "añadir cuenta → descargar vídeo" lo antes posible.
+epics:
+  - id: e01
+    slug: bootstrap
+    title: "Fundación: estructura, config, logging, DB"
+    wsjf: 100
+    bcps: 18
+  - id: e03
+    slug: accounts
+    title: "Gestión de cuentas y monitor"
+    wsjf: 95
+    bcps: 14
+  - id: e04
+    slug: backfill
+    title: "Motor de descarga y backfill"
+    wsjf: 92
+    bcps: 33
+  - id: e05
+    slug: cookies
+    title: "Gestión de cookies cifradas"
+    wsjf: 88
+    bcps: 14
+  - id: e02
+    slug: daemon
+    title: "Daemon: runner, scheduler, tareas supervisadas, heartbeat, selfcheck"
+    wsjf: 84
+    bcps: 23
+  - id: e07
+    slug: resilience
+    title: "Resiliencia: red, disco, circuit breaker, contención DB"
+    wsjf: 78
+    bcps: 18
+  - id: e08
+    slug: cli
+    title: "Superficie CLI completa (7 grupos de sustantivo)"
+    wsjf: 74
+    bcps: 14
+  - id: e06
+    slug: telegram
+    title: "Bot de Telegram (control remoto)"
+    wsjf: 70
+    bcps: 16
+  - id: e09
+    slug: verify
+    title: "Integridad, export y backup"
+    wsjf: 65
+    bcps: 12

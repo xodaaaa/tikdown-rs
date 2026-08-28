@@ -1,0 +1,14 @@
+# e05s01-tasks.yaml
+story_id: e05s01
+title: "Cifrado Fernet en reposo (clave 0600, rotación)"
+status: todo
+bcps: 5
+tasks:
+  - id: e05s01-t01
+    description: >-
+      services/crypto: clave Fernet desde FERNET_KEY o generada en DATA_DIR/fernet.key (0600 al
+      generar Y al cargar una existente, T7); cifrado/descifrado de cookies; selfcheck de crypto
+      (T16): descifra una cookie almacenada con la clave activa, distingue tabla ausente (informativo)
+      de corrupción/permisos/bloqueo (FAIL).
+    verify: "uv run pytest tests/crypto/test_fernet.py -q"
+    status: todo

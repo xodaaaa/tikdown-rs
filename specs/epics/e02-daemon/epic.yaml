@@ -1,0 +1,23 @@
+# epic.yaml — e02-daemon
+epic_id: e02
+slug: daemon
+title: "Daemon: runner, scheduler, tareas supervisadas, heartbeat, selfcheck"
+status: planned
+scope_ref: "EPIC-DAEMON"
+stories:
+  - id: e02s01
+    title: "create_supervised_task y registro de tareas"
+    bcps: 3
+    delta: ADDED
+  - id: e02s02
+    title: "Selfcheck de impersonación TLS + ffmpeg/ffprobe + Fernet"
+    bcps: 5
+    delta: ADDED
+  - id: e02s03
+    title: "Runner del daemon (event loop, scheduler, drenaje)"
+    bcps: 8
+    delta: ADDED
+  - id: e02s04
+    title: "Heartbeat persistido + daemon stop/status/healthcheck"
+    bcps: 7
+    delta: ADDED

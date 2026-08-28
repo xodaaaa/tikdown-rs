@@ -1,0 +1,15 @@
+# e01s05-tasks.yaml
+story_id: e01s05
+title: "Higiene repo: README, LICENSE, .gitignore, .dockerignore, .env.example"
+status: todo
+bcps: 2
+tasks:
+  - id: e01s05-t01
+    description: >-
+      README.md: qué es, cómo se ejecuta (daemon run), nota del sufijo -rs (proyecto Python),
+      disclaimer legal estilo yt-dlp, sección de recuperación de fernet.key y qué NO commitear
+      (§0.1). LICENSE MIT. .gitignore y .dockerignore con la cobertura mínima de §0.1 (cookies,
+      *.db*, fernet.key, data/, .env, .venv, __pycache__, .git). .env.example con solo valores
+      de ejemplo (§0.1). README incluido en la imagen Docker (F-04).
+    verify: "test -f README.md && test -f LICENSE && test -f .dockerignore && grep -q \"fernet.key\" .gitignore && grep -q \"cookies\" .dockerignore"
+    status: todo

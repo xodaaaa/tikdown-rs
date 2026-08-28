@@ -1,0 +1,16 @@
+# e01s03-tasks.yaml
+story_id: e01s03
+title: "Logging JSON ad-hoc (stdlib)"
+status: todo
+bcps: 2
+tasks:
+  - id: e01s03-t01
+    description: >-
+      Formatter JSON propio sobre logging stdlib (nunca structlog, F-20). JSON a stdout en el daemon;
+      consola legible en CLI. Nivel vía LOG_LEVEL. Logger del proyecto `tikdown_rs.*`.
+    verify: "uv run pytest tests/logging/test_logging.py -q"
+    status: todo
+  - id: e01s03-t02
+    description: "Tests: el formatter emite JSON válido con campos esperados; el setup aplica LOG_LEVEL; reaplicable tras migración Alembic (T72)."
+    verify: "uv run pytest tests/logging/test_logging.py -q"
+    status: todo

@@ -1,0 +1,21 @@
+# e02s03-tasks.yaml
+story_id: e02s03
+title: "Runner del daemon (event loop, scheduler, drenaje)"
+status: todo
+bcps: 8
+tasks:
+  - id: e02s03-t01
+    description: >-
+      DaemonRunner: event loop único asyncio; AsyncIOScheduler (>=3.11,<4) con jobstore en memoria;
+      jobs de intervalo (monitor, validación de cookies, selfcheck periódico, probe de red, heartbeat);
+      bot de Telegram en el MISMO loop (long polling manual: initialize/start/updater.start_polling).
+      Fail-fast en arranque: selfcheck completo antes de nada (§5.1 paso 2, T6); si la configuración
+      es inválida, aborta.
+    verify: "uv run pytest tests/daemon/test_runner.py -q"
+    status: todo
+  - id: e02s03-t02
+    description: >-
+      Apagado limpio: señal SIGTERM → stop_requested; drenaje de tareas supervisadas; parada del bot
+      (updater.stop → stop → shutdown, T10); shutdown del scheduler. Nada de forks; foreground.
+    verify: "uv run pytest tests/daemon/test_runner_shutdown.py -q"
+    status: todo

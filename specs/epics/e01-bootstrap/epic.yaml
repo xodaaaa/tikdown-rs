@@ -1,0 +1,27 @@
+# epic.yaml — e01-bootstrap
+epic_id: e01
+slug: bootstrap
+title: "Fundación: estructura, config, logging, DB"
+status: planned
+scope_ref: "EPIC-BOOTSTRAP"
+stories:
+  - id: e01s01
+    title: "Estructura del paquete y toolchain uv"
+    bcps: 3
+    delta: ADDED
+  - id: e01s02
+    title: "Configuración Settings (pydantic-settings)"
+    bcps: 3
+    delta: ADDED
+  - id: e01s03
+    title: "Logging JSON ad-hoc (stdlib)"
+    bcps: 2
+    delta: ADDED
+  - id: e01s04
+    title: "Modelos SQLAlchemy + migración Alembic + WAL"
+    bcps: 8
+    delta: ADDED
+  - id: e01s05
+    title: "Higiene repo: README, LICENSE, .gitignore, .dockerignore, .env.example"
+    bcps: 2
+    delta: ADDED

@@ -1,0 +1,19 @@
+# e07s01-tasks.yaml
+story_id: e07s01
+title: "Probe de red + pausa/reanudación automática"
+status: todo
+bcps: 5
+tasks:
+  - id: e07s01-t01
+    description: >-
+      services/network: probe HEAD a endpoint NEUTRAL (NETWORK_PROBE_URL, nunca TikTok) con timeout
+      5s (httpx permitido solo para probe y Bot API, §1). Estado de red disponible/pausado.
+    verify: "uv run pytest tests/network/test_probe.py -q"
+    status: todo
+  - id: e07s01-t02
+    description: >-
+      Pausa automática ante caída real de red (§0.13, §9): monitor, backfill y descargas se pausan;
+      aviso por Telegram; reanudación automática al recuperar red. El motor consulta
+      network_available.wait() + downloads_paused antes de cada intento (T45).
+    verify: "uv run pytest tests/network/test_pause_resume.py -q"
+    status: todo

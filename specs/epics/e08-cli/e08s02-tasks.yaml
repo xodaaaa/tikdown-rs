@@ -1,0 +1,13 @@
+# e08s02-tasks.yaml
+story_id: e08s02
+title: "Salida rich (--json, ASCII puro, marcadores)"
+status: todo
+bcps: 6
+tasks:
+  - id: e08s02-t01
+    description: >-
+      Salida rica para humanos y --json para scripting/bot (§3). Marcadores ASCII puros (OK/ERROR,
+      '-', '!') — NUNCA glifos Unicode (✓✗⚠ etc., revientan en Windows legacy, L-A5). Export de
+      videos sin wrap ni markup de Rich (console.print(markup=False, soft_wrap=True), L-A6).
+    verify: "uv run pytest tests/cli/test_output.py -q"
+    status: todo

@@ -1,0 +1,20 @@
+# e06s01-tasks.yaml
+story_id: e06s01
+title: "Dispatcher PTB async (mismo event loop) + rate-limiter"
+status: todo
+bcps: 6
+tasks:
+  - id: e06s01-t01
+    description: >-
+      daemon/telegram/bot.py: python-telegram-bot[rate-limiter] (extra OBLIGATORIO, L-H2/T41);
+      ciclo de vida manual en el MISMO event loop del daemon (T10): initialize → start →
+      updater.start_polling(timeout=25); apagado updater.stop → stop → shutdown. Nunca run_polling
+      dentro de un loop existente. Modos disabled|commands|both desde Settings; sin token = apagado.
+    verify: "uv run pytest tests/telegram/test_bot_lifecycle.py -q"
+    status: todo
+  - id: e06s01-t02
+    description: >-
+      Autorización: TELEGRAM_CHAT_ID permitido (modo commands); no autenticación por red. Acceso
+      restringido por chat ID; sin exponer servidor HTTP.
+    verify: "uv run pytest tests/telegram/test_bot_authz.py -q"
+    status: todo

@@ -1,0 +1,13 @@
+# e09s01-tasks.yaml
+story_id: e09s01
+title: "videos integrity (tamaño + SHA-256 + ffprobe)"
+status: todo
+bcps: 4
+tasks:
+  - id: e09s01-t01
+    description: >-
+      services/integrity: verificación de integridad por vídeo (tamaño + SHA-256 + ffprobe), con
+      I/O pesada (hash, ffprobe) vía asyncio.to_thread (T12); ffprobe invocado con lista de
+      argumentos + '--' antes de la ruta (T13). Comando videos integrity [username].
+    verify: "uv run pytest tests/integrity/test_integrity.py -q"
+    status: todo

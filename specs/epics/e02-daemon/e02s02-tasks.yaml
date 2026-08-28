@@ -1,0 +1,19 @@
+# e02s02-tasks.yaml
+story_id: e02s02
+title: "Selfcheck de impersonación TLS + ffmpeg/ffprobe + Fernet"
+status: todo
+bcps: 5
+tasks:
+  - id: e02s02-t01
+    description: >-
+      Selfcheck (§4.1): _get_available_impersonate_targets con try/except amplio (API interna de
+      yt-dlp no estable); distingue 3 causas (curl-cffi ausente / versión no soportada / targets
+      vacíos pese a librería correcta); los targets son objetos ImpersonateTarget, no strings (L-D1).
+      Sonda ffmpeg/ffprobe ejecutables (T46). Clave Fernet: permisos 0600 sobre clave existente (T7)
+      + descifra una cookie almacenada (T16, distingue tabla ausente de error real).
+    verify: "uv run pytest tests/daemon/test_selfcheck.py -q"
+    status: todo
+  - id: e02s02-t02
+    description: "Tests con mocks de yt-dlp/ffmpeg: 3 causas de fallo, éxito, clave 0600, tabla ausente vs corrupción."
+    verify: "uv run pytest tests/daemon/test_selfcheck.py -q"
+    status: todo

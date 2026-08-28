@@ -1,0 +1,15 @@
+# epic.yaml — e03-accounts
+epic_id: e03
+slug: accounts
+title: "Gestión de cuentas y monitor"
+status: planned
+scope_ref: "EPIC-ACCOUNTS"
+stories:
+  - id: e03s01
+    title: "CRUD de cuentas (services/accounts)"
+    bcps: 6
+    delta: ADDED
+  - id: e03s02
+    title: "Ciclo de monitor (descubrimiento de vídeos nuevos)"
+    bcps: 8
+    delta: ADDED

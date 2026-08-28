@@ -1,0 +1,21 @@
+# e04s03-tasks.yaml
+story_id: e04s03
+title: "Backfill encolado + slot único + cancelación + retry-failed"
+status: todo
+bcps: 10
+tasks:
+  - id: e04s03-t01
+    description: >-
+      Encolado: backfill run --queue → backfill_status='queued'; el daemon lo recoge con su slot
+      único global (principio §0.7). Estado 'queued'|'backfilling'|'completed'|'failed'|'cancelled';
+      'cancelled' desde el primer esquema (L-F7). Interrupción por crash/apagado → vuelve a 'queued'
+      (F-10); no producir 'paused' (valor reservado, §2).
+    verify: "uv run pytest tests/backfill/test_backfill_queue.py -q"
+    status: todo
+  - id: e04s03-t02
+    description: >-
+      Cancelación real (T21): backfill cancel @user interrumpe la pasada en curso y marca
+      'cancelled'; re-ejecución retoma desde el cursor. retry-failed con --all global: requiere
+      resumen previo + confirmación (volumen = horas/días, §3).
+    verify: "uv run pytest tests/backfill/test_backfill_cancel.py -q"
+    status: todo

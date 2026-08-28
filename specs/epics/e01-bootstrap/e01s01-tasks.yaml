@@ -1,0 +1,51 @@
+# e01s01-tasks.yaml
+story_id: e01s01
+title: "Estructura del paquete y toolchain uv"
+status: failing
+bcps: 3
+risk: P1
+context: infra
+tasks:
+  - id: 1
+    description: >-
+      Crear layout del paquete plano (§13): src/tikdown_rs con core/, services/, cli/, daemon/,
+      models/, tests/ y __init__.py. El plan §13 NO usa src layout — el paquete es el directorio
+      raíz del proyecto. [OK] uv es la herramienta de gestión.
+    verify: "test -f pyproject.toml && test -d core && test -d services && test -d cli && test -d daemon && test -d models && test -d tests"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "infra"
+        - "bootstrap"
+  - id: 2
+    description: >-
+      Escribir pyproject.toml con name="tikdown-rs", requires-python=">=3.13,<3.14",
+      [project.scripts] tikdown-rs = "cli.main:run" (L-A2), dependencias de §1.1 (yt-dlp nightly
+      con extra pin-curl-cffi, curl-cffi ==exacto, aiosqlite >=0.22.1 excluyendo 0.22.0, SQLAlchemy
+      >=2.0.51,<2.1, APScheduler >=3.11,<4, PTB [rate-limiter]>=22, typer, rich, pydantic-settings,
+      cryptography, httpx, alembic), [tool.uv] prerelease-package solo para yt-dlp (T2, nunca
+      prerelease global), [tool.ruff]. .python-version con 3.13.
+    verify: "grep -q 'name = \"tikdown-rs\"' pyproject.toml && grep -q 'prerelease-package' pyproject.toml && grep -q 'yt-dlp' pyproject.toml && test -f .python-version && grep -q '3.13' .python-version"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "infra"
+        - "bootstrap"
+  - id: 3
+    description: >-
+      Generar el lock con uv: 'uv lock' produce uv.lock determinista. Luego 'uv sync' instala el
+      venv y verificar importabilidad del paquete (import tikdown_rs). Si el pin del nightly no
+      resuelve, seguir el procedimiento §1.2 (resolver nightly más reciente, verificar extra
+      pin-curl-cffi, pin manual fallback para curl-cffi).
+    verify: "uv lock && uv sync && uv run python -c \"import tikdown_rs; print('ok')\""
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "infra"
+        - "bootstrap"

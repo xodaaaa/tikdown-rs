@@ -1,0 +1,15 @@
+# epic.yaml — e08-cli
+epic_id: e08
+slug: cli
+title: "Superficie CLI completa (7 grupos de sustantivo)"
+status: planned
+scope_ref: "EPIC-CLI"
+stories:
+  - id: e08s01
+    title: "Estructura typer: 7 grupos + cli/common.py"
+    bcps: 8
+    delta: ADDED
+  - id: e08s02
+    title: "Salida rich (--json, ASCII puro, marcadores)"
+    bcps: 6
+    delta: ADDED

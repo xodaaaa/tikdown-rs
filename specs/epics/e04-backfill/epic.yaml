@@ -1,0 +1,19 @@
+# epic.yaml — e04-backfill
+epic_id: e04
+slug: backfill
+title: "Motor de descarga y backfill"
+status: planned
+scope_ref: "EPIC-BACKFILL"
+stories:
+  - id: e04s01
+    title: "DownloadEngine (formato, rotación, cooldown global)"
+    bcps: 13
+    delta: ADDED
+  - id: e04s02
+    title: "Backfill foreground + cursor + deduplicación"
+    bcps: 10
+    delta: ADDED
+  - id: e04s03
+    title: "Backfill encolado + slot único + cancelación + retry-failed"
+    bcps: 10
+    delta: ADDED

@@ -1,0 +1,15 @@
+# epic.yaml — e06-telegram
+epic_id: e06
+slug: telegram
+title: "Bot de Telegram (control remoto)"
+status: planned
+scope_ref: "EPIC-TELEGRAM"
+stories:
+  - id: e06s01
+    title: "Dispatcher PTB async (mismo event loop) + rate-limiter"
+    bcps: 6
+    delta: ADDED
+  - id: e06s02
+    title: "Comandos de paridad funcional con CLI + notificaciones"
+    bcps: 10
+    delta: ADDED

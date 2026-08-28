@@ -1,0 +1,13 @@
+# e02s01-tasks.yaml
+story_id: e02s01
+title: "create_supervised_task y registro de tareas"
+status: todo
+bcps: 3
+tasks:
+  - id: e02s01-t01
+    description: >-
+      Helper supervisado create_supervised_task() — única vía para tareas de fondo (principio §0.10,
+      nunca asyncio.create_task directo en ningún módulo). Registro de tareas activas; errores no
+      silenciosos; drenaje en apagado (T9: AsyncIOScheduler.shutdown(wait=True) cancela los jobs).
+    verify: "uv run pytest tests/daemon/test_supervised.py -q"
+    status: todo

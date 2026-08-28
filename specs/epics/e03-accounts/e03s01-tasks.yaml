@@ -1,0 +1,20 @@
+# e03s01-tasks.yaml
+story_id: e03s01
+title: "CRUD de cuentas (services/accounts)"
+status: todo
+bcps: 6
+tasks:
+  - id: e03s01-t01
+    description: >-
+      services/accounts: add (username sin @, --mode history|monitor, --then-monitor), list, pause,
+      resume, notify --on/--off, remove (con confirmación), check @user (fuerza comprobación manual
+      con motor y clave reales, T20, respeta throttle 30s), stats. Capa 100% independiente de cli/
+      y daemon/ (principio §0.5).
+    verify: "uv run pytest tests/accounts/test_accounts.py -q"
+    status: todo
+  - id: e03s01-t02
+    description: >-
+      Comandos CLI del grupo accounts (rich, --json, ASCII puro L-A5) orquestando services/accounts
+      sin duplicar lógica (regla de oro §3).
+    verify: "uv run pytest tests/cli/test_accounts_cli.py -q"
+    status: todo

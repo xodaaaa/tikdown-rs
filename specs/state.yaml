@@ -1,0 +1,25 @@
+# Session state — TikDown-rs
+# Owned by: session-state | Updated by: every skill handoff
+workflow_mode: solo-git
+session:
+  started_at: 2026-08-27T19:40:00Z
+  active_flow: null
+  active_epic: null
+  active_story: null
+  active_bug: null
+epic_cycle: {}
+metrics:
+  story_start: null
+  story_end: null
+  cycle_minutes: null
+  bcp_per_hour: null
+handoff:
+  next_skill: kickoff-branch
+  plan_ready: true
+release:
+  last_tag: null
+  last_publish: null
+  target_version: null
+git:
+  branch: null
+  worktree: null

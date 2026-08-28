@@ -1,0 +1,19 @@
+# e01s02-tasks.yaml
+story_id: e01s02
+title: "Configuración Settings (pydantic-settings)"
+status: todo
+bcps: 3
+tasks:
+  - id: e01s02-t01
+    description: >-
+      Modelo Settings (pydantic-settings) con las variables del plan §12: DATA_DIR, LOG_LEVEL,
+      TELEGRAM_BOT_MODE/TOKEN/CHAT_ID/POLLING_TIMEOUT, FERNET_KEY, DOWNLOAD_FORMAT,
+      DOWNLOAD_TIMEOUT_SECONDS, intervalos (MONITOR/CHECK_THROTTLE/HEARTBEAT/SELFCHECK/COOKIE_VALIDATION),
+      PACING_COOLDOWN_SECONDS, SYSTEM_BACKUP_RETAIN_COUNT, NETWORK_PROBE_URL/TIMEOUT.
+      Carga desde .env; toda ruta de datos deriva de DATA_DIR (T8).
+    verify: "uv run pytest tests/config/test_settings.py -q"
+    status: todo
+  - id: e01s02-t02
+    description: "Tests: defaults, override por env, validación de modos telegram, derivación de rutas desde DATA_DIR."
+    verify: "uv run pytest tests/config/test_settings.py -q"
+    status: todo

@@ -1,0 +1,15 @@
+# epic.yaml — e05-cookies
+epic_id: e05
+slug: cookies
+title: "Gestión de cookies cifradas"
+status: planned
+scope_ref: "EPIC-COOKIES"
+stories:
+  - id: e05s01
+    title: "Cifrado Fernet en reposo (clave 0600, rotación)"
+    bcps: 5
+    delta: ADDED
+  - id: e05s02
+    title: "Importación, listado, prueba y validación triestado"
+    bcps: 9
+    delta: ADDED

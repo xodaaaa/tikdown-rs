@@ -1,0 +1,12 @@
+# Vision — TikDown-rs
+
+north_star: "Herramienta robusta, de un solo usuario, para archivar vídeos de TikTok de forma automatizada y resistente a bloqueos, controlable por terminal local y por Telegram, publicable en GitHub como proyecto open-source sin fugas de secretos."
+
+initiative:
+  - Archivo automático de vídeos de TikTok (backfill histórico + monitor continuo)
+  - Control remoto vía bot de Telegram
+  - Resistencia a bloqueos: impersonación TLS (curl-cffi), rotación de cookies, clasificación de fallos definitivo/transitorio/inconcluso, circuit breaker, cooldown global
+  - Sin servidor HTTP ni frontend — superficie de ataque mínima
+  - Publicación open-source con higiene de secretos desde el primer commit
+
+status: seed

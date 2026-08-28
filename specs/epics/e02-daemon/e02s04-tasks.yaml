@@ -1,0 +1,22 @@
+# e02s04-tasks.yaml
+story_id: e02s04
+title: "Heartbeat persistido + daemon stop/status/healthcheck"
+status: todo
+bcps: 7
+tasks:
+  - id: e02s04-t01
+    description: >-
+      Heartbeat: actualiza last_heartbeat_at cada HEARTBEAT_INTERVAL_SECONDS en daemon_state;
+      aplica en caliente monitor_running/stop_requested escritos por otros procesos (T19: el estado
+      en memoria del daemon no es visible; el heartbeat es la fuente). Contador db_busy_count_5min
+      (§5.8). last_selfcheck_at/last_selfcheck_ok persistidos.
+    verify: "uv run pytest tests/daemon/test_heartbeat.py -q"
+    status: todo
+  - id: e02s04-t02
+    description: >-
+      Comandos daemon (a través de cli/common.py, T18): stop (escribe stop_requested), status
+      (heartbeat + selfcheck + tareas + hilos zombis T66 + contención, nunca del proceso CLI propio),
+      healthcheck (heartbeat fresco ≤ 3×HEARTBEAT_INTERVAL, T50; no ejecuta migraciones ni selfcheck
+      completo, R10), selfcheck bajo demanda.
+    verify: "uv run pytest tests/daemon/test_commands.py -q"
+    status: todo

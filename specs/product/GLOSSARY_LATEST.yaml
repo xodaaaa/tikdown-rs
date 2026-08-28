@@ -1,0 +1,14 @@
+# Glossary — TikDown-rs
+
+# Términos canónicos. Los añade define-language / model-domain a medida que cristalizan.
+
+terms:
+  monitor: "Modo de cuenta en el que el daemon descubre y descarga vídeos nuevos periódicamente."
+  history: "Modo de cuenta en el que se realiza un backfill del histórico de vídeos."
+  backfill: "Descarga del histórico de vídeos de una cuenta (foreground o encolado al daemon)."
+  queued: "Estado de un backfill encolado para que el daemon lo recoja con su slot de concurrencia."
+  cookies_validation_state: "valid | invalid | inconclusive — triestado, nunca un booleano."
+  definitive: "Fallo TikTok definitivo (auth inválida, cuenta suspendida, captcha, contenido inexistente)."
+  transient: "Fallo TikTok transitorio (rate-limit, timeout de red, degradación del extractor)."
+  inconclusive: "Intento de validación de cookie que no confirma ni descarta validez."
+  downloads_paused: "Pausa global de las rutas de descarga por disco lleno (ENOSPC)."

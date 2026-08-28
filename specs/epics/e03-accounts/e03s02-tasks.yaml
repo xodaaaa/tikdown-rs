@@ -1,0 +1,19 @@
+# e03s02-tasks.yaml
+story_id: e03s02
+title: "Ciclo de monitor (descubrimiento de vídeos nuevos)"
+status: todo
+bcps: 8
+tasks:
+  - id: e03s02-t01
+    description: >-
+      services/monitor: ciclo por intervalo (MONITOR_INTERVAL_SECONDS); cuentas en mode=monitor y no
+      pausadas; throttle last_check_at 30s; descubre vídeos nuevos (yt-dlp vía to_thread); encola
+      descargas al motor; notificación por descarga si notify_on_download. El monitor arranca siempre
+      detenido; start/stop escriben monitor_running en daemon_state y el heartbeat lo aplica (T60:
+      accounts add NO arranca el monitor global).
+    verify: "uv run pytest tests/monitor/test_monitor.py -q"
+    status: todo
+  - id: e03s02-t02
+    description: "Comandos CLI monitor start/stop (requieren daemon vivo) + integración con el ciclo del daemon."
+    verify: "uv run pytest tests/monitor/test_monitor_cli.py -q"
+    status: todo

@@ -1,0 +1,22 @@
+# e05s02-tasks.yaml
+story_id: e05s02
+title: "Importación, listado, prueba y validación triestado"
+status: todo
+bcps: 9
+tasks:
+  - id: e05s02-t01
+    description: >-
+      services/cookies: add (importa cookies.txt/.json, cifra y guarda; borrado best-effort por
+      defecto T14, --keep-source F-15; informa destino real), list (validation_state, motivo,
+      countdown de expiración), test <id> (valid/invalid/inconclusive), remove. validation_state
+      triestado valid|invalid|inconclusive (nunca booleano, §7); last_validated_at solo con
+      valid/invalid (F-16). Rotación round-robin de cookies válidas en el motor (e04s01).
+    verify: "uv run pytest tests/cookies/test_cookies.py -q"
+    status: todo
+  - id: e05s02-t02
+    description: >-
+      Validación periódica en el daemon (COOKIE_VALIDATION_INTERVAL_SECONDS) con clasificación
+      definitivo/transitorio/inconcluso (§7); autocuración en el siguiente ciclo. Tests de
+      cifrado con FERNET_KEY generada al vuelo en fixture, nunca constante (F-12/§14).
+    verify: "uv run pytest tests/cookies/test_validation.py -q"
+    status: todo

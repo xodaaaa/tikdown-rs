@@ -1,0 +1,19 @@
+# e04s02-tasks.yaml
+story_id: e04s02
+title: "Backfill foreground + cursor + deduplicación"
+status: todo
+bcps: 10
+tasks:
+  - id: e04s02-t01
+    description: >-
+      services/backfill: run foreground (proceso CLI con barra de progreso rich, sin daemon);
+      cursor por upload_date persistido (backfill_cursor); backfill_total/done persistidos al iniciar
+      cada pasada (F-09); deduplicación doble: download_archive.txt append-only (--download-archive)
+      + tabla download_archive como fuente consultable (§4.5); escritura/descartes del archive (§4.5).
+      Al completar: monitor_after_backfill transición consumible (--then-monitor, §10).
+    verify: "uv run pytest tests/backfill/test_backfill_fg.py -q"
+    status: todo
+  - id: e04s02-t02
+    description: "Comandos CLI backfill run (foreground), status, retry-failed (descarta entrada del archive primero)."
+    verify: "uv run pytest tests/backfill/test_backfill_cli.py -q"
+    status: todo

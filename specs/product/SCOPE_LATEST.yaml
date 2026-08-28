@@ -1,0 +1,120 @@
+# SCOPE — TikDown-rs
+# Bounded PRD — source of truth for what to build.
+# Owned by: scope-work | Refined by: change-request (Add/Reorder)
+
+core_value: >-
+  Archiva vídeos de TikTok de forma automatizada y resistente a bloqueos, controlable por terminal
+  local y por Telegram, con superficie de ataque mínima (sin servidor HTTP) y pensado para publicarse
+  en GitHub como open-source sin fugas de secretos.
+
+summary: >-
+  TikDown-rs es una herramienta de un solo usuario, en Python 3.13, que se ejecuta en dos modos del
+  mismo código base: un daemon de larga duración (entrypoint de Docker) y comandos CLI de un solo
+  disparo. La coordinación entre ambos se resuelve enteramente vía SQLite en modo WAL (tablas
+  daemon_state y download_pacing_state), sin sockets ni servidor de control. El daemon ejecuta en un
+  único event loop asyncio el scheduler APScheduler, el ciclo del monitor de cuentas, la validación
+  periódica de cookies, el probe de red, el heartbeat y el bot de Telegram en long polling real.
+
+  La resistencia a bloqueos de TikTok es el eje del diseño: yt-dlp (canal nightly, pin exacto) +
+  curl-cffi (impersonación TLS, pin exacto) como único cliente contra TikTok, rotación round-robin de
+  cookies cifradas (Fernet) y de targets de impersonación, y una clasificación de fallos en tres
+  categorías (definitivo / transitorio / inconcluso) que alimenta reintentos, el circuit breaker y la
+  validación de cookies. El daemon falla rápido en el arranque si la impersonación TLS no está
+  operativa, se pausa automáticamente ante caída de red real y notifica todo lo accionable por
+  Telegram cuando el bot está habilitado.
+
+  El repositorio se publica en GitHub como open-source (LICENSE MIT), con higiene de secretos desde el
+  primer commit (.gitignore, .dockerignore, .env.example, respaldo de fernet.key) y un README con
+  disclaimer legal estilo yt-dlp. El histórico de la implementación previa (trampas T1–T76, decisiones
+  F, lecciones L) se preserva íntegro en el plan maestro y gobierna las decisiones de implementación.
+
+in_scope:
+  - id: "EPIC-BOOTSTRAP"
+    name: "Fundación del proyecto (estructura, config, logging, DB)"
+    scope: "Estructura del paquete, pyproject/uv, Settings, logging JSON, modelos SQLAlchemy, migraciones Alembic + WAL, .gitignore/.dockerignore/.env.example/LICENCIA/README."
+    maps_to: "epic e01"
+  - id: "EPIC-DAEMON"
+    name: "Daemon (runner, scheduler, tareas supervisadas, heartbeat, selfcheck)"
+    scope: "Event loop único, APScheduler, create_supervised_task, drenaje limpio, heartbeat persistido, daemon stop/status/selfcheck/healthcheck, fail-fast con selfcheck de impersonación + ffmpeg/ffprobe + Fernet."
+    maps_to: "epic e02"
+  - id: "EPIC-ACCOUNTS"
+    name: "Gestión de cuentas y monitor"
+    scope: "CRUD de cuentas, modos history/monitor, pausa/resume, notificación por descarga, ciclo de monitor con throttle, cuenta pasa a monitor tras backfill (--then-monitor)."
+    maps_to: "epic e03"
+  - id: "EPIC-BACKFILL"
+    name: "Motor de descarga y backfill"
+    scope: "DownloadEngine (formato, rotación cookies+targets, cooldown global SQLite), backfill foreground/encolado, cursor por upload_date, cancelación, retry-failed, slot único de concurrencia, download_archive."
+    maps_to: "epic e04"
+  - id: "EPIC-COOKIES"
+    name: "Gestión de cookies cifradas"
+    scope: "Importación/lista/prueba/eliminación, cifrado Fernet en reposo (0600), validación triestado valid/invalid/inconclusive, rotación en el motor, detección temprana de clave rota."
+    maps_to: "epic e05"
+  - id: "EPIC-TELEGRAM"
+    name: "Bot de Telegram (control remoto)"
+    scope: "PTB async en el mismo event loop, comandos planos de paridad funcional con CLI, notificaciones exhaustivas, modo disabled/commands/both, rate-limiter."
+    maps_to: "epic e06"
+  - id: "EPIC-RESILIENCE"
+    name: "Resiliencia (red, disco, circuit breaker, notificaciones)"
+    scope: "Pausa automática por caída de red, pausa global por disco lleno (downloads_paused), circuit breaker por categorías de fallo, spool pending_notifications."
+    maps_to: "epic e07"
+  - id: "EPIC-CLI"
+    name: "Superficie CLI completa (7 grupos de sustantivo)"
+    scope: "Grupos daemon/monitor/accounts/backfill/cookies/videos/system, wrappers asyncio.run en cli/common.py, salida rich con --json, ASCII puro, marcadores."
+    maps_to: "epic e08"
+  - id: "EPIC-VERIFY"
+    name: "Integridad, export y backup"
+    scope: "videos integrity (tamaño+SHA-256+ffprobe), videos export (json/csv), system disk, system backup (VACUUM INTO, retención)."
+    maps_to: "epic e09"
+
+out_of_scope:
+  - item: "Cualquier framework web, servidor HTTP, frontend, sesiones o autenticación basada en red."
+    why: "Eliminado intencionalmente del stack — superficie de ataque mínima (principio no negociable del plan §0)."
+  - item: "Redis u otro sistema de coordinación externo."
+    why: "Coordinación 100% SQLite (WAL) — simplicidad y fiabilidad en homelab de un solo usuario."
+  - item: "Soporte multi-usuario."
+    why: "Herramienta de un solo usuario por diseño."
+  - item: "mypy/pyright en el MVP."
+    why: "Diferido explícitamente al backlog §18 del plan maestro."
+  - item: "Jobstore persistente de APScheduler."
+    why: "Solo jobstore en memoria; el estado duradero vive en SQLite (daemon_state) por diseño."
+  - item: "Backfill con concurrencia multi-slot."
+    why: "Slot único global de concurrencia por proceso (principio no negociable §0)."
+  - item: "Auto-actualización en caliente de yt-dlp dentro del daemon."
+    why: "Actualización = bump de pin + uv lock + redeploy; pin exacto y build reproducible mandan (§4.1)."
+  - item: "Cliente HTTP directo a TikTok distinto de yt-dlp/curl-cffi."
+    why: "Nunca httpx/requests contra dominios de TikTok — regla no negociable (§0, §4.2)."
+  - item: "structlog u otro framework de logging."
+    why: "Logging stdlib + formatter JSON ad-hoc; structlog se retiró en la implementación anterior (F-20)."
+  - item: "Soporte de más plataformas (YouTube, Instagram...)."
+    why: "TikDown-rs es solo TikTok — fuera del alcance del producto."
+
+constraints:
+  - "Python 3.13; uv; async-first; SQLAlchemy 2.0.x async + aiosqlite + Alembic; WAL activado."
+  - "yt-dlp nightly (pin exacto de fecha) + curl-cffi (pin exacto, extra pin-curl-cffi) como único cliente contra TikTok. Nunca httpx/requests contra TikTok."
+  - "Logging stdlib + formatter JSON ad-hoc (structlog retirado)."
+  - "Toda tarea de fondo pasa por create_supervised_task(); nunca asyncio.create_task directo."
+  - "Los fallos de TikTok se clasifican en TRES categorías: definitivo / transitorio / inconcluso (nunca dos)."
+  - "Limpieza post-éxito confirmado es best-effort (nunca convierte un éxito en fallo)."
+  - "Ante caída real de red: pausa automática de monitor/backfill/descargas, aviso por Telegram, reanudación automática al recuperar red."
+  - "Sin servidor HTTP, sin frontend, sin autenticación basada en red. Seguridad: acceso físico/shell + TELEGRAM_CHAT_ID + cifrado en reposo (Fernet)."
+  - "Backfill con slot único global de concurrencia (por proceso)."
+  - "Fail-fast en arranque del daemon si la impersonación TLS no está operativa o la configuración es inválida."
+  - "Pines exactos para piezas frágiles; prerelease solo vía prerelease-package (yt-dlp), nunca global."
+  - "Cobertura pytest ~75-80% total; puntos calientes (motor de descarga, cookies, backfill, monitor) >85%; exclusivamente mocks, nunca llamadas reales a TikTok."
+
+success_criteria:
+  - "`uv run tikdown-rs daemon run` arranca el daemon y supera el selfcheck de impersonación TLS + ffmpeg/ffprobe + Fernet (fail-fast si no)."
+  - "`tikdown-rs accounts add @user` + `tikdown-rs backfill run @user` descargan vídeos de una cuenta real con cookies válidas, con deduplicación y cooldown global."
+  - "El monitor descubre y descarga vídeos nuevos en modo monitor con throttle de 30s y notificación opcional por descarga."
+  - "Una cookie inválida se detecta (valid/invalid/inconclusive) y se rota a otra cookie válida sin detener el sistema."
+  - "El bot de Telegram (modo commands) ejecuta las operaciones de paridad con la CLI y envía notificaciones (modo both) de eventos accionables."
+  - "Ante una caída de red real, el daemon pausa todo y reanuda solo al recuperar red; ante disco lleno, pausa las descargas y `system disk --resume` las reanuda."
+  - "Ningún secreto (cookies, fernet.key, .env) aparece en el repositorio ni en el historial git; el build Docker no embebe datos ni secretos."
+  - "La suite completa pasa en verde: `uv run pytest && ruff check . && uv build` (Preflight)."
+
+references:
+  - "specs/Plan de implemtacion tikdown-rs.md — plan maestro (SSOT, §0–§25)"
+  - "specs/planning-context.yaml — contexto de planeación (elaborate-spec)"
+  - "specs/product/VISION_LATEST.yaml — north star"
+  - "specs/tech-architecture/tech-stack.md — stack y arquitectura"
+  - "specs/state.yaml — workflow_mode: solo-git, handoff"

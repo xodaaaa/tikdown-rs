@@ -1,0 +1,19 @@
+# e07s03-tasks.yaml
+story_id: e07s03
+title: "Circuit breaker por categoría de fallo + spool de notificaciones"
+status: todo
+bcps: 6
+tasks:
+  - id: e07s03-t01
+    description: >-
+      Circuit breaker (§4.3): abierto por umbrales de fallos transitorios (rate-limit/anti-bot);
+      los definitivos NO abren el breaker (recurso inválido, no sobrecarga); inconcluso no cuenta
+      como transitorio. Clasificación 3-vías consistente en motor, cookies y breaker (§0.11).
+    verify: "uv run pytest tests/circuit/test_breaker.py -q"
+    status: todo
+  - id: e07s03-t02
+    description: >-
+      Spool pending_notifications (§8): acotado FIFO (100 filas), payload = JSON del evento original
+      (no texto renderizado, F-06); se drena en transición a online y en arranque del daemon.
+    verify: "uv run pytest tests/notifications/test_spool.py -q"
+    status: todo

@@ -1,0 +1,23 @@
+# epic.yaml — e07-resilience
+epic_id: e07
+slug: resilience
+title: "Resiliencia: red, disco, circuit breaker, contención DB"
+status: planned
+scope_ref: "EPIC-RESILIENCE"
+stories:
+  - id: e07s01
+    title: "Probe de red + pausa/reanudación automática"
+    bcps: 5
+    delta: ADDED
+  - id: e07s02
+    title: "Disco lleno: downloads_paused + system disk"
+    bcps: 4
+    delta: ADDED
+  - id: e07s03
+    title: "Circuit breaker por categoría de fallo + spool de notificaciones"
+    bcps: 6
+    delta: ADDED
+  - id: e07s04
+    title: "Contención SQLite (db_busy_count_5min + retries)"
+    bcps: 3
+    delta: ADDED

@@ -1,0 +1,53 @@
+# specs/planning-context.yaml — written by elaborate-spec; consumed by scope-work and slice-tasks
+
+feature_name: "TikDown-rs: CLI + Daemon + Telegram para archivar vídeos de TikTok de forma automatizada y resistente a bloqueos"
+
+problem_statement: >-
+  Un usuario homelab quiere archivar vídeos de TikTok de forma automatizada y fiable. TikTok
+  bloquea activamente a los clientes automatizados (impersonación TLS, rate-limits, captchas),
+  y las herramientas ad-hoc no sobreviven a esos bloqueos. El proyecto construye una herramienta
+  de un solo usuario, sin servidor HTTP ni frontend, controlable por terminal local (CLI) y por
+  Telegram (bot opt-in), con coordinación entre CLI y daemon vía SQLite (WAL) y resistencia a
+  bloqueos mediante yt-dlp (nightly) + curl-cffi (impersonación TLS), rotación de cookies cifradas
+  (Fernet) y clasificación de fallos definitivo/transitorio/inconcluso con circuit breaker.
+
+constraints:
+  - "Python 3.13, uv; async-first; SQLAlchemy 2.0.x async + aiosqlite + Alembic, WAL activado."
+  - "yt-dlp nightly (pin exacto de fecha) + curl-cffi (pin exacto, extra pin-curl-cffi) como ÚNICO cliente contra TikTok. Nunca httpx/requests contra TikTok."
+  - "yt-dlp (nightly) — el canal estable llega sistemáticamente atrasado frente a los parches del extractor TikTok; el nightly publica el mismo día y recibe antes los parches de seguridad."
+  - "Logging: stdlib + formatter JSON ad-hoc (structlog retirado en la implementación anterior)."
+  - "Toda tarea de fondo pasa por create_supervised_task(); nunca asyncio.create_task directo."
+  - "Los fallos de TikTok se clasifican en TRES categorías: definitivo / transitorio / inconcluso (nunca dos)."
+  - "Limpieza post-éxito confirmado es best-effort (nunca convierte un éxito en fallo)."
+  - "Ante caída real de red: el daemon pausa automáticamente monitor, backfill y descargas, avisa por Telegram y reanuda al recuperar red."
+  - "Sin servidor HTTP, sin frontend, sin autenticación basada en red. Seguridad: acceso físico/shell + TELEGRAM_CHAT_ID + cifrado en reposo (Fernet)."
+  - "Backfill con slot único global de concurrencia (por proceso)."
+  - "Fail-fast en arranque del daemon si la impersonación TLS no está operativa o la configuración es inválida."
+  - "Pines exactos para piezas frágiles; prerelease solo vía prerelease-package (yt-dlp), nunca global."
+
+out_of_scope:
+  - "Cualquier framework web, servidor HTTP, frontend, sesiones o autenticación basada en red. Eliminado intencionalmente del stack."
+  - "Redis u otro sistema de coordinación externo (coordinación 100% SQLite)."
+  - "Soporte multi-usuario."
+  - "mypy/pyright en el MVP (diferido explícitamente al backlog)."
+  - "Jobstore persistente de APScheduler (solo memoria)."
+  - "Backfill con concurrencia multi-slot (solo slot único global)."
+  - "Auto-actualización en caliente de yt-dlp dentro del daemon (actualización = bump de pin + redeploy)."
+
+key_decisions:
+  - decision: "Estructura del paquete: daemon/ contiene telegram/ (daemon/telegram/bot.py + handlers.py)."
+    rationale: "El bot corre en el MISMO event loop del daemon (sin hilos, long polling). Un solo módulo daemon/ aloja runner + scheduler + bot, reflejando el runtime real y evitando acoplamiento accidental entre dos módulos que son un solo proceso."
+  - decision: "workflow_mode: solo-git para la integración git."
+    rationale: "Proyecto homelab de un solo usuario; release-branch usa land-branch.sh (squash local a main) en vez de PR ceremony."
+  - decision: "LICENSE MIT desde el commit inicial."
+    rationale: "El plan declara publicar en GitHub como open-source; sin licencia el repo es 'todos los derechos reservados' por defecto. MIT = mínima fricción, coherente con el ecosistema yt-dlp/homelab."
+  - decision: "El sufijo '-rs' es histórico; el proyecto es Python. Aclararlo en el README."
+    rationale: "Evita confusiones al publicarse en GitHub (§0.1)."
+  - decision: "Configuración vía pydantic-settings + variables de entorno (DATA_DIR, LOG_LEVEL, TELEGRAM_*, FERNET_KEY...)."
+    rationale: "El plan define un conjunto cerrado de variables (§12) sin ficheros de config en disco; entornos de 12-factor para homelab/Docker."
+
+# Ambigüedad resuelta por el usuario (2026-08-27): estructura daemon/ contiene telegram/.
+# Ambigüedades pendientes para plan-work (decisiones de implementación, no de producto):
+#   - src layout del paquete Python
+#   - Reverificar pines (yt-dlp nightly / curl-cffi / aiosqlite / SQLAlchemy...) contra PyPI (§1.2) al fijar pyproject.toml
+#   - Detalle de nombres de variables de entorno exactos (§12 del plan, reverificado en plan-work)

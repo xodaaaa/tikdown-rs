@@ -1,0 +1,13 @@
+# e07s02-tasks.yaml
+story_id: e07s02
+title: "Disco lleno: downloads_paused + system disk"
+status: todo
+bcps: 4
+tasks:
+  - id: e07s02-t01
+    description: >-
+      Detección de ENOSPC/espacio: downloads_paused=true en daemon_state; el motor consulta el flag
+      junto a network_available antes de cada intento (T45). system disk: uso, alertas, estado de
+      downloads_paused; --resume fuerza reanudación manual limpiando el flag (§3, punto 6).
+    verify: "uv run pytest tests/disk/test_disk_full.py -q"
+    status: todo
