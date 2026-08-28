@@ -1,13 +1,61 @@
 # e07s02-tasks.yaml
 story_id: e07s02
 title: "Disco lleno: downloads_paused + system disk"
-status: todo
+status: passing
 bcps: 4
+risk: P0
+context: domain
 tasks:
-  - id: e07s02-t01
+  - id: 1
     description: >-
-      Detección de ENOSPC/espacio: downloads_paused=true en daemon_state; el motor consulta el flag
-      junto a network_available antes de cada intento (T45). system disk: uso, alertas, estado de
-      downloads_paused; --resume fuerza reanudación manual limpiando el flag (§3, punto 6).
+      core/disk.py: check_disk_usage(data_dir, warning_percent) — usa shutil.disk_usage (SIEMPRE
+      mockeado en tests, T69). ENOSPC/no space left → set_downloads_paused(True) (helper T37 con
+      commit interno) + alerta Telegram. NO cuenta para breaker ni toca cookies (T45).
     verify: "uv run pytest tests/disk/test_disk_full.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "disk"
+        - "enospc"
+  - id: 2
+    description: >-
+      core/disk.py: job de disco (15-30 min, umbral DISK_WARNING_FREE_PERCENT) — productor de
+      monitor.disk_warning (T65); detecta espacio libre por encima del umbral de nuevo →
+      reanudación AUTOMÁTICA (set_downloads_paused(False)) con notificación. El motor consulta
+      downloads_paused junto a network_available.wait() antes de cada intento (§4.4 punto 6, T45).
+    verify: "uv run pytest tests/disk/test_disk_full.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "disk"
+        - "job"
+  - id: 3
+    description: >-
+      cli/system.py: system disk — uso, alertas, estado de downloads_paused; --resume fuerza
+      reanudación manual limpiando el flag (§3, punto 6, T45).
+    verify: "uv run pytest tests/disk/test_disk_full.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "disk"
+        - "cli"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_disk_full.py — ENOSPC → downloads_paused=True (T45), job emite
+      disk_warning bajo umbral (T65), reanudación automática al recuperar espacio, system disk
+      --resume. SIEMPRE con shutil.disk_usage mockeado (T69: monkeypatch con % controlado, nunca
+      entorno real). SQLite :memory: + StaticPool.
+    verify: "uv run pytest tests/disk/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "disk"
+        - "unit"
