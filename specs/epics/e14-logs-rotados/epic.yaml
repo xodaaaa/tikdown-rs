@@ -1,0 +1,11 @@
+# epic.yaml — e14-logs-rotados
+epic_id: e14
+slug: logs-rotados
+title: "Logs a archivo rotado (JSON, por tamaño o tiempo)"
+status: planned
+scope_ref: "EPIC-LOGS-ROTADOS"
+stories:
+  - id: e14s01
+    title: "RotatingFileHandler/TimedRotatingFileHandler JSON + config env (T72)"
+    bcps: 4
+    delta: ADDED

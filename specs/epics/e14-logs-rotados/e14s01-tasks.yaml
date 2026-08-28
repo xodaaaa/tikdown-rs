@@ -1,0 +1,67 @@
+# e14s01-tasks.yaml
+story_id: e14s01
+title: "RotatingFileHandler/TimedRotatingFileHandler JSON + config env (T72)"
+status: failing
+bcps: 4
+risk: P2
+context: infra
+tasks:
+  - id: 1
+    description: >-
+      core/config.py: Settings — añadir campos LOG_FILE_PATH (ruta del archivo de log, vacío =
+      solo stdout), LOG_FILE_MAX_BYTES (default 10*1024*1024 = 10MB, rotación por tamaño),
+      LOG_FILE_BACKUP_COUNT (default 7, retención), LOG_FILE_WHEN (rotación temporal: 'midnight'
+      diario o 'size' para por tamaño; default 'size'). Validar: si LOG_FILE_PATH vacío → sin
+      handler de archivo (stdout puro, comportamiento actual).
+    verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "logging"
+        - "config"
+  - id: 2
+    description: >-
+      core/logging.py: setup_logging() añade handler de archivo rotado — si LOG_FILE_PATH
+      configurado, usar logging.handlers.RotatingFileHandler (maxBytes, backupCount) si
+      LOG_FILE_WHEN='size', o TimedRotatingFileHandler (when='midnight', backupCount) si
+      temporal. El handler de archivo usa el MISMO JsonFormatter que stdout (JSON consistente).
+      El directorio padre se crea si no existe. stdout se mantiene (JSON a stdout + archivo).
+    verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "logging"
+        - "rotation"
+  - id: 3
+    description: >-
+      run.py: setup_logging(level, json_output=True) pasa los campos del archivo desde Settings
+      (log_file_path, log_file_max_bytes, log_file_backup_count, log_file_when). T72: la
+      REAPLICACIÓN tras migraciones (que ya existe en _start) usa la misma config — los campos
+      del archivo se respetan automáticamente porque vienen de Settings.
+    verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "logging"
+        - "t72"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_logging_rotated.py — (a) sin LOG_FILE_PATH → solo stdout
+      (comportamiento actual); (b) con path → se crea el archivo y recibe líneas JSON;
+      (c) rotación por tamaño: escribir > maxBytes → backup .1 creado; (d) TimedRotatingFileHandler
+      cuando='midnight' se usa con LOG_FILE_WHEN='midnight'; (e) backup_count aplicado. tmp_path
+      para archivos (T69); nunca escribir en el repo.
+    verify: "uv run pytest tests/logging/ -q"
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "logging"
+        - "unit"
