@@ -1,20 +1,79 @@
 # e06s02-tasks.yaml
 story_id: e06s02
 title: "Comandos de paridad funcional con CLI + notificaciones"
-status: todo
+status: passing
 bcps: 10
+risk: P0
+context: domain
 tasks:
-  - id: e06s02-t01
+  - id: 1
     description: >-
-      daemon/telegram/handlers.py: comandos planos /stats /disk /list /last /backfill /cookies etc.
-      (paridad FUNCIONAL con CLI — misma función de services/* detrás, nunca duplicar lógica §3, §6.4).
-      Salida de services/* reutilizada; sin markup rico en el mensaje (L-A6).
-    verify: "uv run pytest tests/telegram/test_handlers.py -q"
-    status: todo
-  - id: e06s02-t02
-    description: >-
-      Notificaciones exhaustivas (§0.9): problemas de cookies, formato, backfills, red, disco.
-      Envía vía services/notifications; reutiliza eventos del spool pending_notifications (§8, §9).
-      Drena spool en transición a online y en arranque del daemon.
+      core/notifications/events.py: catálogo de eventos + plantillas (§8). El render NO duplica el
+      '@' (L-H7: la plantilla ya incluye '@{username}'). Test de paridad plantilla↔productor (T34,
+      scan excluyendo events.py, F-08).
     verify: "uv run pytest tests/telegram/test_notifications.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "notifications"
+        - "events"
+  - id: 2
+    description: >-
+      core/notifications/telegram.py: servicio de envío con ExtBot + rate limiter (T41); send_event()
+      con captura amplia except Exception (L-I1); ante fallo de red → spool pending_notifications
+      SOLO con ENABLE_EXTERNAL_NOTIFICATIONS=true (T42); spool guarda el evento ORIGINAL (event,
+      payload), nunca el render (F-06); drenado en transición a online y en arranque. Noop por
+      defecto (L-B5).
+    verify: "uv run pytest tests/telegram/test_notifications.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "notifications"
+        - "spool"
+  - id: 3
+    description: >-
+      core/notifications/telegram.py: clip() COMPARTIDO (F-07) — text[:limit-len(sufijo)] + sufijo,
+      4096 exactos; mensajes >4096 truncados con indicación (T39); errores BadRequest descartados
+      sin re-spolear (T39). Coalescing en ráfagas con condición >= umbral y bandera consumible (L-I3).
+      parse_mode=HTML + html.escape() en todo contenido dinámico (T40); degradación a texto plano
+      ante 'can't parse entities'; MarkdownV2 prohibido.
+    verify: "uv run pytest tests/telegram/test_notifications.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "notifications"
+        - "format"
+  - id: 4
+    description: >-
+      daemon/telegram/handlers.py: comandos planos /stats /disk /list /last /backfill /cookies
+      /check /add /pause /resume /notify /monitor (§6.4) — paridad FUNCIONAL con la CLI (misma
+      función de services/* detrás, nunca duplicar lógica). Salida sin markup rico (L-A6). Escape
+      HTML (_esc()) en todo contenido dinámico (T40/F-05). Propagación del canal (L-I5).
+    verify: "uv run pytest tests/telegram/test_handlers.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "handlers"
+  - id: 5
+    description: >-
+      Tests (F.I.R.S.T., §14): test_notifications.py — spool T42 (solo con notificaciones
+      habilitadas), F-06 (evento original), clip F-07 (sufijo dentro, 4096), coalescing L-I3 (>=),
+      paridad T34/F-08, T40 (escape), L-H7 (no doble @). test_handlers.py — comandos planos,
+      escape, paridad funcional. Mocks de ExtBot; SQLite :memory: + StaticPool; nunca red real (T69).
+    verify: "uv run pytest tests/telegram/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "unit"
