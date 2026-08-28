@@ -4,9 +4,9 @@ workflow_mode: solo-git
 session:
   started_at: 2026-08-27T19:40:00Z
   closed_at: 2026-08-28T05:07:37Z  # MVP complete — session closed
-  active_flow: build_epic
-  active_epic: e10
-  active_story: e10s01
+  active_flow: null
+  active_epic: null
+  active_story: null
   active_bug: null
 epic_cycle: {}
 metrics:
@@ -15,16 +15,16 @@ metrics:
   cycle_minutes: null
   bcp_per_hour: null
 handoff:
-  next_skill: develop-tdd
+  next_skill: survey-context
   plan_ready: true
 git:
-  branch: feat/e10-ci-woodpecker
+  branch: master
   worktree: null
 release:
   last_tag: v0.1.0
   last_publish: 2026-08-28T13:30:00Z
   target_version: v0.1.0
-  ci_verified: true  # repo privado en GitHub: xodaaaa/tikdown-rs
+  ci_verified: true  # CI Woodpecker configurado (.woodpecker.yml) — runner pendiente de activar
   merged_commit: 1db6fd1  # tag v0.1.0 (apunta al commit de cierre del MVP)
 git:
   branch: null
