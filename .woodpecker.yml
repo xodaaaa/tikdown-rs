@@ -1,0 +1,37 @@
+# CI Woodpecker — TikDown-rs (e10s01)
+# Pipeline: ruff (check + format), pytest con cobertura, build Docker + smoke (F-22).
+#
+# L-K4 (lección operativa): si TODOS los pasos fallan en 0s sin logs útiles,
+# el problema suele ser billing o configuración del runner (imagen no disponible,
+# recursos, credenciales), NO el código. Verificar localmente con:
+#   uv run ruff check . && uv run ruff format --check . && uv run pytest -q
+# antes de perseguir un fallo de CI que replica un estado local verde.
+#
+# F-22: el smoke `docker run --rm ... tikdown-rs --version` detecta problemas de
+# imagen (entrypoint roto, deps faltantes) que el build solo no ve. Condición
+# necesaria, no suficiente: cualquier comando que toque la DB debe probarse también.
+
+when:
+  - event: [push, pull_request]
+
+steps:
+  - name: lint
+    image: python:3.13
+    commands:
+      - pip install uv
+      - uv sync --frozen
+      - uv run ruff check .
+      - uv run ruff format --check .
+
+  - name: test
+    image: python:3.13
+    commands:
+      - pip install uv
+      - uv sync --frozen
+      - uv run pytest --cov=tikdown_rs --cov-report=term --cov-report=xml:coverage.xml
+
+  - name: docker
+    image: docker:27
+    commands:
+      - docker build -t tikdown-rs:ci .
+      - docker run --rm tikdown-rs:ci tikdown-rs --version

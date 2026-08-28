@@ -1,7 +1,7 @@
 # e10s01-tasks.yaml
 story_id: e10s01
 title: "Pipeline Woodpecker (.woodpecker.yml): ruff, pytest+cobertura, build Docker+smoke"
-status: failing
+status: passing
 bcps: 3
 risk: P1
 context: infra
@@ -19,7 +19,7 @@ tasks:
       (L-K4). [OK] herramientas ya instaladas en el proyecto (uv, ruff, pytest, coverage).
     verify: "test -f .woodpecker.yml && grep -q 'ruff check' .woodpecker.yml && grep -q '--cov' .woodpecker.yml && grep -q 'docker build' .woodpecker.yml && grep -q 'docker run --rm' .woodpecker.yml"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -32,7 +32,7 @@ tasks:
       humana; la activación real del repo es manual en la UI de Woodpecker).
     verify: "uv run --with pyyaml python -c \"import yaml; yaml.safe_load(open('.woodpecker.yml')); print('yaml OK')\""
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
@@ -45,7 +45,7 @@ tasks:
       Woodpecker (L-K4: si Woodpecker falla en 0s, el fallo es del runner/billing, no del código).
     verify: "uv run ruff check . && uv run ruff format --check . && uv run pytest --cov=tikdown_rs --cov-report=term -q && docker build -q -t tikdown-rs:ci . && docker run --rm tikdown-rs:ci tikdown-rs --version"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:

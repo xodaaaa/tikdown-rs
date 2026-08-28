@@ -1,0 +1,58 @@
+# verify-work evidence — e10s01 (CI Woodpecker)
+story_id: e10s01
+verified_at: "2026-08-28T06:15:00Z"
+verifier: verify-work
+branch: feat/e10-ci-woodpecker
+risk: P1
+phases:
+  smoke:
+    passed: true
+    note: "uv run tikdown-rs --version → tikdown-rs 0.1.0; --help OK; --invalid-flag exit != 0"
+  build:
+    passed: true
+    command: "docker build -q -t tikdown-rs:ci ."
+    note: "imagen construida (sha256:aa51a7...) + smoke docker run --rm tikdown-rs:ci tikdown-rs --version → tikdown-rs 0.1.0 (F-22)"
+  typecheck:
+    passed: true
+    note: "N/A — proyecto Python sin typecheck configurado (diferido, backlog)"
+  lint:
+    passed: true
+    command: "uv run ruff check . && uv run ruff format --check ."
+  tests:
+    passed: true
+    count: 192
+    coverage: "63%"
+  terminal_verdict:
+    command: "uv run pytest --cov=tikdown_rs --cov-report=term -q"
+    exit_code: 0
+    captured_at: "2026-08-28T06:14:00Z"
+    note: "192 passed, 1 warning — single contiguous run"
+  tasks:
+    - id: 1
+      status: passing
+      verify: "test -f .woodpecker.yml && grep ... "
+      evidence: PASS
+    - id: 2
+      status: passing
+      verify: "uv run python -c 'import yaml; yaml.safe_load(open(\".woodpecker.yml\"))'"
+      evidence: PASS
+    - id: 3
+      status: passing
+      verify: "uv run ruff check . && ruff format --check && pytest --cov && docker build && docker run --version"
+      evidence: PASS
+  manual:
+    steps:
+      - step: "Revisar .woodpecker.yml"
+        expected: "3 pasos (lint, test, docker) + when push/PR + comentario L-K4"
+        actual: "3 pasos presentes, when top-level push/PR, L-K4 documentado"
+        passed: true
+      - step: "Verificar cobertura local"
+        expected: "pytest --cov term muestra cobertura"
+        actual: "63% total, 192 tests pasan"
+        passed: true
+  gaps:
+    closed: true
+    notes:
+      - "pytest-cov no estaba en dependency-groups dev — añadido (chore(ci))"
+      - "pyyaml no estaba en dev — añadido para test de CI"
+      - "Activación real en runner Woodpecker es manual (UI) — documentado"

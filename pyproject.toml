@@ -54,7 +54,9 @@ asyncio_mode = "auto"
 [dependency-groups]
 dev = [
     "coverage>=7.15.4",
+    "pytest-cov>=7.0.0",  # habilita --cov (pytest-cov) en CI Woodpecker
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.16.5",
+    "pyyaml>=6.0",  # tests/ci/test_woodpecker_ci.py parsea .woodpecker.yml
 ]
