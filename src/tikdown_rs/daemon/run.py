@@ -133,8 +133,11 @@ class DaemonRunner:
                 await update_heartbeat(s)
 
         # Heartbeat como tarea supervisada (T27/T28)
-        def _schedule_heartbeat() -> None:
-            create_supervised_task(_heartbeat_job(), name="heartbeat")
+        async def _schedule_heartbeat() -> None:
+            # APScheduler 3.11 ejecuta jobs async con asyncio.ensure_future (T1) —
+            # esperar la tarea supervisada evita corrutinas huérfanas (was never
+            # awaited) y permite el drenaje por registro (T27/T28).
+            await create_supervised_task(_heartbeat_job(), name="heartbeat")
 
         self.scheduler.add_job(
             _schedule_heartbeat,
@@ -172,8 +175,8 @@ class DaemonRunner:
 
                 create_supervised_task(_run(), name="backfill-collect")
 
-        def _schedule_backfill() -> None:
-            create_supervised_task(_backfill_collect_job(), name="backfill-collect-job")
+        async def _schedule_backfill() -> None:
+            await create_supervised_task(_backfill_collect_job(), name="backfill-collect-job")
 
         self.scheduler.add_job(
             _schedule_backfill,

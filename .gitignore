@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Sandbox local de pruebas — nunca al repo (cookies reales, tokens)
+trash-stuff/
+
+
 # Databases
 *.db
 *.db-wal

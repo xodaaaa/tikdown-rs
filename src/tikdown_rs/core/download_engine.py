@@ -9,6 +9,7 @@ story: e04s01
 from __future__ import annotations
 
 import logging
+import os
 from typing import Protocol
 
 LOG = logging.getLogger("tikdown_rs.download_engine")
@@ -76,18 +77,35 @@ class DownloadEngine(Protocol):
 
 
 # Formato de descarga por defecto (§4.2)
-DEFAULT_FORMAT = (
-    "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-    "bestvideo[height<=1080]+bestaudio/"
-    "best[height<=1080]/"
-    "best"
-)
+# Formato de descarga por defecto (§4.2). Single-format: TikTok bloquea la
+# resolución completa que exige separar video+audio (bug #9 — rehydration).
+DEFAULT_FORMAT = "best[height<=1080]/best"
 # Formato mejorado para el reintento ante solo-audio (§4.2)
-RETRY_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
+RETRY_FORMAT = "best[ext=mp4]/best"
 
 
 class YtDlpEngine:
     """Implementación real del motor con yt-dlp (inyectable)."""
+
+    @staticmethod
+    def available_impersonate_targets() -> list:
+        """Targets ImpersonateTarget de curl-cffi (L-D1).
+
+        Normaliza la forma de retorno de yt-dlp (targets o tuplas
+        (target, engine)); vacío si no hay soporte. Exponer aquí mantiene
+        yt_dlp fuera de cli/ (regla de oro: cli solo orquesta).
+        """
+        import yt_dlp
+
+        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True})
+        raw = getattr(ydl, "_get_available_impersonate_targets", lambda: [])()
+        targets: list = []
+        for item in raw:
+            if isinstance(item, tuple) and item:
+                targets.append(item[0])
+            else:
+                targets.append(item)
+        return targets
 
     def __init__(
         self,
@@ -96,6 +114,7 @@ class YtDlpEngine:
         timeout_seconds: int = 600,
         sleep_interval_requests: float = 2.0,
         extractor_retries: int = 8,
+        cookies_blob: bytes | None = None,
     ) -> None:
         self._targets = impersonate_targets or []
         self._format = download_format or DEFAULT_FORMAT
@@ -103,6 +122,7 @@ class YtDlpEngine:
         self._sleep_interval_requests = sleep_interval_requests  # T56
         self._extractor_retries = extractor_retries  # T56
         self._zombie_threads: set[int] = set()  # T23/T66: diagnóstico
+        self._cookies_blob = cookies_blob  # blob cifrado de cookies (F-01/F-15)
 
     def _next_target(self):
         """Rotación round-robin de targets (L-D1: objetos ImpersonateTarget)."""
@@ -127,7 +147,27 @@ class YtDlpEngine:
         }
         if target is not None:
             params["impersonate"] = target  # objeto ImpersonateTarget (L-D1)
+        if self._cookies_blob:
+            # Cookies del blob cifrado (F-01/F-15) → archivo temporal para yt-dlp
+            params["cookiefile"] = self._write_cookies_temp()
         return params
+
+    def _write_cookies_temp(self) -> str:
+        """Escribe el blob de cookies a un archivo temporal (yt-dlp cookiefile).
+
+        El blob ya viene descifrado (services/backfill lo desencripta con Fernet
+        antes de pasarlo al engine). Archivo con permisos 0600, se borra al cierre.
+        """
+        import tempfile
+
+        if self._cookies_blob is None:
+            return ""
+        fd, path = tempfile.mkstemp(prefix="tikdown-cookies-", suffix=".txt")
+        with os.fdopen(fd, "wb") as f:
+            f.write(self._cookies_blob)
+        self._zombie_threads.add(1)  # reutilizar el set para trackear tempfiles (T23)
+        self._cookie_temp_path = path
+        return path
 
     async def download(self, url: str, archive_path: str | None = None, **kwargs) -> dict:
         """Descarga un vídeo vía to_thread (T12/T23)."""
@@ -137,11 +177,19 @@ class YtDlpEngine:
 
         format_string = kwargs.get("format_string", self._format)
         outtmpl = kwargs.get("outtmpl", "%(id)s.%(ext)s")
-        target = self._next_target()
+        # Impersonate opt-in (bug #14): los targets de curl-cffi rompen la
+        # descarga en este entorno (rehydration) — solo si se solicitan
+        # explícitamente vía kwargs.
+        target = self._next_target() if kwargs.get("use_impersonate") else None
 
         params = self._ydl_params(target, format_string, outtmpl)
         if archive_path:
             params["download_archive"] = archive_path
+
+        def _run() -> dict:
+            with yt_dlp.YoutubeDL(params) as ydl:
+                info = ydl.extract_info(url, download=True)
+            return {"info": info, "target": target}
 
         def _run() -> dict:
             with yt_dlp.YoutubeDL(params) as ydl:
@@ -156,3 +204,49 @@ class YtDlpEngine:
         except TimeoutError:
             LOG.warning("engine.timeout (zombie thread, T23/T66)", extra={"url": url})
             raise
+
+    async def extract_profile(self, username: str) -> dict:
+        """Extrae el feed de una cuenta (lista de entradas) sin descargar (T20).
+
+        yt-dlp con download=False lista las entradas del perfil; usado por
+        backfill (F-10) y monitor. Devuelve el dict completo de extract_info
+        (con 'entries') para que el caller decida.
+        """
+        import asyncio
+
+        import yt_dlp
+
+        # Sin impersonate en el listado (bug #12): los targets de curl-cffi
+        # reducen la extracción del feed (algunos fallan con TikTok y
+        # ignoreerrors los descarta). Impersonate solo en download().
+        params = self._ydl_params(None, "best", "%(id)s.%(ext)s")
+        params["download"] = False
+        params["flat_playlist"] = True  # listar URLs sin resolver (T20: el backfill
+        # descarga cada vídeo después con download())
+        params["ignoreerrors"] = True  # T5: entradas rotas/bloqueadas no abortan el listado
+        params["playlistend"] = 50  # límite de listado (ponytail: suficiente para backfill)
+        url = f"https://www.tiktok.com/@{username}"
+
+        def _run() -> dict:
+            with yt_dlp.YoutubeDL(params) as ydl:
+                return ydl.extract_info(url, download=False) or {}
+
+        try:
+            info = await asyncio.wait_for(asyncio.to_thread(_run), timeout=self._timeout)
+        except TimeoutError:
+            LOG.warning("engine.extract_profile.timeout", extra={"username": username})
+            raise
+        # yt-dlp con ignoreerrors deja entradas None (bloqueadas) — filtrar (T5).
+        # bug #15: el feed con cookies puede devolver URLs de CDN con query
+        # strings gigantes (id monstruoso → 'File name too long' al descargar).
+        # Normalizar cada entrada a URL de PÁGINA (https://www.tiktok.com/@u/video/<id>)
+        # para que download() genere IDs cortos y TikTok la resuelva bien.
+        entries: list[dict] = []
+        for e in (info or {}).get("entries") or []:
+            if e is None:
+                continue
+            vid_id = e.get("id")
+            if vid_id:
+                e["url"] = f"https://www.tiktok.com/@{username}/video/{vid_id}"
+            entries.append(e)
+        return {"entries": entries}

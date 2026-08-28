@@ -26,6 +26,11 @@ RUN uv sync --frozen --no-editable --no-install-project
 COPY src/ ./src/
 RUN uv sync --frozen --no-editable
 
+# 4) Recursos de migración (T70: alembic.ini se localiza por candidatos
+#    en cwd o site-packages — la imagen necesita ambos en /app)
+COPY alembic.ini ./alembic.ini
+COPY alembic/ ./alembic/
+
 # ============ STAGE 2: runtime ============
 FROM python:3.13-slim AS runtime
 
@@ -36,6 +41,16 @@ RUN apt-get update \
 
 # Solo el venv resuelto (sin uv ni caché de build)
 COPY --from=builder /app/.venv /app/.venv
+
+# Recursos de migración (T70): el runtime NO hereda el builder — Alembic
+# localiza alembic.ini por candidatos (site-packages | /app)
+COPY --from=builder /app/alembic.ini /app/alembic.ini
+COPY --from=builder /app/alembic /app/alembic
+
+# Limpiar bytecode stale: el COPY de .venv puede arrastrar __pycache__ viejo
+# (bug: import servía .pyc desactualizado → métodos faltantes en runtime)
+RUN find /app/.venv -name "__pycache__" -type d -exec rm -rf {} + \
+    && find /app/.venv -name "*.pyc" -delete
 
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH"

@@ -12,15 +12,16 @@ class _FakeTarget:
 
 
 def test_formato_default_contiene_ramas():
-    """§4.2: el formato por defecto incluye las ramas DASH y progresiva."""
-    assert "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]" in DEFAULT_FORMAT
-    assert "best[height<=1080]" in DEFAULT_FORMAT
-    assert DEFAULT_FORMAT.split("/")[-1] == "best"
+    """§4.2: el formato por defecto es single-format (bug #9: TikTok bloquea
+    la resolución completa que exige separar video+audio)."""
+    assert DEFAULT_FORMAT.startswith("best[height<=1080]")
+    assert "/best" in DEFAULT_FORMAT
+    assert "+" not in DEFAULT_FORMAT  # sin merge video+audio
 
 
 def test_retry_format_prioriza_video():
     """§4.2: el formato de reintento prioriza pista de vídeo explícitamente."""
-    assert RETRY_FORMAT.startswith("bestvideo[ext=mp4]+bestaudio[ext=m4a]")
+    assert RETRY_FORMAT.startswith("best[ext=mp4]")
 
 
 def test_rotacion_targets_objetos_ld1():

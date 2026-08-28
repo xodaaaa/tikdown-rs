@@ -27,6 +27,19 @@ from tikdown_rs.models.models import DaemonState
 app = typer.Typer(name="daemon")
 
 
+@app.command("run")
+def run() -> None:
+    """Arranca el daemon (bloqueante): heartbeat, monitor, bot y descargas.
+
+    Entrypoint del contenedor (Dockerfile CMD) — delega en
+    daemon/run.py::run_daemon (L-B1: un único asyncio.run).
+    """
+    from tikdown_rs.core.config import Settings
+    from tikdown_rs.daemon.run import run_daemon
+
+    run_daemon(Settings())
+
+
 def _db_url(settings: Settings) -> str:
     return f"sqlite+aiosqlite:///{settings.data_dir / 'tikdown-rs.db'}"
 

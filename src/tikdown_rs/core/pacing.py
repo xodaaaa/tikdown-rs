@@ -17,8 +17,6 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tikdown_rs.models.models import DownloadPacingState
-
 
 @dataclass
 class CooldownReserve:
@@ -44,8 +42,15 @@ async def reserve_slot(session: AsyncSession, reserve: CooldownReserve) -> float
     """
     delay = reserve.draw()
 
-    # Singleton con INSERT ... ON CONFLICT DO NOTHING + commit inmediato (L-C6)
-    session.add(DownloadPacingState(id=1))
+    # Singleton con INSERT ... ON CONFLICT DO NOTHING + commit inmediato (L-C6).
+    # session.add NO hace ON CONFLICT (bug #16): con la fila existente lanza
+    # IntegrityError (pk duplicado) y rompe el pacing. SQL nativo lo resuelve.
+    await session.execute(
+        text(
+            "INSERT INTO download_pacing_state (id, next_allowed_at) "
+            "VALUES (1, NULL) ON CONFLICT(id) DO NOTHING"
+        )
+    )
     await session.commit()
 
     next_allowed = datetime.now(UTC) + timedelta(seconds=delay)

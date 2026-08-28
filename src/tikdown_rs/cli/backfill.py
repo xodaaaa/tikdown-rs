@@ -30,18 +30,26 @@ def run(user: str) -> None:
     async def _go() -> None:
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
+        from tikdown_rs.core.crypto import decrypt_cookie, load_or_create_fernet_key
         from tikdown_rs.core.download_engine import YtDlpEngine
         from tikdown_rs.services import accounts
         from tikdown_rs.services.backfill import NoCookiesError, run_backfill
+        from tikdown_rs.services.cookies import working_cookies_list
 
         engine_db = create_async_engine_wal(_db_url(settings))
         maker = async_sessionmaker(engine_db, expire_on_commit=False)
-        # Motor real (T20: nunca simulado)
-        downloader = YtDlpEngine()
         async with maker() as s:
             acct = await accounts.stats(s, user)
-            # Cookies: F-01 — sin cookies el backfill aborta (e05 las gestiona)
-            cookies = []
+            # F-01: cookies working — la CLI las carga del servicio y las pasa
+            # descifradas al engine (bug #7): sin sesión, TikTok bloquea el feed.
+            cookies = await working_cookies_list(s)
+            blob = None
+            if cookies:
+                key = load_or_create_fernet_key(settings.data_dir / "fernet.key")
+                blob = decrypt_cookie(cookies[0].encrypted_blob, key)
+            # bug #14: impersonate rompe la descarga — engine sin targets
+            # (descarga limpia con cookies + formato single)
+            downloader = YtDlpEngine(cookies_blob=blob)
             try:
                 outcome = await run_backfill(s, user, engine=downloader, cookies=cookies)
                 print(f"OK backfill {user}: {outcome} (total={acct.backfill_total})")

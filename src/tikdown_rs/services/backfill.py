@@ -14,6 +14,7 @@ import logging
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tikdown_rs.core.pacing import CooldownReserve, reserve_slot
 from tikdown_rs.models.models import BackfillSlot, MonitoredAccount
 
 LOG = logging.getLogger("tikdown_rs.backfill")
@@ -65,16 +66,23 @@ async def run_backfill(
     if not cookies:
         raise NoCookiesError(f"backfill.no_cookies: sin cookies working para {username}")
 
-    # Marcar backfilling
+    # F-10: el listado del feed va DENTRO del try catástrofe; feed_entries=None
+    # → listar; [] explícito → sin entradas (test/foreground vacío). Listar
+    # PRIMERO: backfill_total usa las entradas reales (bug #13, F-09), no el
+    # feed_entries crudo (None → 0).
+    try:
+        entries = await _list_feed(engine, username) if feed_entries is None else feed_entries
+    except Exception:
+        # F-10: si el listado falla, el try catástrofe lo marca 'failed'
+        raise
+
+    # Marcar backfilling (tras listar para total real)
     account.backfill_status = "backfilling"
-    account.backfill_total = len(feed_entries or [])  # F-09: total al iniciar
+    account.backfill_total = len(entries)  # F-09: total al iniciar (bug #13)
     account.backfill_done = 0
     await session.commit()
 
     try:
-        # F-10: el listado del feed va DENTRO del try catástrofe
-        # feed_entries=None → listar; [] explícito → sin entradas (test/foreground vacío)
-        entries = await _list_feed(engine, username) if feed_entries is None else feed_entries
         scope_cursor = account.backfill_cursor or "00000000"  # L-F1: snapshot para break
         cursor = scope_cursor
 
@@ -90,9 +98,23 @@ async def run_backfill(
             if upload_date >= scope_cursor:
                 continue  # fuera de alcance del cursor (break implícito)
 
-            # Descargar con el motor (e04s01)
-            result = await engine.download(entry["url"], archive_path=None)
-            status = result.get("status", "downloaded")
+            # Descargar con el motor (e04s01). Fallo de UN vídeo NO aborta el
+            # feed (T5: transitorio nunca definitivo) — se registra y continúa;
+            # el daemon reintenta los fallidos en el siguiente ciclo.
+            try:
+                # T62: pacing cross-proceso entre descargas (anti-bloqueo TikTok).
+                delay = await reserve_slot(session, CooldownReserve())
+                if delay:
+                    LOG.info("backfill.pacing_wait", extra={"seconds": delay})
+                    await asyncio.sleep(delay)
+                result = await engine.download(entry["url"], archive_path=None)
+                status = result.get("status", "downloaded")
+            except Exception as exc:  # noqa: BLE001 - T5: no dejar wedged
+                LOG.warning(
+                    "backfill.video_failed",
+                    extra={"username": username, "url": entry.get("url"), "exc": repr(exc)},
+                )
+                continue
             if status == "downloaded":
                 cursor = upload_date  # avanza el cursor móvil (L-F1)
                 account.backfill_done += 1  # F-09: done acumulativo

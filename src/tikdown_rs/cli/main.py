@@ -36,7 +36,15 @@ def run() -> None:
 
 
 # Registrar los 7 grupos de sustantivo (§3)
-from tikdown_rs.cli import accounts, backfill, cookies, daemon, monitor, system  # noqa: E402
+from tikdown_rs.cli import (  # noqa: E402
+    accounts,
+    backfill,
+    cookies,
+    daemon,
+    monitor,
+    system,
+    videos,
+)
 
 app.add_typer(daemon.app, name="daemon")
 app.add_typer(monitor.app, name="monitor")
@@ -44,4 +52,4 @@ app.add_typer(accounts.app, name="accounts")
 app.add_typer(backfill.app, name="backfill")
 app.add_typer(cookies.app, name="cookies")
 app.add_typer(system.app, name="system")
-# videos: se registra en e09 (grupo aún sin comandos)
+app.add_typer(videos.app, name="videos")
