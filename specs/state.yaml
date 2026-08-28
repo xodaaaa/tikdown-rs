@@ -14,12 +14,14 @@ metrics:
   cycle_minutes: null
   bcp_per_hour: null
 handoff:
-  next_skill: verify-work
+  next_skill: survey-context
   plan_ready: true
 release:
   last_tag: null
   last_publish: null
   target_version: null
+  ci_verified: false  # sin remote/CI configurado (repo local) — git-only fallback
+  merged_commit: b7dd1f9
 git:
   branch: null
   worktree: null
