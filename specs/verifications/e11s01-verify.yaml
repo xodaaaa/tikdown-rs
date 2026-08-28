@@ -1,0 +1,64 @@
+# verify-work evidence — e11s01 (Paginación /list)
+story_id: e11s01
+verified_at: "2026-08-28T08:00:00Z"
+verifier: verify-work
+branch: feat/e11-paginacion-list
+risk: P1
+phases:
+  smoke:
+    passed: true
+    note: "uv run tikdown-rs --version → tikdown-rs 0.1.0 (CLI intacta)"
+  build:
+    passed: true
+    note: "N/A — sin build nuevo; proyecto Python (uv build implícito en CI)"
+  typecheck:
+    passed: true
+    note: "N/A — sin typecheck configurado (diferido)"
+  lint:
+    passed: true
+    command: "uv run ruff check . && uv run ruff format --check ."
+  tests:
+    passed: true
+    count: 211
+    coverage: "62%"
+  terminal_verdict:
+    command: "uv run pytest --cov=tikdown_rs --cov-report=term -q"
+    exit_code: 0
+    captured_at: "2026-08-28T08:00:00Z"
+    note: "211 passed, 1 warning — single contiguous run"
+  tasks:
+    - id: 1
+      status: passing
+      verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+      evidence: PASS (19 tests)
+    - id: 2
+      status: passing
+      verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+      evidence: PASS (T38 <= 64 bytes)
+    - id: 3
+      status: passing
+      verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+      evidence: PASS (callback handler)
+    - id: 4
+      status: passing
+      verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+      evidence: PASS (throttle 2s)
+    - id: 5
+      status: passing
+      verify: "uv run pytest tests/telegram/ -q"
+      evidence: PASS (37 tests)
+  manual:
+    steps:
+      - step: "Revisar handlers.py render_list_page"
+        expected: "pagina con clamp, total_pages, escape HTML"
+        actual: "implementado y testeado (19 tests)"
+        passed: true
+      - step: "Revisar bot.py _register_handlers"
+        expected: "CommandHandler(/list) + CallbackQueryHandler(listp:) registrados"
+        actual: "registrados en start()"
+        passed: true
+  gaps:
+    closed: true
+    notes:
+      - "callback_expired ahora acepta now inyectable (F.I.R.S.T.)"
+      - "No se rompió el test existente de callback_expired (34→37 tests telegram)"
