@@ -1,0 +1,69 @@
+# verify-work evidence — e13s01 (Backfills pausados)
+story_id: e13s01
+verified_at: "2026-08-28T12:00:00Z"
+verifier: verify-work
+branch: feat/e13-backfill-paused
+risk: P1
+phases:
+  smoke:
+    passed: true
+    note: "uv run tikdown-rs --version → tikdown-rs 0.1.0 (CLI intacta)"
+  build:
+    passed: true
+    note: "N/A — sin build nuevo (Python); migración Alembic e13s01"
+  typecheck:
+    passed: true
+    note: "N/A — sin typecheck configurado"
+  lint:
+    passed: true
+    command: "uv run ruff check . && uv run ruff format --check ."
+  tests:
+    passed: true
+    count: 230
+    coverage: "63%"
+  terminal_verdict:
+    command: "uv run pytest --cov=tikdown_rs --cov-report=term -q"
+    exit_code: 0
+    captured_at: "2026-08-28T12:00:00Z"
+    note: "230 passed, 1 warning — single contiguous run"
+  tasks:
+    - id: 1
+      status: passing
+      verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
+      evidence: PASS (11 tests)
+    - id: 2
+      status: passing
+      verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
+      evidence: PASS (backfill_slot tabla + migración)
+    - id: 3
+      status: passing
+      verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
+      evidence: PASS (slot cross-proceso CAS)
+    - id: 4
+      status: passing
+      verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
+      evidence: PASS (collect incluye paused reanudables)
+    - id: 5
+      status: passing
+      verify: "uv run pytest tests/backfill/ -q"
+      evidence: PASS (25 tests)
+  manual:
+    steps:
+      - step: "Revisar backfill.py status_after_interruption"
+        expected: "'paused' si disco/red; 'queued' en crash"
+        actual: "implementado y testeado"
+        passed: true
+      - step: "Revisar acquire_slot CAS"
+        expected: "UPDATE ... RETURNING atómico cross-proceso"
+        actual: "implementado con backfill_slot (T22)"
+        passed: true
+      - step: "Revisar job en run.py"
+        expected: "recogida periódica de queued + paused"
+        actual: "job backfill-collect (60s, max_instances=1)"
+        passed: true
+  gaps:
+    closed: true
+    notes:
+      - "get_working_cookie requería validate_fn — añadido working_cookies_list (ligero)"
+      - "test_backfill_queue slot actualizado a la API cross-proceso"
+      - "El slot cross-proceso cierra la limitación documentada de §10"
