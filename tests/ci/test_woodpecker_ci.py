@@ -5,6 +5,7 @@ Verifica la estructura del pipeline definido en .woodpecker.yml:
 - define los pasos lint, test y docker con los comandos esperados
 - documenta la lección operativa L-K4 (fallo en 0s = billing/runner, no código)
 """
+
 from pathlib import Path
 
 import pytest
