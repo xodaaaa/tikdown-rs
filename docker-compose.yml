@@ -12,6 +12,8 @@ services:
     volumes:
       # Un único volumen para DB, fernet.key, archive y vídeos (T8)
       - tikdown_data:/app/data
+      # Sandbox local de pruebas (cookies/secrets) — solo lectura, nunca en imagen
+      - ./trash-stuff:/app/trash-stuff:ro
     logging:
       # Rotación de logs (obligatoria): máx ~50 MB por contenedor
       driver: "json-file"
