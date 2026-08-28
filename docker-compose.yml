@@ -1,0 +1,23 @@
+# docker-compose.yml — TikDown-rs (§11)
+services:
+  tikdown-rs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tikdown-rs
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      # Un único volumen para DB, fernet.key, archive y vídeos (T8)
+      - tikdown_data:/app/data
+    logging:
+      # Rotación de logs (obligatoria): máx ~50 MB por contenedor
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  tikdown_data:

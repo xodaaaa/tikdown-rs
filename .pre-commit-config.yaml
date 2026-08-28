@@ -1,0 +1,9 @@
+# .pre-commit-config.yaml — TikDown-rs (F-22)
+# ruff check + ruff format antes de cada commit.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff
+        args: [check, --fix]
+      - id: ruff-format
