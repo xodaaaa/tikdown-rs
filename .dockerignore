@@ -10,6 +10,7 @@ fernet.key
 *.session*
 cookies*.txt
 cookies*.json
+trash-stuff/
 
 # Bases de datos
 *.db
