@@ -1,0 +1,51 @@
+# e01s01-tasks.yaml
+story_id: e01s01
+title: "Estructura del paquete y toolchain uv"
+status: passing
+bcps: 3
+risk: P1
+context: infra
+tasks:
+  - id: 1
+    description: >-
+      Crear layout del paquete (src layout) bajo src/tikdown_rs/: core/, services/, cli/, daemon/
+      (con telegram/), models/, tests/ con __init__.py. Estructura de §13 del plan maestro, pero
+      bajo src/tikdown_rs/ (estándar uv/hatchling). [OK] uv es la herramienta de gestión.
+    verify: "test -d src/tikdown_rs/core && test -d src/tikdown_rs/services && test -d src/tikdown_rs/cli && test -d src/tikdown_rs/daemon && test -d src/tikdown_rs/models && test -d tests"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "infra"
+        - "bootstrap"
+  - id: 2
+    description: >-
+      Escribir pyproject.toml con name="tikdown-rs", requires-python=">=3.13,<3.14",
+      [project.scripts] tikdown-rs = "tikdown_rs.cli.main:app" (L-A2), dependencias de §1.1
+      (yt-dlp nightly con extra pin-curl-cffi, curl-cffi ==exacto, aiosqlite >=0.22.1 excluyendo 0.22.0, SQLAlchemy
+      >=2.0.51,<2.1, APScheduler >=3.11,<4, PTB [rate-limiter]>=22, typer, rich, pydantic-settings,
+      cryptography, httpx, alembic), [tool.uv] prerelease-package solo para yt-dlp (T2, nunca
+      prerelease global), [tool.ruff]. .python-version con 3.13.
+    verify: "grep -q 'name = \"tikdown-rs\"' pyproject.toml && grep -q 'prerelease-package' pyproject.toml && grep -q 'yt-dlp' pyproject.toml && test -f .python-version && grep -q '3.13' .python-version"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "infra"
+        - "bootstrap"
+  - id: 3
+    description: >-
+      Generar el lock con uv: 'uv lock' produce uv.lock determinista. Luego 'uv sync' instala el
+      venv y verificar importabilidad del paquete (import tikdown_rs). Si el pin del nightly no
+      resuelve, seguir el procedimiento §1.2 (resolver nightly más reciente, verificar extra
+      pin-curl-cffi, pin manual fallback para curl-cffi).
+    verify: "uv lock && uv sync && uv run python -c \"import tikdown_rs; print('ok')\""
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "infra"
+        - "bootstrap"

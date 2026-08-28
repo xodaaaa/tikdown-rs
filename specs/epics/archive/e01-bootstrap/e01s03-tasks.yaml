@@ -1,0 +1,48 @@
+# e01s03-tasks.yaml
+story_id: e01s03
+title: "Logging JSON ad-hoc (stdlib)"
+status: passing
+bcps: 2
+risk: P1
+context: infra
+tasks:
+  - id: 1
+    description: >-
+      Definir JsonFormatter en core/logging.py sobre logging stdlib (NUNCA structlog, F-20).
+      Emite cada registro como JSON a stdout: timestamp, level, logger, message, y extra opcional.
+      [OK] logging stdlib es el estándar; sin dependencias extra.
+    verify: "uv run python -c \"from tikdown_rs.core.logging import JsonFormatter; f=JsonFormatter(); assert f\""
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "logging"
+        - "bootstrap"
+  - id: 2
+    description: >-
+      Implementar setup_logging(level, json_output) en core/logging.py: JSON a stdout en el daemon
+      (json_output=True); consola legible en CLI (json_output=False). Nivel vía log_level de Settings.
+      Usa basicConfig(force=True) para ser reaplicable (T72).
+    verify: "uv run pytest tests/logging/test_logging.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "logging"
+        - "bootstrap"
+  - id: 3
+    description: >-
+      Tests en tests/logging/test_logging.py (F.I.R.S.T., §14): el formatter emite JSON válido con
+      campos esperados; setup aplica LOG_LEVEL; reaplicable tras migración (T72) — el root logger
+      mantiene nivel y formatter tras un setup_logging(force) repetido.
+    verify: "uv run pytest tests/logging/test_logging.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "logging"
+        - "bootstrap"
+        - "unit"

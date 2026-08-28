@@ -1,0 +1,38 @@
+# e01s05-tasks.yaml
+story_id: e01s05
+title: "Higiene repo: README, LICENSE, .gitignore, .dockerignore, .env.example"
+status: passing
+bcps: 2
+risk: P1
+context: infra
+tasks:
+  - id: 1
+    description: >-
+      Crear .dockerignore completo (T15) cubriendo: .env*, data/, videos/, *.db* (incl.
+      *.db-journal, *.sqlite*, *.sqlite-wal/-shm), *.session*, fernet.key, cookies*.txt|json,
+      .git/, .venv/, __pycache__/. **NO excluir README.md** (F-04: hatchling lo exige para el
+      wheel). Revisar .gitignore (§0.1): .env, *.db*, data/, videos/, fernet.key, *.session,
+      cookies*.txt|json, .venv/, __pycache__/, .migrate.lock. [OK] sin dependencias externas.
+    verify: "test -f .dockerignore && grep -q 'fernet.key' .dockerignore && grep -q 'cookies' .dockerignore && grep -q 'README.md' .dockerignore && grep -q '.migrate.lock' .gitignore"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "security"
+        - "bootstrap"
+  - id: 2
+    description: >-
+      Completar .env.example con solo valores de ejemplo/vacíos (§0.1, T36) — nunca tokens reales;
+      WEBDAV_* documentado como sidecar (F-17). Verificar LICENSE MIT. Expandir README.md:
+      qué es y cómo ejecutar (uv run tikdown-rs daemon run), disclaimer legal estilo yt-dlp,
+      qué NO commitear, backup y recuperación de fernet.key, nota de naming -rs.
+    verify: "test -f README.md && test -f LICENSE && grep -qi 'mit' LICENSE && grep -qi 'disclaimer\\|responsabil' README.md && grep -qi 'fernet.key' README.md && grep -qi -- '-rs' README.md"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "docs"
+        - "security"
+        - "bootstrap"
