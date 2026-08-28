@@ -1,0 +1,36 @@
+# .dockerignore — T15: sin esto, `COPY . .` embebe secretos en capas Docker recuperables.
+# README.md queda INCLUIDO (F-04: hatchling lo exige para construir el wheel).
+
+# Secretos / datos
+.env
+.env*
+data/
+videos/
+fernet.key
+*.session*
+cookies*.txt
+cookies*.json
+
+# Bases de datos
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# VCS / tooling
+.git/
+.venv/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.pytest_cache/
+.coverage
+dist/
+build/
+*.egg-info/
+.pre-commit/
+.migrate.lock
