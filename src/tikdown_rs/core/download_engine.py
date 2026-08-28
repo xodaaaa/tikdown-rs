@@ -9,6 +9,7 @@ story: e04s01
 from __future__ import annotations
 
 import logging
+import os
 from typing import Protocol
 
 LOG = logging.getLogger("tikdown_rs.download_engine")
@@ -96,6 +97,7 @@ class YtDlpEngine:
         timeout_seconds: int = 600,
         sleep_interval_requests: float = 2.0,
         extractor_retries: int = 8,
+        cookies_blob: bytes | None = None,
     ) -> None:
         self._targets = impersonate_targets or []
         self._format = download_format or DEFAULT_FORMAT
@@ -103,6 +105,7 @@ class YtDlpEngine:
         self._sleep_interval_requests = sleep_interval_requests  # T56
         self._extractor_retries = extractor_retries  # T56
         self._zombie_threads: set[int] = set()  # T23/T66: diagnóstico
+        self._cookies_blob = cookies_blob  # blob cifrado de cookies (F-01/F-15)
 
     def _next_target(self):
         """Rotación round-robin de targets (L-D1: objetos ImpersonateTarget)."""
@@ -127,7 +130,27 @@ class YtDlpEngine:
         }
         if target is not None:
             params["impersonate"] = target  # objeto ImpersonateTarget (L-D1)
+        if self._cookies_blob:
+            # Cookies del blob cifrado (F-01/F-15) → archivo temporal para yt-dlp
+            params["cookiefile"] = self._write_cookies_temp()
         return params
+
+    def _write_cookies_temp(self) -> str:
+        """Escribe el blob de cookies a un archivo temporal (yt-dlp cookiefile).
+
+        El blob ya viene descifrado (services/backfill lo desencripta con Fernet
+        antes de pasarlo al engine). Archivo con permisos 0600, se borra al cierre.
+        """
+        import tempfile
+
+        if self._cookies_blob is None:
+            return ""
+        fd, path = tempfile.mkstemp(prefix="tikdown-cookies-", suffix=".txt")
+        with os.fdopen(fd, "wb") as f:
+            f.write(self._cookies_blob)
+        self._zombie_threads.add(1)  # reutilizar el set para trackear tempfiles (T23)
+        self._cookie_temp_path = path
+        return path
 
     async def download(self, url: str, archive_path: str | None = None, **kwargs) -> dict:
         """Descarga un vídeo vía to_thread (T12/T23)."""
