@@ -1,13 +1,14 @@
 # Security Review — TikDown-rs
 
 **Última actualización:** 2026-08-28
-**Alcance:** e01 + e02 + e03 completa (accounts + monitor)
+**Alcance:** e01 + e02 + e03 + e04s01 (download engine)
 
 ## Hallazgos
 
 - **Ningún hallazgo HIGH.**
-- **e03:** CRUD de cuentas (services/accounts) + ciclo de monitor con throttle L-G1 (NULL siempre, <30s skip) — previene sobrecarga anti-bot; monitor detenido por defecto (§5.1/T60); no arranca backfill (§10); username normalizado.
-- **e02:** runner single-loop (L-B1), crypto Fernet (T7/T67), selfcheck (T6/T16), heartbeat (T19/T50).
+- **e04s01:** motor de descarga con clasificación de fallos 3-vías (§4.3, T5/T52/T53/T54/T55) — evita bloqueos autoinfligidos; cooldown cross-proceso (T22/T62); archive con dedupe tolerante (L-C8/T47/T24); impersonación TLS (L-D1); timeout con .retry-N (T23/T66). Sin llamadas httpx directas a TikTok (§4.2).
+- **e03:** monitor con throttle L-G1; monitor detenido por defecto (T60).
+- **e02:** runner single-loop (L-B1), crypto Fernet (T7/T67), selfcheck (T6/T16).
 - **e01:** higiene de secretos; migraciones idempotentes (T68); pines exactos (T2/T6).
 
 ## Veredicto
