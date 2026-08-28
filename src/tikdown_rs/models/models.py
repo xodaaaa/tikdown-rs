@@ -56,6 +56,7 @@ class MonitoredAccount(Base):
     notify_on_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     monitor_after_backfill: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     backfill_status: Mapped[str] = mapped_column(String(16), nullable=False, default="idle")
+    backfill_pause_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
     backfill_cursor: Mapped[str | None] = mapped_column(String(255), nullable=True)
     backfill_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     backfill_done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -151,6 +152,22 @@ class DownloadPacingState(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     next_allowed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class BackfillSlot(Base):
+    """Slot único de backfill CROSS-PROCESO (e13s01, T22).
+
+    Singleton id=1 (mismo patrón que download_pacing_state): adquisición
+    atómica con UPDATE ... SET owner=:me WHERE owner IS NULL RETURNING
+    (CAS vía SQLite), visible para daemon + CLI + bot.
+    """
+
+    __tablename__ = "backfill_slot"
+    __table_args__ = (CheckConstraint("id = 1", name="ck_backfill_slot_singleton"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    acquired_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class DownloadArchive(Base):

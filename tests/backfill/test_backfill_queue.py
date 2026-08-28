@@ -23,15 +23,14 @@ async def maker():
     await engine.dispose()
 
 
-async def test_slot_adquisicion_no_bloqueante():
-    """F-10/§10: slot libre → adquiere (True); ocupado → False sin bloquear."""
-    from tikdown_rs.services.backfill import acquire_slot
+async def test_slot_adquisicion_no_bloqueante(maker):
+    """F-10/§10/e13s01: slot cross-proceso — libre → adquiere; ocupado → False."""
+    from tikdown_rs.services.backfill import acquire_slot, release_slot
 
-    assert await acquire_slot() is True  # libre → adquirido
-    assert await acquire_slot() is False  # ocupado → no bloquea
-    from tikdown_rs.services.backfill import _release_slot
-
-    _release_slot()
+    async with maker() as s:
+        assert await acquire_slot(s, owner="proc-A") is True  # libre → adquirido
+        assert await acquire_slot(s, owner="proc-B") is False  # ocupado → no bloquea
+        await release_slot(s, owner="proc-A")
 
 
 async def test_collect_queued_propaga_canal_t75(maker):

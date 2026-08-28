@@ -105,3 +105,18 @@ async def get_working_cookie(
             LOG.info("cookies.working_inconclusive_conservada", extra={"id": cookie.id})
         return cookie
     return None
+
+
+async def working_cookies_list(session: AsyncSession) -> list:
+    """Lista de cookies valid para backfill (e13s01).
+
+    Devuelve las cookies con validation_state='valid' (blob cifrado) — el
+    backfill las valida/usa vía el motor. Sin validación de red aquí (el job
+    del daemon no debe hacer llamadas externas en el ciclo de recogida).
+    """
+    result = await session.execute(
+        select(Cookie)
+        .where(Cookie.validation_state == "valid")
+        .order_by(Cookie.last_validated_at.desc())
+    )
+    return list(result.scalars().all())

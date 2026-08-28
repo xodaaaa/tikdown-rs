@@ -1,7 +1,7 @@
 # e13s01-tasks.yaml
 story_id: e13s01
 title: "Estado 'paused' real + recogida automática + slot cross-proceso (T22)"
-status: failing
+status: passing
 bcps: 6
 risk: P1
 context: domain
@@ -15,7 +15,7 @@ tasks:
       (campo nuevo) para diagnóstico.
     verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -31,7 +31,7 @@ tasks:
       UPDATE ... SET owner=NULL WHERE id=1 AND owner=:me. Migración Alembic para la tabla.
     verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -45,7 +45,7 @@ tasks:
       (daemon + CLI foreground + bot) — un backfill de CLI y uno del daemon NO se solapan (T22).
     verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -59,7 +59,7 @@ tasks:
       a esto periódicamente (registrar job en run.py _register_jobs, max_instances=1, T44).
     verify: "uv run pytest tests/backfill/test_backfill_paused.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -73,7 +73,7 @@ tasks:
       con pausa; (e) reconcile_stale_backfills no toca 'paused'. SQLite :memory: + StaticPool (T69).
     verify: "uv run pytest tests/backfill/ -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
