@@ -1,22 +1,89 @@
 # e02s04-tasks.yaml
 story_id: e02s04
 title: "Heartbeat persistido + daemon stop/status/healthcheck"
-status: todo
+status: passing
 bcps: 7
+risk: P0
+context: infra
 tasks:
-  - id: e02s04-t01
+  - id: 1
     description: >-
-      Heartbeat: actualiza last_heartbeat_at cada HEARTBEAT_INTERVAL_SECONDS en daemon_state;
+      Heartbeat (daemon/run.py, ya iniciado en e02s03): persiste last_heartbeat_at, daemon_pid, y
       aplica en caliente monitor_running/stop_requested escritos por otros procesos (T19: el estado
-      en memoria del daemon no es visible; el heartbeat es la fuente). Contador db_busy_count_5min
-      (§5.8). last_selfcheck_at/last_selfcheck_ok persistidos.
+      en memoria no es visible; el heartbeat es la fuente). Persiste db_busy_count_5min con ventana
+      rotativa de 5 min (§5.8) y last_selfcheck_at/last_selfcheck_ok.
     verify: "uv run pytest tests/daemon/test_heartbeat.py -q"
-    status: todo
-  - id: e02s04-t02
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "heartbeat"
+  - id: 2
     description: >-
-      Comandos daemon (a través de cli/common.py, T18): stop (escribe stop_requested), status
-      (heartbeat + selfcheck + tareas + hilos zombis T66 + contención, nunca del proceso CLI propio),
-      healthcheck (heartbeat fresco ≤ 3×HEARTBEAT_INTERVAL, T50; no ejecuta migraciones ni selfcheck
-      completo, R10), selfcheck bajo demanda.
+      db.py: listener handle_error con VENTANA ROTATIVA real de 5 min (§5.8) — el contador en
+      memoria guarda marcas de tiempo; el heartbeat lo persiste en db_busy_count_5min. Si supera
+      DB_BUSY_TIMEOUT_ALERT_THRESHOLD (default 20) en la ventana → alerta daemon.db_contention
+      (dedupe por flanco).
+    verify: "uv run pytest tests/daemon/test_heartbeat.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "db"
+  - id: 3
+    description: >-
+      cli/daemon.py (vía cli/common.py T18): daemon status — estado del daemon + monitor + heartbeat
+      + last_selfcheck_ok + tareas supervisadas activas + hilos zombis de yt-dlp (T66) + contador de
+      contención leído de daemon_state, NUNCA del proceso CLI propio (T19).
     verify: "uv run pytest tests/daemon/test_commands.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "cli"
+  - id: 4
+    description: >-
+      cli/daemon.py: healthcheck — daemon vivo = heartbeat fresco (last_heartbeat_at <= 3 ×
+      HEARTBEAT_INTERVAL_SECONDS configurado, T50). Exit 0/1. NO ejecuta migraciones ni toma
+      .migrate.lock (R10). NO ejecuta selfcheck completo (coste + falsos negativos). Esquema ausente
+      → unhealthy (exit 1) sin migrar.
+    verify: "uv run pytest tests/daemon/test_commands.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "cli"
+  - id: 5
+    description: >-
+      cli/daemon.py: daemon stop — escribe stop_requested=true con helper de commit interno (T37).
+      daemon selfcheck bajo demanda (invoca core/verify selfcheck completo).
+    verify: "uv run pytest tests/daemon/test_commands.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "cli"
+  - id: 6
+    description: >-
+      Tests (F.I.R.S.T., §14): test_heartbeat.py — heartbeat persiste, ventana rotativa de contención
+      (§5.8), umbral DB_BUSY_TIMEOUT_ALERT_THRESHOLD. test_commands.py — status lee contención de
+      daemon_state (T19), healthcheck frescura T50 + no migra R10, stop T37. SQLite :memory: +
+      StaticPool; mocks; nunca entorno real (T69).
+    verify: "uv run pytest tests/daemon/test_heartbeat.py tests/daemon/test_commands.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "unit"

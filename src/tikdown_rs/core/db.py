@@ -1,11 +1,12 @@
 """Conexión a la base de datos SQLite (WAL) — core/db.py.
 
-story: e01s04
+story: e01s04 e02s04
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from sqlalchemy import event
@@ -15,8 +16,28 @@ from sqlalchemy.pool import NullPool
 
 LOG = logging.getLogger("tikdown_rs.db")
 
-# Contador en memoria de contención SQLite (se persiste en daemon_state, §5.8)
-_busy_count: int = 0
+# Contención SQLite con ventana rotativa real de 5 min (§5.8): marcas de tiempo,
+# no un contador acumulado. El heartbeat del daemon lo persiste en
+# daemon_state.db_busy_count_5min; el CLI lo lee SIEMPRE desde daemon_state,
+# nunca del proceso CLI propio (T19).
+_busy_timestamps: list[float] = []
+_WINDOW_SECONDS = 300  # 5 minutos
+
+
+def record_busy() -> None:
+    """Registra un evento de contención SQLite con marca de tiempo (§5.8)."""
+    _busy_timestamps.append(time.time())
+
+
+def busy_count() -> int:
+    """Contador de contención en la ventana rotativa de 5 min (§5.8).
+
+    Descarta entradas fuera de la ventana antes de contar.
+    """
+    cutoff = time.time() - _WINDOW_SECONDS
+    while _busy_timestamps and _busy_timestamps[0] < cutoff:
+        _busy_timestamps.pop(0)
+    return len(_busy_timestamps)
 
 
 def _ensure_parent_dir(db_path: str) -> None:
@@ -48,16 +69,10 @@ def create_async_engine_wal(db_url: str) -> AsyncEngine:
 
     @event.listens_for(engine.sync_engine, "handle_error")
     def _handle_busy(context):  # noqa: ANN001
-        global _busy_count
         exc = context.original_exception
         if isinstance(exc, OperationalError) and "database is locked" in str(exc):
-            _busy_count += 1
-            LOG.warning("db.busy_timeout", extra={"db_busy_count": _busy_count})
+            record_busy()
+            LOG.warning("db.busy_timeout", extra={"db_busy_count": busy_count()})
         return None
 
     return engine
-
-
-def busy_count() -> int:
-    """Contador de contención en memoria (persistido en daemon_state por el daemon)."""
-    return _busy_count
