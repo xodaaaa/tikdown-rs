@@ -1,0 +1,44 @@
+story_id: e04s03
+verified_at: "2026-08-28T07:00:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Queue: slot único, cancel cooperativo, T58/T64"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 103
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T06:59:00Z"
+    note: "Single contiguous run — 103 passed"
+  manual:
+    steps:
+      - step: "Slot único no bloqueante (F-10)"
+        expected: "1er True, 2º False (ocupado), busy True"
+        actual: "OK"
+        passed: true
+      - step: "Cancel cooperativo (T21)"
+        expected: "backfilling → cancelled"
+        actual: "OK: cancelled"
+        passed: true
+      - step: "T58 techo reintentos"
+        expected: "retry_count 5 == max → exhausted"
+        actual: "OK: True"
+        passed: true
+      - step: "T64 red no consume"
+        expected: "network siempre reintenta; transitorio en techo no"
+        actual: "OK"
+        passed: true
+gaps:
+  closed: true
+  note: "UnicodeEncodeError del script UAT por '→' en Windows (confirma L-A5: ASCII puro)"

@@ -1,21 +1,80 @@
 # e04s03-tasks.yaml
 story_id: e04s03
 title: "Backfill encolado + slot único + cancelación + retry-failed"
-status: todo
+status: passing
 bcps: 10
+risk: P0
+context: domain
 tasks:
-  - id: e04s03-t01
+  - id: 1
     description: >-
-      Encolado: backfill run --queue → backfill_status='queued'; el daemon lo recoge con su slot
-      único global (principio §0.7). Estado 'queued'|'backfilling'|'completed'|'failed'|'cancelled';
-      'cancelled' desde el primer esquema (L-F7). Interrupción por crash/apagado → vuelve a 'queued'
-      (F-10); no producir 'paused' (valor reservado, §2).
+      services/backfill.py: backfill_slot_busy() — adquisición NO bloqueante del slot único (§10:
+      if lock.locked(): return False; await lock.acquire()). collect_queued_backfills() recoge los
+      'queued' comprobando el slot antes de crear la tarea (F-10) y PROPAGA el canal de eventos
+      (T75: on_event=on_event, nunca None — L-I5).
     verify: "uv run pytest tests/backfill/test_backfill_queue.py -q"
-    status: todo
-  - id: e04s03-t02
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "queue"
+  - id: 2
     description: >-
-      Cancelación real (T21): backfill cancel @user interrumpe la pasada en curso y marca
-      'cancelled'; re-ejecución retoma desde el cursor. retry-failed con --all global: requiere
-      resumen previo + confirmación (volumen = horas/días, §3).
+      services/backfill.py: transición history→monitor en la MISMA transacción que el completado
+      (T59: UPDATE ... WHERE mode='history' AND monitor_after_backfill=1 AND backfill_status=
+      'completed'); reconciliación de transiciones pendientes en arranque. cancel_backfill(@user)
+      — cancelación cooperativa (T21): marca 'cancelled'; el worker relee y detiene; re-ejecución
+      retoma desde el cursor.
     verify: "uv run pytest tests/backfill/test_backfill_cancel.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "transition"
+  - id: 3
+    description: >-
+      services/backfill.py + services/videos.py: retry_failed(@user) — reintenta status='failed',
+      descartando primero la entrada del archive (T24). --all global con resumen previo (vídeos x
+      cuentas, duración estimada) + confirmación (§3). handle_download_result con techo de
+      reintentos T58 (MAX_VIDEO_RETRY_COUNT -> failed/transient + download.retry_exhausted) y
+      presupuesto de tiempo T63 (MAX_VIDEO_TOTAL_TIME_SECONDS -> mismo). Fallos de red NO
+      incrementan retry_count ni consumen presupuesto (T64).
+    verify: "uv run pytest tests/backfill/test_backfill_cancel.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "retry"
+  - id: 4
+    description: >-
+      cli/backfill.py: backfill run --queue (encola), cancel @user, retry-failed @user (--all con
+      confirmación). Solo orquesta services/backfill (regla de oro §3).
+    verify: "uv run pytest tests/backfill/test_backfill_cli.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "cli"
+  - id: 5
+    description: >-
+      Tests (F.I.R.S.T., §14): test_backfill_queue.py — slot no bloqueante (F-10), collect_queued
+      propaga on_event (T75), transición T59 (misma transacción, consumible). test_backfill_cancel.
+      py — cancel cooperativo (T21), retry-failed (@user, --all resumen), T58/T63 (techo -> failed/
+      transient + retry_exhausted), T64 (red no penaliza). SQLite :memory: + StaticPool; mocks;
+      nunca entorno real (T69).
+    verify: "uv run pytest tests/backfill/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "unit"

@@ -154,3 +154,112 @@ async def reconcile_stale_backfills(session: AsyncSession) -> int:
     )
     await session.commit()
     return result.rowcount or 0
+
+
+# Slot único de backfill activo por proceso (§10) — adquisición no bloqueante
+_slot_lock: asyncio.Lock | None = None
+
+
+def _get_slot() -> asyncio.Lock:
+    global _slot_lock
+    if _slot_lock is None:
+        _slot_lock = asyncio.Lock()
+    return _slot_lock
+
+
+def backfill_slot_busy() -> bool:
+    """¿El slot único está ocupado? (F-10, §10) — solo comprobación.
+
+    La adquisición real es async (acquire_slot). Comprobar nunca adquiere:
+    si está libre devuelve False y el llamador decide si adquirir.
+    """
+    return _get_slot().locked()
+
+
+async def acquire_slot() -> bool:
+    """Adquiere el slot de forma NO bloqueante (F-10/§10).
+
+    if lock.locked(): return False; await lock.acquire(); return True.
+    """
+    lock = _get_slot()
+    if lock.locked():
+        return False  # ocupado, no bloquear
+    await lock.acquire()
+    return True
+
+
+def _release_slot() -> None:
+    lock = _get_slot()
+    if lock.locked():
+        lock.release()
+
+
+async def collect_queued_backfills(
+    session: AsyncSession,
+    engine,
+    cookies: list,
+    on_event=None,
+) -> list[str]:
+    """Recoge backfills 'queued' y los ejecuta con su slot (F-10/T75).
+
+    Comprueba backfill_slot_busy() antes de crear la tarea (F-10) y PROPAGA
+    el canal de eventos a run_backfill (T75: nunca None — L-I5).
+    """
+    if not await acquire_slot():  # F-10: comprobar antes de crear la tarea
+        LOG.info("backfill.slot_busy")
+        return []
+    try:
+        result = await session.execute(
+            select(MonitoredAccount).where(
+                MonitoredAccount.backfill_status == "queued"
+            )
+        )
+        queued = list(result.scalars().all())
+        outcomes: list[str] = []
+        for account in queued:
+            outcome = await run_backfill(
+                session,
+                account.username,
+                engine=engine,
+                cookies=cookies,
+                feed_entries=None,
+                on_event=on_event,  # T75: propagar canal
+            )
+            outcomes.append(f"{account.username}:{outcome}")
+        return outcomes
+    finally:
+        _release_slot()
+
+
+async def reconcile_transitions(session: AsyncSession) -> int:
+    """Aplica transiciones pendientes history→monitor (T59, arranque).
+
+    UPDATE idempotente: solo cuentas con monitor_after_backfill=1 Y
+    backfill_status='completed' Y mode='history'.
+    """
+    result = await session.execute(
+        update(MonitoredAccount)
+        .where(
+            MonitoredAccount.monitor_after_backfill == True,  # noqa: E712
+            MonitoredAccount.backfill_status == "completed",
+            MonitoredAccount.mode == "history",
+        )
+        .values(mode="monitor", monitor_after_backfill=False)
+    )
+    await session.commit()
+    return result.rowcount or 0
+
+
+async def cancel_backfill(session: AsyncSession, username: str) -> None:
+    """Cancela un backfill (T21, cooperativo).
+
+    Marca 'cancelled' en la DB; el worker relee periódicamente y detiene el
+    bucle. La re-ejecución retoma desde el cursor. CHECK incluye 'cancelled'
+    (L-F7).
+    """
+    await session.execute(
+        update(MonitoredAccount)
+        .where(MonitoredAccount.username == username)
+        .values(backfill_status="cancelled")
+    )
+    await session.commit()
