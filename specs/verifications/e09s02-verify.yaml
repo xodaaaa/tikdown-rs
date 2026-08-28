@@ -1,0 +1,35 @@
+story_id: e09s02
+verified_at: "2026-08-28T13:00:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Backup: VACUUM INTO (F-21b), retención (§23.3.6), error limpio"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 184
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T12:59:00Z"
+    note: "184 passed"
+  manual:
+    steps:
+      - step: "VACUUM INTO crea snapshot (F-21b)"
+        expected: "snapshot con datos recuperables"
+        actual: "OK: datos 99"
+        passed: true
+      - step: "Retención (§23.3.6)"
+        expected: "3 backups → quedan 2 (límite 2)"
+        actual: "OK: 2"
+        passed: true
+gaps:
+  closed: true

@@ -46,3 +46,16 @@ Fundación (epic e01) en curso: toolchain uv, config, logging, modelos + DB, hig
 ## Licencia
 
 [MIT](LICENSE) — ver archivo `LICENSE`.
+
+## Backup y restauración de la base de datos
+
+`system backup` crea un snapshot consistente en caliente (`VACUUM INTO`) en `DATA_DIR/backups/`. Se conservan los `SYSTEM_BACKUP_RETAIN_COUNT` (7) más recientes.
+
+**Restaurar (con el daemon DETENIDO):**
+
+1. Detener el daemon (`tikdown-rs daemon stop`).
+2. Copiar el snapshot sobre la base: `cp backups/tikdown-rs-<fecha>.db data/tikdown-rs.db`.
+3. Eliminar los archivos WAL/SHM asociados: `rm -f data/tikdown-rs.db-wal data/tikdown-rs.db-shm`.
+4. Arrancar el daemon de nuevo.
+
+> Nota: el backup restaura cuentas, estado y cookies cifradas; los vídeos ya descargados en disco se reconcilian con el siguiente ciclo.

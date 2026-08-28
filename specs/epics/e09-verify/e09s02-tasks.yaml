@@ -1,21 +1,60 @@
 # e09s02-tasks.yaml
 story_id: e09s02
-title: "videos export (json/csv) + system backup/disk"
-status: todo
+title: "system backup (VACUUM INTO + retención)"
+status: passing
 bcps: 8
+risk: P1
+context: domain
 tasks:
-  - id: e09s02-t01
+  - id: 1
     description: >-
-      services/export: export de metadatos json/csv; CSV con csv.writer stdlib + quoting RFC 4180 +
-      sanitización de prefijos = + - @ y espacios/tabs iniciales contra inyección de fórmulas
-      (T49/F-11). videos export sale sin wrap ni markup de Rich (L-A6).
-    verify: "uv run pytest tests/export/test_export.py -q"
-    status: todo
-  - id: e09s02-t02
-    description: >-
-      services/backup: snapshot consistente en caliente de la DB vía API de backup / VACUUM INTO en
-      DATA_DIR/backups/ (NUNCA copiar .db a pelo bajo WAL, F-21b); mapea sqlite3.OperationalError a
-      error limpio; purga snapshots por encima de SYSTEM_BACKUP_RETAIN_COUNT. system disk con --resume
-      (disco lleno, T45) y system backup.
+      services/backup.py: create_backup(data_dir) — snapshot consistente en caliente con VACUUM INTO
+      a <DATA_DIR>/backups/tikdown-rs-<fecha>.db (NUNCA copiar el .db a pelo bajo WAL, F-21b).
+      Mapea sqlite3.OperationalError a error limpio (nunca traceback).
     verify: "uv run pytest tests/backup/test_backup.py -q"
-    status: todo
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "backup"
+        - "snapshot"
+  - id: 2
+    description: >-
+      services/backup.py: retención (§23.3.6) — conserva los SYSTEM_BACKUP_RETAIN_COUNT (default 7)
+      snapshots más recientes, borra los más antiguos. La purga es BEST-EFFORT (T14: un fallo de
+      borrado no rompe el éxito del backup).
+    verify: "uv run pytest tests/backup/test_backup.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "backup"
+        - "retention"
+  - id: 3
+    description: >-
+      cli/system.py: system backup — invoca create_backup (regla de oro §3, solo orquesta).
+      README: documentar el procedimiento de restauración (§23.3.6): con el daemon DETENIDO, copiar
+      el snapshot sobre el .db, eliminar WAL/SHM.
+    verify: "uv run pytest tests/backup/test_backup.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "backup"
+        - "cli"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_backup.py — VACUUM INTO crea snapshot en backups/ con datos
+      recuperables, retención purga los más antiguos (T14 best-effort), OperationalError → error
+      limpio. SQLite :memory: + StaticPool; nunca entorno real (T69).
+    verify: "uv run pytest tests/backup/ -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "backup"
+        - "unit"

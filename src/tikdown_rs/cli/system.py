@@ -57,3 +57,16 @@ def disk(
         print(f"downloads_paused: {paused} -> {status}")
 
     asyncio.run(_go())
+
+@app.command("backup")
+def backup() -> None:
+    """Snapshot consistente en caliente de la DB (VACUUM INTO, F-21b)."""
+    settings = Settings(_env_file=None)
+
+    def _go():
+        from tikdown_rs.services.backup import create_backup
+
+        snapshot = create_backup(settings)
+        print(f"OK backup: {snapshot}")
+
+    asyncio.run(_go())
