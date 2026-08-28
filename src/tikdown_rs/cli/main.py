@@ -36,7 +36,7 @@ def run() -> None:
 
 
 # Registrar los 7 grupos de sustantivo (§3)
-from tikdown_rs.cli import (
+from tikdown_rs.cli import (  # noqa: E402
     accounts,
     backfill,
     cookies,
@@ -44,7 +44,7 @@ from tikdown_rs.cli import (
     monitor,
     system,
     videos,
-)  # noqa: E402
+)
 
 app.add_typer(daemon.app, name="daemon")
 app.add_typer(monitor.app, name="monitor")
