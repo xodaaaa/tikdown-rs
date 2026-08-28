@@ -177,7 +177,10 @@ class YtDlpEngine:
 
         format_string = kwargs.get("format_string", self._format)
         outtmpl = kwargs.get("outtmpl", "%(id)s.%(ext)s")
-        target = self._next_target()
+        # Impersonate opt-in (bug #14): los targets de curl-cffi rompen la
+        # descarga en este entorno (rehydration) — solo si se solicitan
+        # explícitamente vía kwargs.
+        target = self._next_target() if kwargs.get("use_impersonate") else None
 
         params = self._ydl_params(target, format_string, outtmpl)
         if archive_path:

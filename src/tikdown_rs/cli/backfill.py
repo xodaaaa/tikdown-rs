@@ -47,9 +47,9 @@ def run(user: str) -> None:
             if cookies:
                 key = load_or_create_fernet_key(settings.data_dir / "fernet.key")
                 blob = decrypt_cookie(cookies[0].encrypted_blob, key)
-            # L-D1: targets impersonate (curl-cffi) — rotación anti-bloqueo (bug #10)
-            targets = YtDlpEngine.available_impersonate_targets()
-            downloader = YtDlpEngine(cookies_blob=blob, impersonate_targets=targets)
+            # bug #14: impersonate rompe la descarga — engine sin targets
+            # (descarga limpia con cookies + formato single)
+            downloader = YtDlpEngine(cookies_blob=blob)
             try:
                 outcome = await run_backfill(s, user, engine=downloader, cookies=cookies)
                 print(f"OK backfill {user}: {outcome} (total={acct.backfill_total})")
