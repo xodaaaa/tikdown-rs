@@ -14,6 +14,7 @@ import logging
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tikdown_rs.core.pacing import CooldownReserve, reserve_slot
 from tikdown_rs.models.models import BackfillSlot, MonitoredAccount
 
 LOG = logging.getLogger("tikdown_rs.backfill")
@@ -94,6 +95,11 @@ async def run_backfill(
             # feed (T5: transitorio nunca definitivo) — se registra y continúa;
             # el daemon reintenta los fallidos en el siguiente ciclo.
             try:
+                # T62: pacing cross-proceso entre descargas (anti-bloqueo TikTok).
+                delay = await reserve_slot(session, CooldownReserve())
+                if delay:
+                    LOG.info("backfill.pacing_wait", extra={"seconds": delay})
+                    await asyncio.sleep(delay)
                 result = await engine.download(entry["url"], archive_path=None)
                 status = result.get("status", "downloaded")
             except Exception as exc:  # noqa: BLE001 - T5: no dejar wedged
