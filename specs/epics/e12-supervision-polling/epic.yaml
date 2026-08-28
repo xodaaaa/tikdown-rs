@@ -1,0 +1,11 @@
+# epic.yaml — e12-supervision-polling
+epic_id: e12
+slug: supervision-polling
+title: "Supervisión del polling de Telegram (healthcheck getMe + reconexión)"
+status: planned
+scope_ref: "EPIC-SUPERVISION-POLLING"
+stories:
+  - id: e12s01
+    title: "Healthcheck periódico del bot (getMe) + reinicio automático (T71, §6.1)"
+    bcps: 5
+    delta: ADDED

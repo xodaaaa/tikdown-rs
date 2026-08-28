@@ -4,15 +4,15 @@ workflow_mode: solo-git
 session:
   started_at: 2026-08-27T19:40:00Z
   closed_at: 2026-08-28T05:07:37Z  # MVP complete — session closed
-  active_flow: null
-  active_epic: null
-  active_story: null
+  active_flow: build_epic
+  active_epic: e12
+  active_story: e12s01
   active_bug: null
 epic_cycle: {}
 metrics:
-  story_start: "2026-08-28T07:00:00Z"  # e11s01 (paginación /list)
+  story_start: "2026-08-28T09:00:00Z"  # e12s01 (supervisión polling)
 handoff:
-  next_skill: survey-context
+  next_skill: kickoff-branch
   plan_ready: true
 git:
   branch: master

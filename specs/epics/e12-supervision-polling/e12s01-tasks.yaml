@@ -1,0 +1,67 @@
+# e12s01-tasks.yaml
+story_id: e12s01
+title: "Healthcheck periódico del bot (getMe) + reinicio automático (T71, §6.1)"
+status: failing
+bcps: 5
+risk: P1
+context: domain
+tasks:
+  - id: 1
+    description: >-
+      bot.py: TelegramBot._supervise_polling() — tarea de fondo supervisada (T27) que cada
+      POLLING_HEALTHCHECK_INTERVAL segundos (default 30s, configurable) llama bot.get_me()
+      (getMe — NUNCA getUpdates, T71). Si getMe falla (red, 409 Conflict, bot muerto) →
+      cuenta fallos consecutivos; tras N fallos (default 3) → reinicia el bot (stop + start)
+      sin tocar el daemon. Corre en el MISMO event loop (asyncio), sin bloquear el resto.
+    verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "supervision"
+  - id: 2
+    description: >-
+      bot.py: reconexión automática — al detectar el bot muerto (N fallos), parar el polling
+      actual (updater.stop → stop → shutdown) y arrancar de nuevo (start completo, T10).
+      El reinicio NO reinicia el daemon ni las demás tareas. Idempotente: si el reinicio falla,
+      se reintenta en el siguiente ciclo (backoff). El flag _restarting evita reinicios
+      concurrentes.
+    verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "reconnect"
+  - id: 3
+    description: >-
+      bot.py + run.py: cablear la supervisión — TelegramBot.start() lanza la tarea supervisada
+      de supervisión (vía create_supervised_task, T27) tras arrancar el polling; run.py usa
+      TelegramBot (con supervisión) en vez de su Application propia (o lo integra). La tarea
+      de supervisión se cancela en stop() (T28).
+    verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "wiring"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_bot_supervision.py — (a) getMe exitoso → sin reinicio;
+      (b) getMe falla N veces → reinicia el bot (verifica que start() se llama de nuevo);
+      (c) reinicio concurrente evitado (flag _restarting); (d) el supervisor NO bloquea el
+      event loop (corre como tarea); (e) T71: usa getMe, nunca getUpdates en el healthcheck.
+      Mocks de bot.get_me / Application; sin red real (T69).
+    verify: "uv run pytest tests/telegram/ -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "unit"
