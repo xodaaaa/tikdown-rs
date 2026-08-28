@@ -134,6 +134,7 @@ class DaemonRunner:
 
         # Heartbeat como tarea supervisada (T27/T28)
         def _schedule_heartbeat() -> None:
+            # APScheduler 3.11 ejecuta func sincronamente — puente a corrutina
             create_supervised_task(_heartbeat_job(), name="heartbeat")
 
         self.scheduler.add_job(
