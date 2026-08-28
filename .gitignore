@@ -38,3 +38,6 @@ build/
 
 # Tooling
 .pre-commit/
+
+# Migration lock (runtime, T68)
+.migrate.lock
