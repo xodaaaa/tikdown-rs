@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import UTC, datetime
 
 import typer
 from sqlalchemy import select
@@ -34,57 +33,70 @@ def _db_url(settings: Settings) -> str:
 
 @app.command("status")
 def status() -> None:
-    """Estado del daemon: heartbeat, selfcheck, tareas, contención (T19)."""
+    """Estado del daemon: heartbeat, cookies, disco, errores, contención (§3)."""
     settings = Settings(_env_file=None)
 
     async def _run() -> None:
         engine = create_async_engine_wal(_db_url(settings))
         maker = async_sessionmaker(engine, expire_on_commit=False)
         async with maker() as s:
+            from tikdown_rs.services.status import collect_status
+
             row = (await s.execute(select(DaemonState))).scalar_one_or_none()
+            if row is None:
+                print("ERROR daemon no inicializado (sin heartbeat)")
+                sys.exit(1)
+            st = await collect_status(s, settings)
         await engine.dispose()
-        if row is None:
-            print("ERROR daemon no inicializado (sin heartbeat)")
-            sys.exit(1)
         print(f"daemon_pid: {row.daemon_pid or '-'}")
         print(f"heartbeat: {row.last_heartbeat_at or '-'}")
         print(f"monitor_running: {row.monitor_running}")
         print(f"stop_requested: {row.stop_requested}")
         print(f"last_selfcheck_ok: {row.last_selfcheck_ok}")
+        # §3/e15s01: métricas ampliadas
+        c = st["cookies"]
+        print(f"cookies: {c['valid']} validas, {c['invalid']} invalidas, {c['expiring']} expirando")
+        d = st["disk"]
+        alert = "ALERTA" if d["alert"] else "OK"
+        print(f"disco: {d['free_percent']:.1f}% libre (umbral {d['warning_threshold']}%) [{alert}]")
+        if st["recent_errors"]:
+            print("ultimos errores:")
+            for e in st["recent_errors"]:
+                print(f"  {e['timestamp']} [{e['category']}] @{e['account']}: {e['message']}")
+        else:
+            print("ultimos errores: ninguno")
         # Contención leída de daemon_state (T19), nunca del proceso CLI
-        print(f"db_busy_count_5min: {row.db_busy_count_5min}")
+        print(f"db_busy_count_5min: {st['contention']['db_busy_count_5min']}")
 
     asyncio.run(_run())
 
 
 @app.command("healthcheck")
 def healthcheck() -> None:
-    """Healthcheck Docker: heartbeat fresco <= 3x intervalo (T50).
+    """Healthcheck Docker: heartbeat fresco (T50) + cookies + disco + errores (e15s01).
 
-    NO ejecuta migraciones ni toma .migrate.lock (R10). NO selfcheck completo.
+    NO ejecuta migraciones ni toma .migrate.lock (R10). LIGERO (§22.1): sin
+    validaciones de red ni selfcheck pesado. Exit 0/1.
     """
     settings = Settings(_env_file=None)
 
-    def _fresh() -> bool:
-        import sqlite3
-
-        db = settings.data_dir / "tikdown-rs.db"
-        if not db.exists():
-            return False  # sin DB → unhealthy (R10: no migrar)
-        conn = sqlite3.connect(db)
+    async def _run() -> bool:
+        engine = create_async_engine_wal(_db_url(settings))
+        maker = async_sessionmaker(engine, expire_on_commit=False)
         try:
-            row = conn.execute("SELECT last_heartbeat_at FROM daemon_state WHERE id = 1").fetchone()
-        except sqlite3.OperationalError:
-            conn.close()
-            return False  # esquema ausente → unhealthy sin migrar (R10)
-        conn.close()
-        if row is None or row[0] is None:
-            return False
-        ts = datetime.fromisoformat(row[0])
-        age = (datetime.now(UTC) - ts).total_seconds()
-        return age <= 3 * settings.heartbeat_interval_seconds  # T50
+            async with maker() as s:
+                from tikdown_rs.services.status import healthcheck_status
 
-    sys.exit(0 if _fresh() else 1)
+                ok, reasons = await healthcheck_status(s, settings)
+                if not ok:
+                    for r in reasons:
+                        print(f"unhealthy: {r}")
+                return ok
+        finally:
+            await engine.dispose()
+
+    ok = asyncio.run(_run())
+    sys.exit(0 if ok else 1)
 
 
 @app.command("stop")

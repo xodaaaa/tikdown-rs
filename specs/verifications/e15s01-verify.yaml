@@ -1,0 +1,66 @@
+# verify-work evidence — e15s01 (Métricas/healthcheck)
+story_id: e15s01
+verified_at: "2026-08-28T16:00:00Z"
+verifier: verify-work
+branch: feat/e15-metricas-healthcheck
+risk: P2
+phases:
+  smoke:
+    passed: true
+    note: "uv run tikdown-rs --version → tikdown-rs 0.1.0 (CLI intacta)"
+  build:
+    passed: true
+    note: "N/A — sin build nuevo (Python)"
+  typecheck:
+    passed: true
+    note: "N/A — sin typecheck configurado"
+  lint:
+    passed: true
+    command: "uv run ruff check . && uv run ruff format --check ."
+  tests:
+    passed: true
+    count: 247
+    coverage: "63%"
+  terminal_verdict:
+    command: "uv run pytest --cov=tikdown_rs --cov-report=term -q"
+    exit_code: 0
+    captured_at: "2026-08-28T16:00:00Z"
+    note: "247 passed, 1 warning — single contiguous run"
+  tasks:
+    - id: 1
+      status: passing
+      verify: "uv run pytest tests/status/test_status.py -q"
+      evidence: PASS (9 tests)
+    - id: 2
+      status: passing
+      verify: "uv run pytest tests/status/test_status.py -q"
+      evidence: PASS (daemon status usa collect_status)
+    - id: 3
+      status: passing
+      verify: "uv run pytest tests/status/test_status.py -q"
+      evidence: PASS (healthcheck ampliado)
+    - id: 4
+      status: passing
+      verify: "uv run pytest tests/status/ -q"
+      evidence: PASS (9 tests)
+  manual:
+    steps:
+      - step: "Revisar services/status.py collect_status"
+        expected: "cookies, disco, errores, contención (T19)"
+        actual: "implementado con las 4 métricas"
+        passed: true
+      - step: "Revisar daemon status"
+        expected: "muestra cookies/disco/errores/contención"
+        actual: "usa collect_status, ASCII puro"
+        passed: true
+      - step: "Revisar healthcheck"
+        expected: "heartbeat T50 + cookie + disco + errores; ligero (§22.1)"
+        actual: "implementado, sin red"
+        passed: true
+  gaps:
+    closed: true
+    notes:
+      - "Últimos errores derivados de videos failed (sin tabla nueva)"
+      - "Disco mockeado en tests (T69: shutil.disk_usage inyectado)"
+      - "Contención leída de daemon_state (T19)"
+      - "Healthcheck ligero: sin validaciones de red (§22.1)"
