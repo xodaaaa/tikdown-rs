@@ -21,8 +21,8 @@ No existe ningún artefacto de proyecto: ni `pyproject.toml`, ni `uv.lock`, ni p
 
 ## 4. Requirements
 
-#### ADDED: Layout del paquete plano (src layout NO aplica)
-**After:** Estructura de §13: `core/`, `services/`, `cli/`, `daemon/`, `models/`, `tests/` en la raíz del paquete; `[project.scripts] tikdown-rs = "cli.main:run"` (lección L-A2). El plan §13 NO usa src layout.
+#### ADDED: Layout del paquete (src layout)
+**After:** Estructura de §13 bajo `src/tikdown_rs/`: `core/`, `services/`, `cli/`, `daemon/` (con `telegram/`), `models/`, `tests/`; `[project.scripts] tikdown-rs = "tikdown_rs.cli.main:app"` (L-A2). Se usa **src layout** (paquete en `src/tikdown_rs`, no en la raíz) — estándar moderno de uv/hatchling, evita importar el paquete desde el cwd.
 
 #### ADDED: pyproject.toml con dependencias pineadas
 **After:** `[project] name="tikdown-rs"`, `requires-python = ">=3.13,<3.14"`, dependencias de §1.1 (yt-dlp nightly con extra `pin-curl-cffi`, curl-cffi `==`, aiosqlite `>=0.22.1` excluyendo `0.22.0`, SQLAlchemy `>=2.0.51,<2.1`, APScheduler `>=3.11,<4`, PTB `[rate-limiter]>=22`, typer, rich, pydantic-settings, cryptography, httpx, alembic).

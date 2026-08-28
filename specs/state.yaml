@@ -14,7 +14,7 @@ metrics:
   cycle_minutes: null
   bcp_per_hour: null
 handoff:
-  next_skill: kickoff-branch
+  next_skill: verify-work
   plan_ready: true
 release:
   last_tag: null
