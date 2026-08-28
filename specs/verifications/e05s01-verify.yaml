@@ -1,0 +1,35 @@
+story_id: e05s01
+verified_at: "2026-08-28T07:30:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Fernet roundtrip, parser T73 con YoutubeDLCookieJar real"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 111
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T07:29:00Z"
+    note: "Single contiguous run — 111 passed"
+  manual:
+    steps:
+      - step: "Roundtrip Fernet"
+        expected: "decrypt(encrypt(blob)) == blob; ciphertext bytes"
+        actual: "OK: True / bytes"
+        passed: true
+      - step: "Parser T73 con YoutubeDLCookieJar real"
+        expected: "header correcto; carga 1 cookie sessionid"
+        actual: "OK: 1 cookie"
+        passed: true
+gaps:
+  closed: true

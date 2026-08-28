@@ -76,3 +76,13 @@ def load_or_create_fernet_key(key_path: Path, env_key: str | None = None) -> str
             os.unlink(key_path)
         raise  # re-lanzar la excepción original (generación fallida)
     return key
+
+
+def encrypt_cookie(blob: bytes, key: str) -> bytes:
+    """Cifra un blob de cookies con Fernet (para encrypted_blob, §2)."""
+    return Fernet(key.encode()).encrypt(blob)
+
+
+def decrypt_cookie(ciphertext: bytes, key: str) -> bytes:
+    """Descifra un blob de cookies (encrypted_blob, LargeBinary)."""
+    return Fernet(key.encode()).decrypt(ciphertext)

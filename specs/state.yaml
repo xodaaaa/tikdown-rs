@@ -5,7 +5,7 @@ session:
   started_at: 2026-08-27T19:40:00Z
   active_flow: null
   active_epic: e05
-  active_story: null
+  active_story: e05s01
   active_bug: null
 epic_cycle: {}
 metrics:

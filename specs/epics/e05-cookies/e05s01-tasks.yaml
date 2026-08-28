@@ -1,14 +1,64 @@
 # e05s01-tasks.yaml
 story_id: e05s01
 title: "Cifrado Fernet en reposo (clave 0600, rotación)"
-status: todo
+status: passing
 bcps: 5
+risk: P0
+context: domain
 tasks:
-  - id: e05s01-t01
+  - id: 1
     description: >-
-      services/crypto: clave Fernet desde FERNET_KEY o generada en DATA_DIR/fernet.key (0600 al
-      generar Y al cargar una existente, T7); cifrado/descifrado de cookies; selfcheck de crypto
-      (T16): descifra una cookie almacenada con la clave activa, distingue tabla ausente (informativo)
-      de corrupción/permisos/bloqueo (FAIL).
+      core/crypto.py: encrypt_cookie(blob, key) -> bytes y decrypt_cookie(ciphertext, key) -> bytes
+      con Fernet. ciphertext para cookies.encrypted_blob (LargeBinary, NUNCA Text — §2). La clave
+      ya se gestiona con 0600 (T7), O_EXCL (T67) y tolerancia a vacío (L-E2) desde e02s02 —
+      verificar que no se rompe. [OK] cryptography instalado.
     verify: "uv run pytest tests/crypto/test_fernet.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "crypto"
+        - "security"
+  - id: 2
+    description: >-
+      core/cookie_parser.py: NETSCAPE_HEADER = '# Netscape HTTP Cookie File' (T73, constante
+      compartida). write_netscape_file() escribe el header + cookies con newline='\n' explícito
+      (nunca CRLF). parse() tolerante de Netscape/JSON/cookie-string. El tempfile reconstruido DEBE
+      cargarse con el YoutubeDLCookieJar REAL (T73).
+    verify: "uv run pytest tests/cookies/test_cookie_parser.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "cookies"
+        - "parser"
+  - id: 3
+    description: >-
+      Tempfile seguro (T31/L-H5): mkstemp con ruta asignada JUSTO tras la creación, os.close(fd)
+      inmediato, limpieza garantizada en finally (también si la escritura falla a medias).
+    verify: "uv run pytest tests/cookies/test_cookie_parser.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "cookies"
+        - "tempfile"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): tests/crypto/test_fernet.py — roundtrip encrypt/decrypt, ciphertext
+      bytes (LargeBinary), clave generada al vuelo en fixture (F-12, nunca constante), 0600 (T7),
+      O_EXCL (T67), vacío (L-E2). tests/cookies/test_cookie_parser.py — T73 (header, YoutubeDLCookieJar
+      REAL con carga local), T31 (tempfile limpiado). SQLite :memory: + StaticPool; nunca entorno
+      real (T69).
+    verify: "uv run pytest tests/crypto/test_fernet.py tests/cookies/test_cookie_parser.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "crypto"
+        - "cookies"
+        - "unit"
