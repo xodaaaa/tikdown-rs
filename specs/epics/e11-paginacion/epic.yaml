@@ -1,0 +1,11 @@
+# epic.yaml — e11-paginacion
+epic_id: e11
+slug: paginacion
+title: "Paginación en /list del bot (botones inline ◀️/▶️)"
+status: planned
+scope_ref: "EPIC-PAGINACION"
+stories:
+  - id: e11s01
+    title: "Paginación /list con botones inline (T38, §6.3, F-18)"
+    bcps: 5
+    delta: ADDED

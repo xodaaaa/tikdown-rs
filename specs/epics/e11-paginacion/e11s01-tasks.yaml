@@ -1,0 +1,82 @@
+# e11s01-tasks.yaml
+story_id: e11s01
+title: "Paginación /list con botones inline (T38, §6.3, F-18)"
+status: failing
+bcps: 5
+risk: P1
+context: domain
+tasks:
+  - id: 1
+    description: >-
+      handlers.py: render_list_page(accounts, page=0, page_size=5) — LÓGICA PURA de paginación
+      (§6.4): pagina la lista de cuentas en páginas de page_size (default 5), devuelve
+      (texto_paginado, page, total_pages). Texto: "@username (mode, paused)" por línea, escape
+      HTML (_esc). Si page fuera de rango → clamp. Total pages = ceil(len/page_size). Si lista
+      vacía → "No hay cuentas". La lógica NO toca la red ni PTB — testeable puro.
+    verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "pagination"
+  - id: 2
+    description: >-
+      handlers.py: build_list_keyboard(page, total_pages) — botones inline ◀️ Anterior / Siguiente
+      ▶️ con callback_data COMPACTO (T38, <= 64 bytes): "listp:{ts}:{page}". El timestamp embebido
+      da expiración REAL de 60s (validado en callback). Botón deshabilitado si no hay página
+      anterior/siguiente. Encoding presupuestado: acción corta 'listp' + epoch + página.
+    verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "pagination"
+        - "t38"
+  - id: 3
+    description: >-
+      bot.py: registrar CallbackQueryHandler para 'listp:' — en el callback: (a) authz doble
+      (§6.3/F-18, chat + user, tolera sin chat); (b) throttle 1 comando/2s por chat (también en
+      callbacks, F-18); (c) query.answer() para cerrar el spinner; (d) validar expiración
+      (callback_expired, 60s) → mensaje "Botón expirado"; (e) parsear page, renderizar nueva
+      página + editar mensaje. El handler se registra en TelegramBot.start().
+    verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "callback"
+  - id: 4
+    description: >-
+      bot.py + handlers.py: throttle de 2s por chat_id también en callbacks (F-18) — un
+      per-chat limiter (dict chat_id → last_callback_ts) con window 2s; si el chat ya usó un
+      comando/callback en los últimos 2s → rechazar el callback (answer "espera 2s") sin
+      procesar. El throttle es por chat (no global), compartido entre comandos y callbacks.
+    verify: "uv run pytest tests/telegram/test_list_pagination.py -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "throttle"
+  - id: 5
+    description: >-
+      Tests (F.I.R.S.T., §14): test_list_pagination.py — render_list_page (clamp, total_pages,
+      vacío, escape), build_list_keyboard (T38 <= 64 bytes, botones deshabilitados), callback
+      handler (authz F-18 sin chat, throttle 2s, expiración 60s, edición con nueva página),
+      integración con services/accounts.list_accounts (:memory: + StaticPool, T69). Mocks de
+      CallbackQuery/Message; nunca red real (T69).
+    verify: "uv run pytest tests/telegram/ -q"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "telegram"
+        - "unit"
