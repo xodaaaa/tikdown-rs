@@ -1,0 +1,43 @@
+story_id: e08s02
+verified_at: "2026-08-28T12:00:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Salida: ASCII (L-A5), --json, barra (T3), CSV sanitizado (T49)"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 174
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T11:59:00Z"
+    note: "174 passed"
+  manual:
+    steps:
+      - step: "Marcadores ASCII (L-A5)"
+        expected: "OK/ERROR/-/!, todos <128"
+        actual: "OK"
+        passed: true
+      - step: "--json"
+        expected: "JSON serializable"
+        actual: "OK"
+        passed: true
+      - step: "Barra T3 render"
+        expected: "10/20 ok=8 fail=1 (campos no colisionantes)"
+        actual: "OK"
+        passed: true
+      - step: "CSV sanitizado (T49)"
+        expected: "=cmd() → '=cmd()"
+        actual: "OK"
+        passed: true
+gaps:
+  closed: true

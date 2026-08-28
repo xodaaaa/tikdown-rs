@@ -1,13 +1,65 @@
 # e08s02-tasks.yaml
 story_id: e08s02
 title: "Salida rich (--json, ASCII puro, marcadores)"
-status: todo
+status: passing
 bcps: 6
+risk: P1
+context: infra
 tasks:
-  - id: e08s02-t01
+  - id: 1
     description: >-
-      Salida rica para humanos y --json para scripting/bot (§3). Marcadores ASCII puros (OK/ERROR,
-      '-', '!') — NUNCA glifos Unicode (✓✗⚠ etc., revientan en Windows legacy, L-A5). Export de
-      videos sin wrap ni markup de Rich (console.print(markup=False, soft_wrap=True), L-A6).
+      cli/output.py (o en common): helpers de salida — rich para humanos + --json para
+      scripting/bot (§3). Marcadores ASCII puros (OK/ERROR, '-', '!') — NUNCA glifos Unicode
+      (✓✗⚠ etc., revientan en Windows legacy, L-A5). Tests que asertan headers ASCII y smoke con
+      salida piped.
     verify: "uv run pytest tests/cli/test_output.py -q"
-    status: todo
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "cli"
+        - "output"
+  - id: 2
+    description: >-
+      Barras de progreso con rich.progress (T3): campos propios con {task.fields[clave]} (corchetes,
+      NUNCA {task.fields.clave} que lanza AttributeError en el primer render); nombres propios NO
+      colisionantes (procesados, correctos, fallidos, esperados — nunca total/completed que mutan la
+      barra real). Test de RENDER con datos simulados completos (no solo construir el objeto).
+    verify: "uv run pytest tests/cli/test_output.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "cli"
+        - "progress"
+  - id: 3
+    description: >-
+      services/export.py + cli/videos.py: videos export --format json|csv — csv.writer de la stdlib
+      (quoting RFC 4180) + sanitización lstrip(" \t\r\n\x0b\x0c") antes del chequeo de operadores
+      '= + - @' (T49/F-11, OWASP/CWE-1236). Export sale con console.print(markup=False,
+      soft_wrap=True) (L-A6: Rich envuelve a 80 cols y corrompe JSON/CSV). videos last [N], videos
+      integrity [username] (§3).
+    verify: "uv run pytest tests/export/test_export.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "videos"
+        - "export"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_output.py — ASCII puro (L-A5, smoke piped), --json, T3 (render
+      de barra con datos simulados; fields[clave]; nombres no colisionantes). test_export.py — CSV
+      sanitizado T49 (dato '=cmd' → prefijo seguro), RFC 4180, sin wrap L-A6. SQLite :memory: +
+      StaticPool; nunca entorno real (T69).
+    verify: "uv run pytest tests/cli/ tests/export/ -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "cli"
+        - "unit"
