@@ -171,6 +171,8 @@ class YtDlpEngine:
         target = self._next_target()
         params = self._ydl_params(target, "best", "%(id)s.%(ext)s")
         params["download"] = False
+        params["flat_playlist"] = True  # listar URLs sin resolver (T20: el backfill
+        # descarga cada vídeo después con download())
         params["playlistend"] = 50  # límite de listado (ponytail: suficiente para backfill)
         url = f"https://www.tiktok.com/@{username}"
 
