@@ -4,17 +4,17 @@ workflow_mode: solo-git
 session:
   started_at: 2026-08-27T19:40:00Z
   active_flow: null
-  active_epic: null
-  active_story: null
+  active_epic: e01
+  active_story: e01s02
   active_bug: null
 epic_cycle: {}
 metrics:
-  story_start: null
+  story_start: "2026-08-27T20:15:00Z"
   story_end: null
   cycle_minutes: null
   bcp_per_hour: null
 handoff:
-  next_skill: survey-context
+  next_skill: plan-work
   plan_ready: true
 release:
   last_tag: null

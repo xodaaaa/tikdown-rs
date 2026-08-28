@@ -1,0 +1,43 @@
+story_id: e01s02
+verified_at: "2026-08-27T20:30:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Cold-start: Settings importable sin estado previo"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 8
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-27T20:28:00Z"
+    note: "Single contiguous run — 8 passed"
+  manual:
+    steps:
+      - step: "Config válida arranca"
+        expected: "validate_for_daemon() no lanza"
+        actual: "OK: config válida no lanza"
+        passed: true
+      - step: "Fail-fast commands sin chat_id"
+        expected: "ConfigurationError"
+        actual: "OK: lanzó ConfigurationError"
+        passed: true
+      - step: "Fail-fast cooldown MAX<MIN"
+        expected: "ConfigurationError"
+        actual: "OK: lanzó ConfigurationError"
+        passed: true
+      - step: "Rutas derivan de data_dir"
+        expected: "videos_root/outtmpl bajo data_dir"
+        actual: "OK: \\tmp\\td\\videos y outtmpl derivados"
+        passed: true
+gaps:
+  closed: true
