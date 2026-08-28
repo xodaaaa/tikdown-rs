@@ -1,19 +1,62 @@
 # e03s02-tasks.yaml
 story_id: e03s02
 title: "Ciclo de monitor (descubrimiento de vídeos nuevos)"
-status: todo
+status: passing
 bcps: 8
+risk: P0
+context: domain
 tasks:
-  - id: e03s02-t01
+  - id: 1
     description: >-
-      services/monitor: ciclo por intervalo (MONITOR_INTERVAL_SECONDS); cuentas en mode=monitor y no
-      pausadas; throttle last_check_at 30s; descubre vídeos nuevos (yt-dlp vía to_thread); encola
-      descargas al motor; notificación por descarga si notify_on_download. El monitor arranca siempre
-      detenido; start/stop escriben monitor_running en daemon_state y el heartbeat lo aplica (T60:
-      accounts add NO arranca el monitor global).
+      services/monitor.py: helper _should_check(account, now) con throttle de 30s (L-G1) —
+      last_check_at=NULL → SIEMPRE se comprueba; last_check_at < 30s → se salta. Una cuenta recién
+      añadida sin marca NUNCA debe saltarse (L-G1: tratar NULL como 0s era el bug).
     verify: "uv run pytest tests/monitor/test_monitor.py -q"
-    status: todo
-  - id: e03s02-t02
-    description: "Comandos CLI monitor start/stop (requieren daemon vivo) + integración con el ciclo del daemon."
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "monitor"
+        - "services"
+  - id: 2
+    description: >-
+      services/monitor.py: run_monitor_cycle() — consulta cuentas mode=monitor y no pausadas; aplica
+      _should_check; descubre vídeos nuevos (yt-dlp vía to_thread); encola descargas al motor; NO
+      arranca backfill (§10); notifica por descarga si notify_on_download (L-G2: canal síncrono, no
+      envolver en async). El monitor arranca SIEMPRE detenido (§5.1/T60).
+    verify: "uv run pytest tests/monitor/test_monitor.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "monitor"
+        - "services"
+  - id: 3
+    description: >-
+      cli/monitor.py: monitor start/stop — escriben monitor_running en daemon_state (helpers T37 con
+      commit interno); requieren daemon vivo (R1); el heartbeat del daemon aplica el cambio en
+      caliente. accounts check también respeta el throttle (T20/L-G1).
     verify: "uv run pytest tests/monitor/test_monitor_cli.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "monitor"
+        - "cli"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): tests/monitor/test_monitor.py — L-G1 (NULL comprueba, <30s skip,
+      ==30s boundary), pausadas skip, mode history skip, notifica (L-G2), no arranca backfill (§10).
+      tests/monitor/test_monitor_cli.py — start/stop escriben monitor_running. SQLite :memory: +
+      StaticPool; mocks; nunca entorno real (T69).
+    verify: "uv run pytest tests/monitor/test_monitor.py tests/monitor/test_monitor_cli.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "monitor"
+        - "unit"
