@@ -42,9 +42,11 @@ def build_callback_data(action: str, payload: str, timestamp: int | None = None)
     return f"{action}:{ts}:{payload}"
 
 
-def callback_expired(timestamp: int, max_age: int = _CALLBACK_MAX_AGE) -> bool:
-    """¿El botón expiró? (timestamp embebido validado, 60s)."""
-    return (int(time.time()) - timestamp) > max_age
+def callback_expired(
+    timestamp: int, max_age: int = _CALLBACK_MAX_AGE, now: int | None = None
+) -> bool:
+    """¿El botón expiró? (timestamp embebido validado, 60s). now inyectable (F.I.R.S.T.)."""
+    return (int(now if now is not None else time.time()) - timestamp) > max_age
 
 
 class TelegramBot:
@@ -68,6 +70,7 @@ class TelegramBot:
         self.on_event = on_event
         self.owns_engine = owns_engine  # T26: decide si dispone el engine
         self._app: Application | None = None
+        self._last_cmd_ts: dict = {}  # throttle 2s por chat (F-18)
 
     async def start(self) -> None:
         """Arranca el bot con el ciclo MANUAL (T10)."""
@@ -80,11 +83,107 @@ class TelegramBot:
             .rate_limiter(AIORateLimiter(max_retries=3))  # T41
             .build()
         )
+        # Registrar handlers (e11s01): /list + callback de paginación
+        self._register_handlers(app)
         await app.initialize()
         await app.start()
         await app.updater.start_polling(timeout=25)  # T10: NUNCA run_polling
         self._app = app
         LOG.info("bot.started")
+
+    def _register_handlers(self, app) -> None:
+        """Registra CommandHandler(/list) y CallbackQueryHandler(listp:) (e11s01)."""
+        from telegram.ext import CallbackQueryHandler, CommandHandler
+
+        from tikdown_rs.daemon.telegram.handlers import (
+            build_list_keyboard,
+            handle_list_callback,
+            parse_list_callback,
+            render_list_page,
+        )
+        from tikdown_rs.services import accounts as accounts_svc
+
+        async def _cmd_list(update, context) -> None:  # noqa: ANN001
+            """Handler de /list: pagina cuentas + teclado inline."""
+            chat_id = str(update.effective_chat.id) if update.effective_chat else None
+            user_id = str(update.effective_user.id) if update.effective_user else None
+            if not self.settings or not is_authorized(self.settings, chat_id, user_id):
+                LOG.warning("bot.unauthorized_attempt", extra={"chat_id": chat_id})
+                return
+            # Throttle 1 comando/2s por chat (F-18, también en comandos)
+            now = int(time.time())
+            last = self._last_cmd_ts.get(chat_id)
+            if last is not None and (now - last) < 2:
+                return
+            self._last_cmd_ts[chat_id] = now
+            # Orquesta services/accounts (paridad funcional, §6.4)
+            rows = []
+            if self.engine is not None:
+                from sqlalchemy.ext.asyncio import async_sessionmaker
+
+                maker = async_sessionmaker(self.engine, expire_on_commit=False)
+                async with maker() as session:
+                    accs = await accounts_svc.list_accounts(session)
+                    rows = [
+                        {
+                            "username": a.username,
+                            "mode": a.mode,
+                            "paused": a.paused,
+                        }
+                        for a in accs
+                    ]
+            text, page_eff, total = render_list_page(rows, page=0)
+            kb = build_list_keyboard(page_eff, total)
+            await update.effective_message.reply_text(text, reply_markup=kb)
+
+        async def _cb_list(update, context) -> None:  # noqa: ANN001
+            """Callback de paginación: authz → throttle → expiry → editar."""
+            query = update.callback_query
+            if query is None:
+                return
+            chat_id = str(query.message.chat.id) if query.message else None
+            user_id = str(query.from_user.id) if query.from_user else None
+            cb_data = query.data
+            # Reconstruir accounts desde services
+            rows = []
+            if self.engine is not None:
+                from sqlalchemy.ext.asyncio import async_sessionmaker
+
+                maker = async_sessionmaker(self.engine, expire_on_commit=False)
+                async with maker() as session:
+                    accs = await accounts_svc.list_accounts(session)
+                    rows = [
+                        {"username": a.username, "mode": a.mode, "paused": a.paused} for a in accs
+                    ]
+            ok = await handle_list_callback(
+                query=query,
+                callback_data=cb_data,
+                accounts=rows,
+                chat_id=chat_id,
+                user_id=user_id,
+                settings=self.settings,
+                last_callback_ts=self._last_cmd_ts,
+            )
+            # Cerrar spinner del botón (F-18)
+            import contextlib
+
+            with contextlib.suppress(Exception):  # pragma: no cover
+                await query.answer()
+            if not ok:
+                return
+            parsed = parse_list_callback(cb_data)
+            if parsed is None:
+                return
+            page, _ts = parsed
+            text, page_eff, total = render_list_page(rows, page=page)
+            kb = build_list_keyboard(page_eff, total)
+            try:
+                await query.edit_message_text(text, reply_markup=kb)
+            except Exception:  # pragma: no cover
+                LOG.warning("bot.callback_edit_error", exc_info=True)
+
+        app.add_handler(CommandHandler("list", _cmd_list))
+        app.add_handler(CallbackQueryHandler(_cb_list, pattern=r"^listp:"))
 
     async def stop(self) -> None:
         """Apagado del bot (T10): updater.stop → stop → shutdown."""

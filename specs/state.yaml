@@ -15,8 +15,11 @@ metrics:
   cycle_minutes: null
   bcp_per_hour: null
 handoff:
-  next_skill: kickoff-branch
+  next_skill: develop-tdd
   plan_ready: true
+git:
+  branch: feat/e11-paginacion-list
+  worktree: null
 git:
   branch: master
   worktree: null
