@@ -1,0 +1,65 @@
+# verify-work evidence — e14s01 (Logs rotados)
+story_id: e14s01
+verified_at: "2026-08-28T14:00:00Z"
+verifier: verify-work
+branch: feat/e14-logs-rotados
+risk: P2
+phases:
+  smoke:
+    passed: true
+    note: "uv run tikdown-rs --version → tikdown-rs 0.1.0 (CLI intacta)"
+  build:
+    passed: true
+    note: "N/A — sin build nuevo (Python)"
+  typecheck:
+    passed: true
+    note: "N/A — sin typecheck configurado"
+  lint:
+    passed: true
+    command: "uv run ruff check . && uv run ruff format --check ."
+  tests:
+    passed: true
+    count: 238
+    coverage: "63%"
+  terminal_verdict:
+    command: "uv run pytest --cov=tikdown_rs --cov-report=term -q"
+    exit_code: 0
+    captured_at: "2026-08-28T14:00:00Z"
+    note: "238 passed, 1 warning — single contiguous run"
+  tasks:
+    - id: 1
+      status: passing
+      verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
+      evidence: PASS (8 tests)
+    - id: 2
+      status: passing
+      verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
+      evidence: PASS (RotatingFileHandler/TimedRotatingFileHandler)
+    - id: 3
+      status: passing
+      verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
+      evidence: PASS (run.py pasa campos; T72)
+    - id: 4
+      status: passing
+      verify: "uv run pytest tests/logging/ -q"
+      evidence: PASS (11 tests)
+  manual:
+    steps:
+      - step: "Revisar Settings LOG_FILE_*"
+        expected: "path, max_bytes (10MB), backup_count (7), when"
+        actual: "implementado con defaults correctos"
+        passed: true
+      - step: "Revisar setup_logging"
+        expected: "RotatingFileHandler (size) o TimedRotatingFileHandler (midnight), JSON"
+        actual: "implementado; stdout + archivo"
+        passed: true
+      - step: "Revisar run.py T72"
+        expected: "reaplicación usa la config del archivo"
+        actual: "setup_logging con campos de Settings"
+        passed: true
+  gaps:
+    closed: true
+    notes:
+      - "JSON a stdout se mantiene (principio 8); el archivo es adicional"
+      - "T72: la reaplicación tras migraciones respeta log_file_* (desde Settings)"
+      - "Directorio padre del log se crea si no existe"
