@@ -173,6 +173,7 @@ class YtDlpEngine:
         params["download"] = False
         params["flat_playlist"] = True  # listar URLs sin resolver (T20: el backfill
         # descarga cada vídeo después con download())
+        params["ignoreerrors"] = True  # T5: entradas rotas/bloqueadas no abortan el listado
         params["playlistend"] = 50  # límite de listado (ponytail: suficiente para backfill)
         url = f"https://www.tiktok.com/@{username}"
 
