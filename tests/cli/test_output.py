@@ -1,4 +1,5 @@
 """e08s02 — salida: ASCII puro (L-A5), --json, barra (T3)."""
+
 # story: e08s02
 from tikdown_rs.cli.output import ascii_markers, to_json
 

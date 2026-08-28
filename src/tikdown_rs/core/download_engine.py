@@ -83,9 +83,7 @@ DEFAULT_FORMAT = (
     "best"
 )
 # Formato mejorado para el reintento ante solo-audio (§4.2)
-RETRY_FORMAT = (
-    "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
-)
+RETRY_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
 
 
 class YtDlpEngine:
@@ -152,7 +150,8 @@ class YtDlpEngine:
 
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(_run), timeout=self._timeout  # T23
+                asyncio.to_thread(_run),
+                timeout=self._timeout,  # T23
             )
         except TimeoutError:
             LOG.warning("engine.timeout (zombie thread, T23/T66)", extra={"url": url})

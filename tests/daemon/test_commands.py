@@ -1,4 +1,5 @@
 """e02s04 — daemon status/healthcheck/stop: T19, T50, R10, T37."""
+
 # story: e02s04
 from datetime import UTC, datetime
 
@@ -57,7 +58,7 @@ async def test_healthcheck_frescura_t50(maker):
 async def test_healthcheck_heartbeat_viejo_falla(maker):
     """T50: heartbeat viejo (> 3x intervalo) → no fresco (healthcheck fail)."""
     settings = Settings(_env_file=None, heartbeat_interval_seconds=10)
-    old = (datetime.now(UTC).timestamp() - 100)  # 100s > 30s
+    old = datetime.now(UTC).timestamp() - 100  # 100s > 30s
     old_iso = datetime.fromtimestamp(old, tz=UTC).isoformat()
     await _seed_daemon(maker, heartbeat_ts=old_iso)
     assert await _heartbeat_fresh(settings, maker) is False
@@ -69,6 +70,7 @@ async def test_healthcheck_sin_migrar_r10():
     # No llamar apply_migrations aquí — el healthcheck solo lee el heartbeat.
     # Verificar que la función de healthcheck no existe en migrations (no migra).
     import tikdown_rs.core.migrations as mig
+
     assert not hasattr(mig, "healthcheck")
 
 

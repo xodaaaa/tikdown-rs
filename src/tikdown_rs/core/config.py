@@ -89,13 +89,9 @@ class Settings(BaseSettings):
             raise ConfigurationError(
                 "ENABLE_EXTERNAL_NOTIFICATIONS=true requiere TELEGRAM_BOT_TOKEN"
             )
-        if (
-            self.global_download_cooldown_max_seconds
-            < self.global_download_cooldown_min_seconds
-        ):
+        if self.global_download_cooldown_max_seconds < self.global_download_cooldown_min_seconds:
             raise ConfigurationError(
-                "GLOBAL_DOWNLOAD_COOLDOWN_MAX_SECONDS < "
-                "GLOBAL_DOWNLOAD_COOLDOWN_MIN_SECONDS (T25)"
+                "GLOBAL_DOWNLOAD_COOLDOWN_MAX_SECONDS < GLOBAL_DOWNLOAD_COOLDOWN_MIN_SECONDS (T25)"
             )
         if self.heartbeat_interval_seconds <= 0:
             raise ConfigurationError(

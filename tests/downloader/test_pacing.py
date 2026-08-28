@@ -1,4 +1,5 @@
 """e04s01 — cooldown global cross-proceso: T22, T62, L-C6, L-C7."""
+
 # story: e04s01
 import random
 

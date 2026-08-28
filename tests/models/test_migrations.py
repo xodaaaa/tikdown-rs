@@ -1,4 +1,5 @@
 """e01s04 — Migraciones idempotentes (T29/T68/T70)."""
+
 # story: e01s04
 import pytest
 
@@ -18,6 +19,7 @@ def test_find_alembic_ini_error_si_ninguno(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # cwd sin alembic.ini
     # Simular que el módulo está en site-packages sin alembic.ini cerca
     import tikdown_rs.core.migrations as mig
+
     monkeypatch.setattr(mig, "__file__", str(tmp_path / "migrations.py"))
     with pytest.raises(FileNotFoundError):
         mig._find_alembic_ini()
@@ -30,6 +32,7 @@ def test_apply_migrations_idempotente(tmp_path):
     apply_migrations(url)  # primera vez
     apply_migrations(url)  # idempotente
     import sqlite3
+
     conn = sqlite3.connect(db_file)
     tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
     conn.close()
@@ -45,6 +48,7 @@ async def test_apply_migrations_desde_loop_async(tmp_path):
     url = f"sqlite+aiosqlite:///{db_file}"
     await asyncio.to_thread(apply_migrations, url)
     import sqlite3
+
     conn = sqlite3.connect(db_file)
     tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")]
     conn.close()

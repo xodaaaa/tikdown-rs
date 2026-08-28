@@ -26,8 +26,9 @@ async def test_import_cifra_y_guarda(maker):
     session_factory, tmp = maker
     key = load_or_create_fernet_key(tmp / "fernet.key")
     src = tmp / "cookies.txt"
-    src.write_text(f"{NETSCAPE_HEADER}\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc123\n",
-                   encoding="utf-8")
+    src.write_text(
+        f"{NETSCAPE_HEADER}\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc123\n", encoding="utf-8"
+    )
 
     async with session_factory() as s:
         await cookies.add(s, src, fernet_key=key)
@@ -43,8 +44,9 @@ async def test_import_keep_source_f15(maker):
     session_factory, tmp = maker
     key = load_or_create_fernet_key(tmp / "fernet.key")
     src = tmp / "cookies.txt"
-    src.write_text(f"{NETSCAPE_HEADER}\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n",
-                   encoding="utf-8")
+    src.write_text(
+        f"{NETSCAPE_HEADER}\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n", encoding="utf-8"
+    )
 
     async with session_factory() as s:
         await cookies.add(s, src, fernet_key=key, keep_source=True)
@@ -56,8 +58,9 @@ async def test_import_borrado_best_effort_t14(maker):
     session_factory, tmp = maker
     key = load_or_create_fernet_key(tmp / "fernet.key")
     src = tmp / "cookies.txt"
-    src.write_text(f"{NETSCAPE_HEADER}\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n",
-                   encoding="utf-8")
+    src.write_text(
+        f"{NETSCAPE_HEADER}\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n", encoding="utf-8"
+    )
 
     async with session_factory() as s:
         # Borrado falla (archivo bloqueado) — la importación sigue siendo éxito

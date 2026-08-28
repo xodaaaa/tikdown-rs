@@ -27,9 +27,10 @@ async def test_slot_adquisicion_no_bloqueante():
     """F-10/§10: slot libre → adquiere (True); ocupado → False sin bloquear."""
     from tikdown_rs.services.backfill import acquire_slot
 
-    assert await acquire_slot() is True   # libre → adquirido
+    assert await acquire_slot() is True  # libre → adquirido
     assert await acquire_slot() is False  # ocupado → no bloquea
     from tikdown_rs.services.backfill import _release_slot
+
     _release_slot()
 
 

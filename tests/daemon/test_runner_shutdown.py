@@ -1,4 +1,5 @@
 """e02s03 — apagado limpio: L-B1, drenaje (T9/T28), bot manual (T10)."""
+
 # story: e02s03
 import asyncio
 

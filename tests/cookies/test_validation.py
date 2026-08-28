@@ -1,4 +1,5 @@
 """e05s02 — sonda (T57/T74/R12), get_working_cookie (L-E3), sesiones (T32)."""
+
 # story: e05s02
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -49,10 +50,12 @@ async def test_get_working_cookie_inconclusive_conserva_l_e3(maker):
 
     key = Fernet.generate_key().decode()
     async with maker() as s:
-        s.add(Cookie(
-            encrypted_blob=encrypt_cookie(b"blob-valid", key),
-            validation_state="valid",
-        ))
+        s.add(
+            Cookie(
+                encrypted_blob=encrypt_cookie(b"blob-valid", key),
+                validation_state="valid",
+            )
+        )
         await s.commit()
 
     # El validador devuelve inconclusive → la cookie se conserva
@@ -61,7 +64,9 @@ async def test_get_working_cookie_inconclusive_conserva_l_e3(maker):
 
     async with maker() as s:
         cookie = await get_working_cookie(
-            s, validate_fn=_fake_validate, fernet_key=key,
+            s,
+            validate_fn=_fake_validate,
+            fernet_key=key,
         )
         # L-E3: inconclusive no rechaza → devuelve la cookie
         assert cookie is not None
@@ -77,7 +82,8 @@ async def test_get_working_cookie_sin_validas_none(maker):
 
     async with maker() as s:
         cookie = await get_working_cookie(
-            s, validate_fn=lambda b: "invalid",
+            s,
+            validate_fn=lambda b: "invalid",
             fernet_key=Fernet.generate_key().decode(),
         )
         assert cookie is None

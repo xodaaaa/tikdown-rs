@@ -1,4 +1,5 @@
 """e02s04 — heartbeat persistido + contención con ventana rotativa (§5.8)."""
+
 # story: e02s04
 import time
 

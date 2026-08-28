@@ -1,4 +1,5 @@
 """e01s04 — Modelos SQLAlchemy async (§2)."""
+
 # story: e01s04
 import pytest
 from sqlalchemy import select

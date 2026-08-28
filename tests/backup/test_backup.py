@@ -1,4 +1,5 @@
 """e09s02 — backup: VACUUM INTO (F-21b), retención (T14), error limpio."""
+
 # story: e09s02
 import sqlite3
 from pathlib import Path

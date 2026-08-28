@@ -1,4 +1,5 @@
 """e08s02 — export CSV: sanitización (T49), RFC 4180, sin wrap (L-A6)."""
+
 # story: e08s02
 from tikdown_rs.services.export import sanitize_csv_field, to_csv
 

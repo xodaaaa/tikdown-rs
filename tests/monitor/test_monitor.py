@@ -1,4 +1,5 @@
 """e03s02 — ciclo de monitor: throttle L-G1, mode, paused, §10."""
+
 # story: e03s02
 from datetime import UTC, datetime, timedelta
 

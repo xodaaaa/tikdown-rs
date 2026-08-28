@@ -1,4 +1,5 @@
 """e07s02 — disco: ENOSPC (T45), job (T65), reanudación, --resume (T69 mock)."""
+
 # story: e07s02
 import pytest
 from sqlalchemy import select

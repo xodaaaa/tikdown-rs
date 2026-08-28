@@ -1,4 +1,5 @@
 """e09s01 — integridad: verify (tamaño/SHA/ffprobe), T13 (--), T55 (slideshow)."""
+
 # story: e09s01
 from pathlib import Path
 

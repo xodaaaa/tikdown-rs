@@ -1,4 +1,5 @@
 """e07s03 — circuit breaker por cuenta (§4.4): auth → paused+needs_review."""
+
 # story: e07s03
 import pytest
 from sqlalchemy import select

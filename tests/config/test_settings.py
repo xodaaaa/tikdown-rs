@@ -1,4 +1,5 @@
 """e01s02 — Settings (pydantic-settings) con defaults y derivación de rutas."""
+
 # story: e01s02
 from pathlib import Path
 

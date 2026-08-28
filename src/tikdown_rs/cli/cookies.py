@@ -26,9 +26,7 @@ def _db_url(settings: Settings) -> str:
 @app.command("add")
 def add(
     path: str = typer.Argument(..., help="Ruta a cookies.txt/.json"),
-    keep_source: bool = typer.Option(
-        False, "--keep-source", help="Conservar fuente (F-15)"
-    ),
+    keep_source: bool = typer.Option(False, "--keep-source", help="Conservar fuente (F-15)"),
 ) -> None:
     """Importa cookies (cifra y guarda)."""
     settings = Settings(_env_file=None)
@@ -75,8 +73,10 @@ def list_cookies() -> None:
             print("(sin cookies)")
             return
         for c in rows:
-            print(f"#{c.id} {c.label or '-'} state={c.validation_state} "
-                  f"exp={c.expiration_date or '-'}")
+            print(
+                f"#{c.id} {c.label or '-'} state={c.validation_state} "
+                f"exp={c.expiration_date or '-'}"
+            )
 
     asyncio.run(_go())
 

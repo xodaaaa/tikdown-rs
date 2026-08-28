@@ -34,8 +34,7 @@ class NotificationService:
         self.enabled = enabled
         self.bot = bot  # ExtBot con rate limiter (T41)
 
-    async def send_event(self, event: str, payload: dict | None = None,
-                         spool_fn=None) -> bool:
+    async def send_event(self, event: str, payload: dict | None = None, spool_fn=None) -> bool:
         """Envía un evento (best-effort, L-I1). Ante fallo → spool (T42)."""
         if not self.enabled:
             LOG.debug("notifications.noop", extra={"event": event})

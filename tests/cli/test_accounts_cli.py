@@ -1,4 +1,5 @@
 """e03s01 — cli/accounts.py orquesta services/accounts (§3)."""
+
 # story: e03s01
 from tikdown_rs.cli.accounts import app
 

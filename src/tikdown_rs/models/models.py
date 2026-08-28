@@ -38,9 +38,7 @@ class Base(DeclarativeBase):
 class MonitoredAccount(Base):
     __tablename__ = "monitored_accounts"
     __table_args__ = (
-        CheckConstraint(
-            "mode IN ('history', 'monitor')", name="ck_accounts_mode"
-        ),
+        CheckConstraint("mode IN ('history', 'monitor')", name="ck_accounts_mode"),
         CheckConstraint(
             "backfill_status IN ('idle','queued','backfilling','paused',"
             "'completed','failed','cancelled')",
@@ -131,9 +129,7 @@ class Cookie(Base):
 
 class DaemonState(Base):
     __tablename__ = "daemon_state"
-    __table_args__ = (
-        CheckConstraint("id = 1", name="ck_daemon_state_singleton"),
-    )
+    __table_args__ = (CheckConstraint("id = 1", name="ck_daemon_state_singleton"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     monitor_running: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -151,9 +147,7 @@ class DaemonState(Base):
 
 class DownloadPacingState(Base):
     __tablename__ = "download_pacing_state"
-    __table_args__ = (
-        CheckConstraint("id = 1", name="ck_download_pacing_singleton"),
-    )
+    __table_args__ = (CheckConstraint("id = 1", name="ck_download_pacing_singleton"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     next_allowed_at: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -161,9 +155,7 @@ class DownloadPacingState(Base):
 
 class DownloadArchive(Base):
     __tablename__ = "download_archive"
-    __table_args__ = (
-        UniqueConstraint("tiktok_video_id", name="uq_download_archive_video"),
-    )
+    __table_args__ = (UniqueConstraint("tiktok_video_id", name="uq_download_archive_video"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tiktok_video_id: Mapped[str] = mapped_column(String(64), nullable=False)

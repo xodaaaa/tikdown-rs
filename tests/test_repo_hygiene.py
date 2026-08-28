@@ -1,4 +1,5 @@
 """e01s05 — Higiene de repo: .dockerignore (T15/F-04), .gitignore (§0.1), README."""
+
 # story: e01s05
 from pathlib import Path
 
@@ -10,13 +11,23 @@ def test_dockerignore_cubre_secretos_t15():
     p = ROOT / ".dockerignore"
     assert p.exists(), ".dockerignore debe existir"
     content = p.read_text(encoding="utf-8")
-    secrets = [".env", "fernet.key", "cookies", "*.db", ".git", ".venv",
-               "__pycache__", "data/", "videos/"]
+    secrets = [
+        ".env",
+        "fernet.key",
+        "cookies",
+        "*.db",
+        ".git",
+        ".venv",
+        "__pycache__",
+        "data/",
+        "videos/",
+    ]
     for secret in secrets:
         assert secret in content, f".dockerignore debe cubrir {secret}"
     # F-04: README.md NO debe ser un patrón de exclusión (incluido en la imagen)
     exclusion_lines = [
-        line.strip() for line in content.splitlines()
+        line.strip()
+        for line in content.splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
     assert "README.md" not in exclusion_lines, "README.md no debe excluirse (F-04)"
@@ -27,8 +38,17 @@ def test_gitignore_cubre_secretos_01():
     p = ROOT / ".gitignore"
     assert p.exists()
     content = p.read_text(encoding="utf-8")
-    items = [".env", "*.db", "fernet.key", "cookies", ".venv", "__pycache__",
-             "data/", "videos/", ".migrate.lock"]
+    items = [
+        ".env",
+        "*.db",
+        "fernet.key",
+        "cookies",
+        ".venv",
+        "__pycache__",
+        "data/",
+        "videos/",
+        ".migrate.lock",
+    ]
     for item in items:
         assert item in content, f".gitignore debe cubrir {item}"
 

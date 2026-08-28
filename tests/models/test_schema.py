@@ -1,4 +1,5 @@
 """e01s04 — Esquema, PRAGMAs, directorio padre y singleton idempotente."""
+
 # story: e01s04
 import asyncio
 

@@ -15,8 +15,18 @@ LOG = logging.getLogger("tikdown_rs.telegram.handlers")
 
 # §6.4: comandos planos de paridad funcional con la CLI
 COMMANDS = {
-    "/stats", "/disk", "/list", "/last", "/cookies", "/check",
-    "/add", "/pause", "/resume", "/notify", "/monitor", "/backfill",
+    "/stats",
+    "/disk",
+    "/list",
+    "/last",
+    "/cookies",
+    "/check",
+    "/add",
+    "/pause",
+    "/resume",
+    "/notify",
+    "/monitor",
+    "/backfill",
 }
 
 

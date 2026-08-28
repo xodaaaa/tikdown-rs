@@ -73,9 +73,7 @@ def healthcheck() -> None:
             return False  # sin DB → unhealthy (R10: no migrar)
         conn = sqlite3.connect(db)
         try:
-            row = conn.execute(
-                "SELECT last_heartbeat_at FROM daemon_state WHERE id = 1"
-            ).fetchone()
+            row = conn.execute("SELECT last_heartbeat_at FROM daemon_state WHERE id = 1").fetchone()
         except sqlite3.OperationalError:
             conn.close()
             return False  # esquema ausente → unhealthy sin migrar (R10)

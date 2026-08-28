@@ -1,4 +1,5 @@
 """e02s02 — core/crypto.py: clave Fernet 0600, O_EXCL (T67), vacío (L-E2)."""
+
 # story: e02s02
 import os
 

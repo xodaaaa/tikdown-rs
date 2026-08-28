@@ -210,9 +210,7 @@ async def collect_queued_backfills(
         return []
     try:
         result = await session.execute(
-            select(MonitoredAccount).where(
-                MonitoredAccount.backfill_status == "queued"
-            )
+            select(MonitoredAccount).where(MonitoredAccount.backfill_status == "queued")
         )
         queued = list(result.scalars().all())
         outcomes: list[str] = []

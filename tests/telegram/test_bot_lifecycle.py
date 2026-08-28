@@ -1,4 +1,5 @@
 """e06s01 — ciclo de vida manual (T10), deps inyectadas (T26)."""
+
 # story: e06s01
 import inspect
 

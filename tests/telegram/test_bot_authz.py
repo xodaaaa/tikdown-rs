@@ -1,4 +1,5 @@
 """e06s01 — doble autorización (§6.3), F-18 (sin chat)."""
+
 # story: e06s01
 from tikdown_rs.core.config import Settings
 from tikdown_rs.daemon.telegram.bot import is_authorized

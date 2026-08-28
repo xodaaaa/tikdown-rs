@@ -147,8 +147,10 @@ def stats(user: str) -> None:
         async with maker() as s:
             acct = await accounts.stats(s, user)
         await engine.dispose()
-        print(f"{acct.username}: followers={acct.follower_count or '-'} "
-              f"videos={acct.video_count or '-'} backfill={acct.backfill_status}")
+        print(
+            f"{acct.username}: followers={acct.follower_count or '-'} "
+            f"videos={acct.video_count or '-'} backfill={acct.backfill_status}"
+        )
 
     _run(_go())
 

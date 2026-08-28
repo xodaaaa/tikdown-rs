@@ -36,15 +36,19 @@ def test_cursor_comparacion_estricta_menor():
 
 def test_cursor_solo_estado_terminal():
     """§10: el cursor avanza solo en estado terminal (downloaded/failed/skipped)."""
-    assert cursor_should_advance(upload_date="20260101", cursor="20260102",
-                                 status="downloaded") is True
-    assert cursor_should_advance(upload_date="20260101", cursor="20260102",
-                                 status="failed") is True
-    assert cursor_should_advance(upload_date="20260101", cursor="20260102",
-                                 status="skipped") is True
+    assert (
+        cursor_should_advance(upload_date="20260101", cursor="20260102", status="downloaded")
+        is True
+    )
+    assert cursor_should_advance(upload_date="20260101", cursor="20260102", status="failed") is True
+    assert (
+        cursor_should_advance(upload_date="20260101", cursor="20260102", status="skipped") is True
+    )
     # cancelled NO es terminal para el cursor
-    assert cursor_should_advance(upload_date="20260101", cursor="20260102",
-                                 status="cancelled") is False
+    assert (
+        cursor_should_advance(upload_date="20260101", cursor="20260102", status="cancelled")
+        is False
+    )
 
 
 def test_upload_date_ausente_fallback_lf2():
@@ -64,8 +68,9 @@ async def test_backfill_total_persistido_f09(maker):
         return {"status": "downloaded", "tiktok_video_id": "11111"}
 
     async with maker() as s:
-        await run_backfill(s, "usuario", engine=_fake_engine_download,
-                           cookies=["cookie"], feed_entries=[])
+        await run_backfill(
+            s, "usuario", engine=_fake_engine_download, cookies=["cookie"], feed_entries=[]
+        )
     async with maker() as s:
         row = (await s.execute(select(MonitoredAccount))).scalar_one()
         assert row.backfill_status in ("completed", "backfilling")

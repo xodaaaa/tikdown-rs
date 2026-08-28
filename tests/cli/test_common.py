@@ -1,4 +1,5 @@
 """e08s01 — cli/common.py: run_sync (T18), run_or_exit (F-21), prepare_invocation."""
+
 # story: e08s01
 import asyncio
 
@@ -16,6 +17,7 @@ def test_run_sync_ejecuta_corrutina_t18():
 
 def test_run_or_exit_convierte_error_f21(capsys):
     """F-21: ConfigurationError → ERROR <mensaje> + exit 1, sin traceback."""
+
     def _boom():
         raise ConfigurationError("config inválida")
 

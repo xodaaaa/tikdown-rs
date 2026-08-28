@@ -1,4 +1,5 @@
 """e06s01 — callback_data <= 64 (T38), expiración 60s, rate limiter (T41)."""
+
 # story: e06s01
 import time
 
@@ -16,7 +17,7 @@ def test_callback_expira_60s():
     """Botón con expiración real: timestamp embebido validado (60s)."""
     now = int(time.time())
     assert callback_expired(now - 30, max_age=60) is False  # reciente
-    assert callback_expired(now - 90, max_age=60) is True   # expirado
+    assert callback_expired(now - 90, max_age=60) is True  # expirado
 
 
 def test_rate_limiter_disponible_t41():

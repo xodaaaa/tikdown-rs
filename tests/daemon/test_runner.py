@@ -1,4 +1,5 @@
 """e02s03 — runner: arranque, helpers commit interno (T37), monitor detenido (T5.1)."""
+
 # story: e02s03
 import pytest
 from sqlalchemy import select
@@ -11,9 +12,7 @@ from tikdown_rs.models.models import Base, DaemonState
 
 @pytest.fixture
 async def maker():
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:", poolclass=StaticPool
-    )
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield async_sessionmaker(engine, expire_on_commit=False)

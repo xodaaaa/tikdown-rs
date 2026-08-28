@@ -1,4 +1,5 @@
 """e03s01 — services/accounts: CRUD, notify, check (T20/T60/L-G3)."""
+
 # story: e03s01
 import pytest
 from sqlalchemy import select

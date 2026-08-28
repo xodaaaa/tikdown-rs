@@ -1,4 +1,5 @@
 """e06s02 — notificaciones: clip (F-07), spool (T42/F-06), coalescing (L-I3), escape (T40/L-H7)."""
+
 # story: e06s02
 import html
 

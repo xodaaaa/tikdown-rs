@@ -1,4 +1,5 @@
 """e01s03 — Logging JSON ad-hoc (stdlib, F-20)."""
+
 # story: e01s03
 import json
 import logging

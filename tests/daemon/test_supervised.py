@@ -1,4 +1,5 @@
 """e02s01 — create_supervised_task, registro, drenaje (T1/T27/T28/T30)."""
+
 # story: e02s01
 import asyncio
 
@@ -21,6 +22,7 @@ async def test_create_supervised_task_registra_y_audita():
 
 async def test_callback_sincrono_audita_excepcion():
     """T1: una excepción en la tarea se audita (no queda silenciosa)."""
+
     async def _boom():
         raise ValueError("boom")
 
@@ -34,6 +36,7 @@ async def test_callback_sincrono_audita_excepcion():
 
 async def test_cancel_pending_tasks_drena():
     """T28: cancel_pending_tasks cancela las tareas pendientes del registro."""
+
     async def _long():
         await asyncio.sleep(60)
 
@@ -46,6 +49,7 @@ async def test_cancel_pending_tasks_drena():
 
 async def test_indice_por_id_task_no_nombre():
     """T30: dos tareas con el mismo nombre lógico no colisionan."""
+
     async def _wait():
         await asyncio.sleep(0.05)
 

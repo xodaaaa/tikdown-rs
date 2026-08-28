@@ -58,6 +58,7 @@ def disk(
 
     asyncio.run(_go())
 
+
 @app.command("backup")
 def backup() -> None:
     """Snapshot consistente en caliente de la DB (VACUUM INTO, F-21b)."""

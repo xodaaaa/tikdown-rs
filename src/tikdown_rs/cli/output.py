@@ -37,6 +37,4 @@ def render_progress_with(**fields) -> str:
         "{task.fields[procesados]}/{task.fields[esperados]} "
         "ok={task.fields[correctos]} fail={task.fields[fallidos]}"
     )
-    return template.format(
-        task=type("T", (), {"fields": dict(fields)})()
-    )
+    return template.format(task=type("T", (), {"fields": dict(fields)})())

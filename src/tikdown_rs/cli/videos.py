@@ -78,9 +78,9 @@ def last(n: int = typer.Argument(5, help="N últimos vídeos")) -> None:
         maker = async_sessionmaker(engine, expire_on_commit=False)
         async with maker() as s:
             rows = list(
-                (await s.execute(
-                    select(Video).order_by(Video.downloaded_at.desc()).limit(n)
-                )).scalars().all()
+                (await s.execute(select(Video).order_by(Video.downloaded_at.desc()).limit(n)))
+                .scalars()
+                .all()
             )
         await engine.dispose()
         for v in rows:

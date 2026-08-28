@@ -1,4 +1,5 @@
 """e04s03 — cancelación cooperativa (T21) + retry-failed (T58/T63/T64)."""
+
 # story: e04s03
 import pytest
 from sqlalchemy import select
@@ -37,8 +38,10 @@ async def test_cancel_backfill_marca_cancelled(maker):
 def test_retry_exhausted_t58():
     """T58: techo de reintentos → failed/transient + retry_exhausted."""
     video = Video(
-        tiktok_video_id="1", retry_count=5,  # == MAX_VIDEO_RETRY_COUNT
-        status="downloaded", error_category="transient",
+        tiktok_video_id="1",
+        retry_count=5,  # == MAX_VIDEO_RETRY_COUNT
+        status="downloaded",
+        error_category="transient",
     )
     assert retry_exhausted(video, max_retry=5) is True
     video2 = Video(tiktok_video_id="2", retry_count=2, status="downloaded")

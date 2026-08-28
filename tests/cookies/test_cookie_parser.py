@@ -1,4 +1,5 @@
 """e05s01 — cookie_parser: T73 (Netscape header), T31 (tempfile seguro)."""
+
 # story: e05s01
 from pathlib import Path
 
@@ -68,4 +69,5 @@ def test_parser_carga_con_ytdlp_cookiejar_real(tmp_path):
         assert cookies[0].name == "sessionid"
     except ImportError:
         import pytest
+
         pytest.skip("YoutubeDLCookieJar no disponible")

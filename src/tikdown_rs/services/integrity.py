@@ -23,8 +23,10 @@ def ffprobe_args(path: Path) -> list[str]:
     ffprobe = shutil.which("ffprobe") or "ffprobe"
     return [
         ffprobe,
-        "-v", "error",
-        "-print_format", "json",
+        "-v",
+        "error",
+        "-print_format",
+        "json",
         "-show_streams",
         "-show_format",
         "--",  # T13: la ruta va tras -- (nunca se interpreta como opción)
@@ -82,9 +84,7 @@ def verify_video(path: Path) -> dict:
             "has_video_stream": has_video,
             "duration": duration,
             "reason": (
-                None
-                if (has_video and (duration or 0) > 0)
-                else "sin pista de vídeo o duración 0"
+                None if (has_video and (duration or 0) > 0) else "sin pista de vídeo o duración 0"
             ),
         }
     except Exception as exc:  # noqa: BLE001 - ffprobe falló

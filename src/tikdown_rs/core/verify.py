@@ -43,9 +43,7 @@ def selfcheck_impersonation() -> bool:
         try:
             import curl_cffi  # noqa: F401
         except ImportError:
-            msg = (
-                "curl-cffi ausente. Instalar yt-dlp[default,curl-cffi] (T6 causa 1)."
-            )
+            msg = "curl-cffi ausente. Instalar yt-dlp[default,curl-cffi] (T6 causa 1)."
         else:
             msg = (
                 "Impersonación TLS no disponible: targets vacíos pese a curl-cffi "
@@ -66,9 +64,7 @@ def selfcheck_ffmpeg() -> bool:
     """Verifica que ffmpeg/ffprobe son ejecutables (T46, dependencia dura)."""
     missing = [name for name in ("ffmpeg", "ffprobe") if shutil.which(name) is None]
     if missing:
-        LOG.critical(
-            "selfcheck.ffmpeg_missing: %s (T46 — dependencia dura)", ", ".join(missing)
-        )
+        LOG.critical("selfcheck.ffmpeg_missing: %s (T46 — dependencia dura)", ", ".join(missing))
         raise SystemExit(1)
     LOG.info("selfcheck.ffmpeg_ok")
     return True
@@ -87,9 +83,7 @@ def _ffprobe_version() -> str | None:
     if not path:
         return None
     try:
-        out = subprocess.run(
-            [path, "-version"], capture_output=True, text=True, timeout=5
-        )
+        out = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=5)
         return out.stdout.splitlines()[0] if out.stdout else None
     except Exception:  # pragma: no cover
         return None
@@ -123,9 +117,7 @@ def selfcheck_crypto(fernet_key: str, db_path=None) -> bool:
         raise SystemExit(1) from exc
 
     try:
-        row = conn.execute(
-            "SELECT encrypted_blob FROM cookies LIMIT 1"
-        ).fetchone()
+        row = conn.execute("SELECT encrypted_blob FROM cookies LIMIT 1").fetchone()
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc):
             LOG.info("selfcheck.crypto_no_cookies_table (informativo, T16)")

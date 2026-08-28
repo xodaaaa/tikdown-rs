@@ -1,4 +1,5 @@
 """e07s04 — contención SQLite: persistencia (T19/T37), alerta con dedupe (flanco)."""
+
 # story: e07s04
 import pytest
 from sqlalchemy import select

@@ -43,9 +43,7 @@ def run(user: str) -> None:
             # Cookies: F-01 — sin cookies el backfill aborta (e05 las gestiona)
             cookies = []
             try:
-                outcome = await run_backfill(
-                    s, user, engine=downloader, cookies=cookies
-                )
+                outcome = await run_backfill(s, user, engine=downloader, cookies=cookies)
                 print(f"OK backfill {user}: {outcome} (total={acct.backfill_total})")
             except NoCookiesError:
                 print("ERROR backfill.no_cookies: añade cookies con 'cookies add'")
@@ -70,9 +68,7 @@ def status(user: str) -> None:
         maker = async_sessionmaker(engine_db, expire_on_commit=False)
         async with maker() as s:
             row = (
-                await s.execute(
-                    select(MonitoredAccount).where(MonitoredAccount.username == user)
-                )
+                await s.execute(select(MonitoredAccount).where(MonitoredAccount.username == user))
             ).scalar_one_or_none()
         await engine_db.dispose()
         if row is None:

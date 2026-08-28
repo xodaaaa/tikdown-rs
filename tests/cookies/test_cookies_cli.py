@@ -1,4 +1,5 @@
 """e05s02 — cli/cookies.py orquesta services/cookies (§3)."""
+
 # story: e05s02
 from tikdown_rs.cli.cookies import app
 

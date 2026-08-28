@@ -1,4 +1,5 @@
 """e06s02 — handlers: comandos planos (§6.4), escape (T40)."""
+
 # story: e06s02
 import inspect
 
@@ -7,8 +8,20 @@ from tikdown_rs.daemon.telegram.handlers import COMMANDS, _esc
 
 def test_comandos_planos_6_4():
     """§6.4: comandos planos de paridad funcional con la CLI."""
-    expected = {"/stats", "/disk", "/list", "/last", "/cookies", "/check",
-                "/add", "/pause", "/resume", "/notify", "/monitor", "/backfill"}
+    expected = {
+        "/stats",
+        "/disk",
+        "/list",
+        "/last",
+        "/cookies",
+        "/check",
+        "/add",
+        "/pause",
+        "/resume",
+        "/notify",
+        "/monitor",
+        "/backfill",
+    }
     assert expected.issubset(COMMANDS)
 
 

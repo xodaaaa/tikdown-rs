@@ -1,4 +1,5 @@
 """e02s02 — selfcheck: impersonación (T6), ffmpeg/ffprobe (T46), crypto (T16/T4)."""
+
 # story: e02s02
 import pytest
 
@@ -32,6 +33,7 @@ def test_impersonation_curl_cffi_ausente(monkeypatch):
     )
     # Simular que curl_cffi no está importable
     import sys
+
     monkeypatch.setitem(sys.modules, "curl_cffi", None)
     with pytest.raises(SystemExit):
         selfcheck_impersonation()

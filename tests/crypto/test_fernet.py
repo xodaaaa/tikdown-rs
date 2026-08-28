@@ -1,4 +1,5 @@
 """e05s01 — cifrado Fernet: roundtrip, 0600, O_EXCL, vacío (L-E2)."""
+
 # story: e05s01
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
