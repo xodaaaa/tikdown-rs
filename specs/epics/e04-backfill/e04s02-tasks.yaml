@@ -1,19 +1,79 @@
 # e04s02-tasks.yaml
 story_id: e04s02
 title: "Backfill foreground + cursor + deduplicación"
-status: todo
+status: passing
 bcps: 10
+risk: P0
+context: domain
 tasks:
-  - id: e04s02-t01
+  - id: 1
     description: >-
-      services/backfill: run foreground (proceso CLI con barra de progreso rich, sin daemon);
-      cursor por upload_date persistido (backfill_cursor); backfill_total/done persistidos al iniciar
-      cada pasada (F-09); deduplicación doble: download_archive.txt append-only (--download-archive)
-      + tabla download_archive como fuente consultable (§4.5); escritura/descartes del archive (§4.5).
-      Al completar: monitor_after_backfill transición consumible (--then-monitor, §10).
+      services/backfill.py: lógica de cursor (§10) — comparación estrictamente < (nunca ==);
+      scope_cursor (snapshot para break) separado del cursor móvil (L-F1); upload_date ausente →
+      fallback al cursor anterior ACTUALIZADO (L-F2); el cursor SOLO avanza en estado terminal
+      (downloaded/failed/skipped — NO cancelled).
     verify: "uv run pytest tests/backfill/test_backfill_fg.py -q"
-    status: todo
-  - id: e04s02-t02
-    description: "Comandos CLI backfill run (foreground), status, retry-failed (descarta entrada del archive primero)."
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "cursor"
+  - id: 2
+    description: >-
+      services/backfill.py: run_backfill() foreground — consulta cuentas, lista feed dentro del try
+      catástrofe (F-10); usa el motor (e04s01) con cookies (F-01: get_working_cookie, aborta
+      backfill.no_cookies si ninguna); descarga con --download-archive; contabilidad F-09
+      (backfill_total al iniciar, backfill_done acumulativo incl. skipped); al completar transición
+      consumible --then-monitor (§10).
+    verify: "uv run pytest tests/backfill/test_backfill_fg.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "runner"
+  - id: 3
+    description: >-
+      services/backfill.py: cancelación cooperativa (T21) — relectura periódica del estado;
+      persistencia del cursor con UPDATE condicional WHERE backfill_status='backfilling' (rowcount 0
+      = cancelación detectada, L-F5/L-F6); retorno temprano del outcome 'cancelled'. except
+      asyncio.CancelledError (BaseException) → vuelve a 'queued' (F-10). reconcile_stale_backfills()
+      para el arranque (F-10).
+    verify: "uv run pytest tests/backfill/test_backfill_fg.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "cancel"
+  - id: 4
+    description: >-
+      cli/backfill.py: backfill run (foreground, barra de progreso rich), status. Servicios:
+      handle_download_result parcial (estados, expected_has_video T55, error_category). Descarte del
+      archive antes del reintento (T24, integración con e04s01).
     verify: "uv run pytest tests/backfill/test_backfill_cli.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "cli"
+  - id: 5
+    description: >-
+      Tests (F.I.R.S.T., §14): test_backfill_fg.py — cursor < (borde exacto), scope vs móvil (L-F1),
+      upload_date ausente (L-F2), F-09 (total/done incl. skipped), F-10 (CancelledError → queued,
+      reconcile), T21/L-F5/L-F6 (rowcount 0 → cancelled), F-01 (no_cookies). test_backfill_cli.py —
+      run/status. SQLite :memory: + StaticPool; mocks de motor; nunca entorno real (T69).
+    verify: "uv run pytest tests/backfill/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "backfill"
+        - "unit"
