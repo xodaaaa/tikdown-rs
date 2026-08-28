@@ -4,18 +4,18 @@ workflow_mode: solo-git
 session:
   started_at: 2026-08-27T19:40:00Z
   closed_at: 2026-08-28T05:07:37Z  # MVP complete — session closed
-  active_flow: null
-  active_epic: null
-  active_story: null
+  active_flow: build_epic
+  active_epic: e10
+  active_story: e10s01
   active_bug: null
 epic_cycle: {}
 metrics:
-  story_start: "2026-08-27T20:15:00Z"
+  story_start: "2026-08-28T05:20:00Z"  # e10s01 (CI Woodpecker)
   story_end: null
   cycle_minutes: null
   bcp_per_hour: null
 handoff:
-  next_skill: survey-context
+  next_skill: kickoff-branch
   plan_ready: true
 release:
   last_tag: v0.1.0

@@ -1,0 +1,53 @@
+# e10s01-tasks.yaml
+story_id: e10s01
+title: "Pipeline Woodpecker (.woodpecker.yml): ruff, pytest+cobertura, build Docker+smoke"
+status: failing
+bcps: 3
+risk: P1
+context: infra
+tasks:
+  - id: 1
+    description: >-
+      Definir .woodpecker.yml en la raíz (F-22/L-K4). Pipeline: (1) step "lint" —
+      `uv run ruff check .` + `uv run ruff format --check .`; (2) step "test" —
+      `uv run pytest --cov=tikdown_rs --cov-report=term --cov-report=xml:coverage.xml` (config
+      pytest+asyncio ya en pyproject.toml; coverage en dependency-group dev); (3) step "docker"
+      — `docker build -t tikdown-rs:ci .` + smoke `docker run --rm tikdown-rs:ci tikdown-rs
+      --version` (F-22: el smoke detecta problemas de imagen que el build solo no ve). Cada step
+      con when: event: [push, pull_request]. Nota operativa documentada en el propio archivo:
+      un fallo en 0s de todos los pasos suele ser billing/configuración del runner, no el código
+      (L-K4). [OK] herramientas ya instaladas en el proyecto (uv, ruff, pytest, coverage).
+    verify: "test -f .woodpecker.yml && grep -q 'ruff check' .woodpecker.yml && grep -q '--cov' .woodpecker.yml && grep -q 'docker build' .woodpecker.yml && grep -q 'docker run --rm' .woodpecker.yml"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "ci"
+        - "infra"
+  - id: 2
+    description: >-
+      Validar la sintaxis YAML y que la config Woodpecker es parseable. Sin runner Woodpecker
+      local ni agente configurado en este entorno (documentar: validación sintáctica + revisión
+      humana; la activación real del repo es manual en la UI de Woodpecker).
+    verify: "uv run --with pyyaml python -c \"import yaml; yaml.safe_load(open('.woodpecker.yml')); print('yaml OK')\""
+    risk: P2
+    status: failing
+    allure:
+      severity: normal
+      categories:
+        - "ci"
+        - "infra"
+  - id: 3
+    description: >-
+      Verificación local equivalente al pipeline: ejecutar ruff, pytest con cobertura y el build
+      Docker + smoke en local, para demostrar que los comandos del pipeline pasan antes de activar
+      Woodpecker (L-K4: si Woodpecker falla en 0s, el fallo es del runner/billing, no del código).
+    verify: "uv run ruff check . && uv run ruff format --check . && uv run pytest --cov=tikdown_rs --cov-report=term -q && docker build -q -t tikdown-rs:ci . && docker run --rm tikdown-rs:ci tikdown-rs --version"
+    risk: P1
+    status: failing
+    allure:
+      severity: high
+      categories:
+        - "ci"
+        - "smoke"

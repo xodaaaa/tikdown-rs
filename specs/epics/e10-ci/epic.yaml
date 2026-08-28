@@ -1,0 +1,11 @@
+# epic.yaml — e10-ci
+epic_id: e10
+slug: ci
+title: "CI Woodpecker: ruff, pytest, cobertura y build Docker"
+status: planned
+scope_ref: "EPIC-CI"
+stories:
+  - id: e10s01
+    title: "Pipeline Woodpecker (.woodpecker.yml): ruff, pytest+cobertura, build Docker+smoke"
+    bcps: 3
+    delta: ADDED
