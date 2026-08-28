@@ -53,7 +53,15 @@ class DaemonRunner:
         await asyncio.to_thread(apply_migrations, db_url)
 
         # 4. REAPLICAR logging tras migrar (T72: fileConfig pisa el root logger)
-        setup_logging(self.settings.log_level, json_output=True)
+        #    — respeta la config de archivo rotado (e14s01) desde Settings
+        setup_logging(
+            self.settings.log_level,
+            json_output=True,
+            log_file_path=self.settings.log_file_path,
+            log_file_max_bytes=self.settings.log_file_max_bytes,
+            log_file_backup_count=self.settings.log_file_backup_count,
+            log_file_when=self.settings.log_file_when,
+        )
 
         # 5. Engine + scheduler
         self._engine = create_async_engine_wal(db_url)
