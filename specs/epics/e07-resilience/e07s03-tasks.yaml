@@ -1,19 +1,50 @@
 # e07s03-tasks.yaml
 story_id: e07s03
-title: "Circuit breaker por categoría de fallo + spool de notificaciones"
-status: todo
+title: "Circuit breaker por cuenta (auth -> paused + needs_review)"
+status: passing
 bcps: 6
+risk: P0
+context: domain
 tasks:
-  - id: e07s03-t01
+  - id: 1
     description: >-
-      Circuit breaker (§4.3): abierto por umbrales de fallos transitorios (rate-limit/anti-bot);
-      los definitivos NO abren el breaker (recurso inválido, no sobrecarga); inconcluso no cuenta
-      como transitorio. Clasificación 3-vías consistente en motor, cookies y breaker (§0.11).
+      core/breaker.py: AccountBreaker — contador en MEMORIA por cuenta (§4.4, se resetea al
+      reiniciar); umbral 5 fallos de AUTH consecutivos → pausa la cuenta (paused + needs_review en
+      DB, que sí persiste). record_result(username, category): auth → +1; exito → reset; transitorio
+      → no cuenta.
     verify: "uv run pytest tests/circuit/test_breaker.py -q"
-    status: todo
-  - id: e07s03-t02
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "breaker"
+        - "auth"
+  - id: 2
     description: >-
-      Spool pending_notifications (§8): acotado FIFO (100 filas), payload = JSON del evento original
-      (no texto renderizado, F-06); se drena en transición a online y en arranque del daemon.
-    verify: "uv run pytest tests/notifications/test_spool.py -q"
-    status: todo
+      core/breaker.py: solo fallos de AUTH cuentan (T52: 'requiring login', 'log into an account',
+      'log in for access' via classify_failure). T5: 403 sin hints de auth → transitorio, NO cuenta.
+      T45/T64: red/disco NO cuentan. Al disparar → paused + needs_review (helpers T37) + evento
+      monitor.account_paused (F-08).
+    verify: "uv run pytest tests/circuit/test_breaker.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "breaker"
+        - "classification"
+  - id: 3
+    description: >-
+      Tests (F.I.R.S.T., §14): test_breaker.py — 5 auth consecutivos → paused+needs_review; 4 auth +
+      1 transitorio → NO pausa (transitorio no cuenta); exito resetea; red/disco no cuentan (T45/T64);
+      evento monitor.account_paused emitido (F-08); contador en memoria (nueva instancia = reset).
+      SQLite :memory: + StaticPool; nunca entorno real (T69).
+    verify: "uv run pytest tests/circuit/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "breaker"
+        - "unit"
