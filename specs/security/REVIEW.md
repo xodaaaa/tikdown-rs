@@ -1,16 +1,15 @@
 # Security Review — TikDown-rs
 
 **Última actualización:** 2026-08-28
-**Alcance:** e01-e06 + e07s01 + e07s02 + e07s03 (network + disk + breaker)
+**Alcance:** e01-e06 + e07 completa (resilience)
 
 ## Hallazgos
 
 - **Ningún hallazgo HIGH.**
-- **e07s03:** circuit breaker por cuenta — 5 fallos de auth → paused + needs_review; transitorios (T5), red (T64) y disco (T45) no cuentan; contador en memoria, pausa en DB; evento monitor.account_paused (F-08).
-- **e07s01/e07s02:** NetworkMonitor (T35/T64), disco (T45/T65).
+- **e07 completa:** NetworkMonitor (T35/T64, pausa/reanudación), disco (T45/T65, ENOSPC), circuit breaker por cuenta (T52/T5, auth → paused+needs_review), contención SQLite (T19/T37, alerta con dedupe por flanco). Todas las capas de resiliencia con test T69 (nada de entorno real).
 - **e01-e06:** crypto, higiene, pines, bot authz, notificaciones.
 
 ## Veredicto
 
 - [x] No unresolved HIGH findings
-- Estado: **PASS**
+- Estado: **PASS** — e07 lista.
