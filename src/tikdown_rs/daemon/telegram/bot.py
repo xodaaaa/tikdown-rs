@@ -9,6 +9,7 @@ story: e06s01
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -20,6 +21,10 @@ LOG = logging.getLogger("tikdown_rs.telegram")
 
 # T38: callback_data <= 64 bytes; expiración real de botones (60s)
 _CALLBACK_MAX_AGE = 60
+
+# e12s01: healthcheck del polling (T71) — getMe periódico, nunca getUpdates
+_POLLING_HEALTHCHECK_INTERVAL = 30  # segundos entre comprobaciones
+_POLLING_MAX_FAILURES = 3  # reinicio tras N fallos consecutivos de get_me()
 
 
 def is_authorized(settings: Settings, chat_id: str | None, user_id: str | None) -> bool:
@@ -71,6 +76,8 @@ class TelegramBot:
         self.owns_engine = owns_engine  # T26: decide si dispone el engine
         self._app: Application | None = None
         self._last_cmd_ts: dict = {}  # throttle 2s por chat (F-18)
+        self._restarting = False  # e12s01: evita reinicios concurrentes
+        self._health_failures = 0  # e12s01: contador de fallos de get_me()
 
     async def start(self) -> None:
         """Arranca el bot con el ciclo MANUAL (T10)."""
@@ -89,7 +96,65 @@ class TelegramBot:
         await app.start()
         await app.updater.start_polling(timeout=25)  # T10: NUNCA run_polling
         self._app = app
+        # e12s01: supervisión del polling (T71) — tarea supervisada (T27)
+        self._launch_supervision()
         LOG.info("bot.started")
+
+    def _launch_supervision(self) -> None:
+        """Lanza la tarea supervisada de healthcheck (e12s01, T27)."""
+        from tikdown_rs.core.tasks import create_supervised_task
+
+        create_supervised_task(self._supervise_polling(), name="bot-supervision")
+
+    async def _supervise_polling(self) -> None:
+        """Healthcheck periódico del polling (e12s01, T71).
+
+        Llama `get_me()` cada _POLLING_HEALTHCHECK_INTERVAL segundos; nunca
+        la sesión de updates manual (T71). Tras _POLLING_MAX_FAILURES fallos
+        consecutivos → reinicia el bot (stop + start) sin tocar el daemon
+        (§6.1). El loop infinito corre como tarea supervisada (no bloquea el
+        event loop).
+        """
+        while True:
+            await asyncio.sleep(_POLLING_HEALTHCHECK_INTERVAL)
+            app = self._app
+            if app is None:
+                continue
+            await self._check_polling_health(app)
+
+    async def _check_polling_health(self, app) -> None:
+        """Una comprobación de salud: getMe OK → reset; fallo → contar/reiniciar."""
+        try:
+            await app.bot.get_me()
+            self._health_failures = 0
+        except Exception:  # noqa: BLE001 - el fallo de red/API puede surfacear de cualquier forma
+            self._health_failures += 1
+            LOG.warning(
+                "bot.health_check_failed",
+                extra={"failures": self._health_failures},
+            )
+            if self._health_failures >= _POLLING_MAX_FAILURES:
+                await self._restart_bot()
+
+    async def _restart_bot(self) -> None:
+        """Reinicia el bot (stop + start) sin reiniciar el daemon (§6.1).
+
+        Flag _restarting evita reinicios concurrentes; si el reinicio falla,
+        el siguiente ciclo reintenta (backoff implícito por el intervalo).
+        """
+        if self._restarting:
+            return
+        self._restarting = True
+        LOG.warning("bot.restarting")
+        try:
+            await self.stop()
+            await self.start()
+            self._health_failures = 0
+            LOG.info("bot.restarted")
+        except Exception:  # pragma: no cover
+            LOG.warning("bot.restart_error", exc_info=True)
+        finally:
+            self._restarting = False
 
     def _register_handlers(self, app) -> None:
         """Registra CommandHandler(/list) y CallbackQueryHandler(listp:) (e11s01)."""
@@ -197,5 +262,6 @@ class TelegramBot:
         except Exception:  # pragma: no cover
             LOG.warning("bot.shutdown_error", exc_info=True)
         self._app = None
+        # e12s01: la tarea de supervisión se cancela vía el registro (T28)
         if self.owns_engine and self.engine is not None:  # T26
             await self.engine.dispose()

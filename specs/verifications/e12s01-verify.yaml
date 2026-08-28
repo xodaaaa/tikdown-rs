@@ -1,0 +1,65 @@
+# verify-work evidence — e12s01 (Supervisión polling)
+story_id: e12s01
+verified_at: "2026-08-28T10:00:00Z"
+verifier: verify-work
+branch: feat/e12-supervision-polling
+risk: P1
+phases:
+  smoke:
+    passed: true
+    note: "uv run tikdown-rs --version → tikdown-rs 0.1.0 (CLI intacta)"
+  build:
+    passed: true
+    note: "N/A — sin build nuevo (Python)"
+  typecheck:
+    passed: true
+    note: "N/A — sin typecheck configurado"
+  lint:
+    passed: true
+    command: "uv run ruff check . && uv run ruff format --check ."
+  tests:
+    passed: true
+    count: 219
+    coverage: "63%"
+  terminal_verdict:
+    command: "uv run pytest --cov=tikdown_rs --cov-report=term -q"
+    exit_code: 0
+    captured_at: "2026-08-28T10:00:00Z"
+    note: "219 passed, 1 warning — single contiguous run"
+  tasks:
+    - id: 1
+      status: passing
+      verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
+      evidence: PASS (7 tests)
+    - id: 2
+      status: passing
+      verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
+      evidence: PASS (restart tras N fallos)
+    - id: 3
+      status: passing
+      verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
+      evidence: PASS (cableado run.py usa TelegramBot)
+    - id: 4
+      status: passing
+      verify: "uv run pytest tests/telegram/ -q"
+      evidence: PASS (44 tests)
+  manual:
+    steps:
+      - step: "Revisar bot.py _supervise_polling"
+        expected: "healthcheck getMe periódico (T71), nunca getUpdates"
+        actual: "implementado con get_me() + contador de fallos"
+        passed: true
+      - step: "Revisar _restart_bot"
+        expected: "stop + start, flag _restarting, backoff"
+        actual: "implementado"
+        passed: true
+      - step: "Revisar run.py _start_bot"
+        expected: "usa TelegramBot (con supervisión)"
+        actual: "usa TelegramBot con owns_engine=False"
+        passed: true
+  gaps:
+    closed: true
+    notes:
+      - "La vía de detección es getMe (healthcheck), no add_error_handler (PTB #3430)"
+      - "run.py ahora usa TelegramBot (antes Application propia sin supervisión)"
+      - "Supervisión como tarea supervisada (T27), cancelada vía registro (T28)"

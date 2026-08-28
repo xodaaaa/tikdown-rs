@@ -139,27 +139,29 @@ class DaemonRunner:
     # --- Bot (T10) ---
 
     async def _start_bot(self) -> None:
-        """Arranca el bot en el mismo loop con el ciclo manual de PTB (T10)."""
-        from telegram.ext import Application
+        """Arranca el bot con supervisión (e12s01) en el mismo loop (T10).
 
-        app = Application.builder().token(self.settings.telegram_bot_token).build()
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling(timeout=25)  # NUNCA run_polling (T10)
-        self._bot = app
+        Usa TelegramBot (que registra handlers + healthcheck del polling)
+        en vez de un Application propio sin supervisión (T71/§6.1).
+        """
+        from tikdown_rs.daemon.telegram.bot import TelegramBot
+
+        bot = TelegramBot(
+            settings=self.settings,
+            engine=self._engine,
+            on_event=None,
+            owns_engine=False,  # el daemon gestiona el engine
+        )
+        await bot.start()
+        self._bot = bot
         LOG.info("daemon.bot_started")
 
     async def _stop_bot(self) -> None:
         """Apagado del bot (T10): updater.stop → stop → shutdown."""
-        app = self._bot
-        if app is None:
+        bot = self._bot
+        if bot is None:
             return
-        try:
-            await app.updater.stop()
-            await app.stop()
-            await app.shutdown()
-        except Exception:  # pragma: no cover
-            LOG.warning("daemon.bot_shutdown_error", exc_info=True)
+        await bot.stop()
         self._bot = None
 
 

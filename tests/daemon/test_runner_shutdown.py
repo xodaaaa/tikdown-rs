@@ -39,3 +39,20 @@ async def test_cancel_pending_drena_registro():
     assert not t.done()
     await cancel_pending_tasks(timeout=1.0)
     assert t.cancelled() or t.done()
+
+
+async def test_runner_usa_telegrambot_con_supervision():
+    """e12s01: _start_bot usa TelegramBot (con healthcheck), no Application propia."""
+    import inspect
+
+    import tikdown_rs.daemon.run as run_mod
+
+    src = inspect.getsource(run_mod.DaemonRunner._start_bot)
+    assert "TelegramBot" in src
+    assert "bot.start()" in src
+    # La supervisión se lanza dentro de TelegramBot.start() (e12s01)
+    import tikdown_rs.daemon.telegram.bot as bot_mod
+
+    bot_src = inspect.getsource(bot_mod.TelegramBot)
+    assert "_launch_supervision" in bot_src
+    assert "_supervise_polling" in bot_src

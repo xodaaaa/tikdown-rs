@@ -1,7 +1,7 @@
 # e12s01-tasks.yaml
 story_id: e12s01
 title: "Healthcheck periódico del bot (getMe) + reinicio automático (T71, §6.1)"
-status: failing
+status: passing
 bcps: 5
 risk: P1
 context: domain
@@ -15,7 +15,7 @@ tasks:
       sin tocar el daemon. Corre en el MISMO event loop (asyncio), sin bloquear el resto.
     verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -30,7 +30,7 @@ tasks:
       concurrentes.
     verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -44,7 +44,7 @@ tasks:
       de supervisión se cancela en stop() (T28).
     verify: "uv run pytest tests/telegram/test_bot_supervision.py -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:
@@ -59,7 +59,7 @@ tasks:
       Mocks de bot.get_me / Application; sin red real (T69).
     verify: "uv run pytest tests/telegram/ -q"
     risk: P1
-    status: failing
+    status: passing
     allure:
       severity: high
       categories:

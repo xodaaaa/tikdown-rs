@@ -12,8 +12,11 @@ epic_cycle: {}
 metrics:
   story_start: "2026-08-28T09:00:00Z"  # e12s01 (supervisión polling)
 handoff:
-  next_skill: kickoff-branch
+  next_skill: develop-tdd
   plan_ready: true
+git:
+  branch: feat/e12-supervision-polling
+  worktree: null
 git:
   branch: master
   worktree: null
