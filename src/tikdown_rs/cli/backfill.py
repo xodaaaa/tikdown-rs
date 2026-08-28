@@ -18,25 +18,6 @@ from tikdown_rs.core.db import create_async_engine_wal
 app = typer.Typer(name="backfill")
 
 
-def _impersonate_targets() -> list:
-    """Targets ImpersonateTarget de curl-cffi para rotación (L-D1, bug #10).
-
-    Mismo patrón que core/verify.selfcheck_impersonation: normaliza la forma
-    de retorno (targets o tuplas (target, engine)). Vacío → lista vacía.
-    """
-    import yt_dlp
-
-    ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True})
-    raw = getattr(ydl, "_get_available_impersonate_targets", lambda: [])()
-    targets: list = []
-    for item in raw:
-        if isinstance(item, tuple) and item:
-            targets.append(item[0])
-        else:
-            targets.append(item)
-    return targets
-
-
 def _db_url(settings: Settings) -> str:
     return f"sqlite+aiosqlite:///{settings.data_dir / 'tikdown-rs.db'}"
 
@@ -67,7 +48,7 @@ def run(user: str) -> None:
                 key = load_or_create_fernet_key(settings.data_dir / "fernet.key")
                 blob = decrypt_cookie(cookies[0].encrypted_blob, key)
             # L-D1: targets impersonate (curl-cffi) — rotación anti-bloqueo (bug #10)
-            targets = _impersonate_targets()
+            targets = YtDlpEngine.available_impersonate_targets()
             downloader = YtDlpEngine(cookies_blob=blob, impersonate_targets=targets)
             try:
                 outcome = await run_backfill(s, user, engine=downloader, cookies=cookies)

@@ -87,6 +87,26 @@ RETRY_FORMAT = "best[ext=mp4]/best"
 class YtDlpEngine:
     """Implementación real del motor con yt-dlp (inyectable)."""
 
+    @staticmethod
+    def available_impersonate_targets() -> list:
+        """Targets ImpersonateTarget de curl-cffi (L-D1).
+
+        Normaliza la forma de retorno de yt-dlp (targets o tuplas
+        (target, engine)); vacío si no hay soporte. Exponer aquí mantiene
+        yt_dlp fuera de cli/ (regla de oro: cli solo orquesta).
+        """
+        import yt_dlp
+
+        ydl = yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True})
+        raw = getattr(ydl, "_get_available_impersonate_targets", lambda: [])()
+        targets: list = []
+        for item in raw:
+            if isinstance(item, tuple) and item:
+                targets.append(item[0])
+            else:
+                targets.append(item)
+        return targets
+
     def __init__(
         self,
         impersonate_targets: list | None = None,
