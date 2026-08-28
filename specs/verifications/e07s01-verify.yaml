@@ -1,0 +1,43 @@
+story_id: e07s01
+verified_at: "2026-08-28T09:30:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "NetworkMonitor: L-D2, T35 (blip/duración), F-13 backoff"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 148
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T09:29:00Z"
+    note: "148 passed"
+  manual:
+    steps:
+      - step: "L-D2 evento seteado"
+        expected: "network_available.is_set() True"
+        actual: "OK"
+        passed: true
+      - step: "T35 blip no notifica online"
+        expected: "blip → online sin evento"
+        actual: "OK"
+        passed: true
+      - step: "Caída real offline/online"
+        expected: "offline clear + evento; online set + duración"
+        actual: "OK"
+        passed: true
+      - step: "Backoff F-13"
+        expected: "30/60/120/120"
+        actual: "OK"
+        passed: true
+gaps:
+  closed: true

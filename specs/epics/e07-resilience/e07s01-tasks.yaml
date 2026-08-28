@@ -1,19 +1,65 @@
 # e07s01-tasks.yaml
 story_id: e07s01
 title: "Probe de red + pausa/reanudación automática"
-status: todo
+status: passing
 bcps: 5
+risk: P0
+context: domain
 tasks:
-  - id: e07s01-t01
+  - id: 1
     description: >-
-      services/network: probe HEAD a endpoint NEUTRAL (NETWORK_PROBE_URL, nunca TikTok) con timeout
-      5s (httpx permitido solo para probe y Bot API, §1). Estado de red disponible/pausado.
+      core/network_monitor.py: NetworkMonitor — probe HEAD con httpx (timeout
+      NETWORK_PROBE_TIMEOUT_SECONDS desde Settings, F-13, NUNCA hardcodeado) a endpoints neutrales
+      (NETWORK_PROBE_URL lista separada por comas; NUNCA TikTok, §1). Umbral
+      NETWORK_OFFLINE_THRESHOLD_CONSECUTIVE_FAILURES (default 2) para confirmar caída. Backoff del
+      probe offline: 30s → techo 120s con jitter; job re-programado tras cada ciclo (F-13).
     verify: "uv run pytest tests/network/test_probe.py -q"
-    status: todo
-  - id: e07s01-t02
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "network"
+        - "probe"
+  - id: 2
     description: >-
-      Pausa automática ante caída real de red (§0.13, §9): monitor, backfill y descargas se pausan;
-      aviso por Telegram; reanudación automática al recuperar red. El motor consulta
-      network_available.wait() + downloads_paused antes de cada intento (T45).
+      core/network_monitor.py: evento network_available (asyncio.Event) — se crea YA SETEADO (L-D2:
+      sin monitor, la red se asume disponible; un Event() por defecto nace en clear y el motor
+      colgaría). Transición: offline → network_available.clear() + network.offline (una vez);
+      online → set() + network.online SOLO desde estado offline CONFIRMADO, con la duración de la
+      caída capturada ANTES de limpiar offline_since (T35: un blip no genera notificación engañosa).
     verify: "uv run pytest tests/network/test_pause_resume.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "network"
+        - "state"
+  - id: 3
+    description: >-
+      Integración: el motor consulta network_available.wait() antes de cada intento (T45); fallos
+      de red NO incrementan retry_count ni consumen presupuesto (T64) ni invalidan cookies. Drenaje
+      del spool pending_notifications en transición a online confirmado (T42).
+    verify: "uv run pytest tests/network/test_pause_resume.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "network"
+        - "integration"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_probe.py — probe HEAD (mock httpx), timeout desde Settings (F-13),
+      umbral 2 fallos, backoff 30→120 (F-13). test_pause_resume.py — transición T35 (blip no notifica
+      online; duración capturada antes de limpiar), L-D2 (evento seteado por defecto), T64 (red no
+      penaliza). SQLite :memory: + StaticPool; mocks httpx; nunca red real (T69).
+    verify: "uv run pytest tests/network/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "network"
+        - "unit"
