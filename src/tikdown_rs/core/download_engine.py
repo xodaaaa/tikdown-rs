@@ -208,8 +208,10 @@ class YtDlpEngine:
 
         import yt_dlp
 
-        target = self._next_target()
-        params = self._ydl_params(target, "best", "%(id)s.%(ext)s")
+        # Sin impersonate en el listado (bug #12): los targets de curl-cffi
+        # reducen la extracción del feed (algunos fallan con TikTok y
+        # ignoreerrors los descarta). Impersonate solo en download().
+        params = self._ydl_params(None, "best", "%(id)s.%(ext)s")
         params["download"] = False
         params["flat_playlist"] = True  # listar URLs sin resolver (T20: el backfill
         # descarga cada vídeo después con download())
