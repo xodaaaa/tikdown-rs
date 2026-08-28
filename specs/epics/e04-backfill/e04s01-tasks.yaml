@@ -1,29 +1,98 @@
 # e04s01-tasks.yaml
 story_id: e04s01
 title: "DownloadEngine (formato, rotación, cooldown global)"
-status: todo
+status: passing
 bcps: 13
+risk: P0
+context: domain
 tasks:
-  - id: e04s01-t01
+  - id: 1
     description: >-
-      services/downloader.DownloadEngine (§4): yt-dlp SIEMPRE vía asyncio.to_thread con timeout 10
-      min/vídeo; formato por defecto bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/... con
-      override global DOWNLOAD_FORMAT (§4.2); merge_output_format mp4; formato mejorado para reintento
-      ante solo-audio; params impersonate = objetos ImpersonateTarget rotados (L-D1); rotación
-      round-robin de cookies válidas + targets; nunca httpx/requests a TikTok (§4.2).
+      core/download_engine.py: Protocol DownloadEngine (download, extract_profile, list_videos,
+      validate_cookie) + implementación. yt-dlp SIEMPRE vía asyncio.to_thread con timeout 10
+      min/vídeo (T23: no mata hilo nativo — documentar). Formato §4.2 (bestvideo[height<=1080]
+      [ext=mp4]+bestaudio[ext=m4a]/...) con override DOWNLOAD_FORMAT. merge_output_format=mp4.
+      params impersonate = OBJETOS ImpersonateTarget rotados (L-D1). Nunca httpx/requests a TikTok
+      (§4.2). T56: sleep_interval_requests 1-3s + extractor_retries 5-10.
     verify: "uv run pytest tests/downloader/test_engine.py -q"
-    status: todo
-  - id: e04s01-t02
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "downloader"
+        - "engine"
+  - id: 2
     description: >-
-      Cooldown global entre procesos vía SQLite (download_pacing_state, T22): CAS atómico con
-      next_allowed_at en ms (L-C7); consultado junto a network_available y downloads_paused antes de
-      cada intento (T45). DownloadEngine consulta las tres antes de cada descarga.
-    verify: "uv run pytest tests/downloader/test_pacing.py -q"
-    status: todo
-  - id: e04s01-t03
-    description: >-
-      Clasificación de fallos (§0.11, §4): definitivo (auth inválida, suspensión, captcha,
-      inexistente), transitorio (rate-limit/anti-bot, timeouts, degradación extractor), integrity.
-      error_category persistido en videos; limpieza post-éxito best-effort (T14).
+      core/download_engine.py: clasificación de fallos (§4.3, T5/T52/T53/T54) — case-insensitive
+      sobre cadena completa incl. causa encadenada: auth (requiring login, log into an account,
+      log in for access, captcha, banned, suspended) → DEFINITIVO (T52); status code 0 →
+      TRANSITORIO (T53); keeps sending the same page → TRANSITORIO (T54); 403 sin hints auth →
+      TRANSITORIO (T5); 404/video unavailable/status != 0 → DEFINITIVO. error_category persistido.
+      Slideshow (expected_has_video=False) → status='skipped', sin reintentos (T55).
     verify: "uv run pytest tests/downloader/test_failure_classification.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "downloader"
+        - "classification"
+  - id: 3
+    description: >-
+      core/pacing.py: cooldown global cross-proceso (§4.5) — reserve() atómico con UPDATE
+      download_pacing_state SET next_allowed_at=... RETURNING (T22, SQLite >=3.35); sorteo uniforme
+      [MIN, MAX] con RNG inyectable (T62: MIN=MAX fijo, ambos 0 desactivado); singleton con commit
+      inmediato (L-C6); timestamps con timespec='milliseconds' (L-C7). Se aplica antes de cada
+      intento, incluidos reintentos.
+    verify: "uv run pytest tests/downloader/test_pacing.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "downloader"
+        - "pacing"
+  - id: 4
+    description: >-
+      core/archive.py: archivo de deduplicación (download_archive.txt append-only + tabla). Parser
+      reconoce AMBOS formatos de línea (L-C8: 'tiktok <id>' y '<id>' pelado; el ID es el último
+      token). Tolerar última línea malformada (T47: corte a mitad de write). Escritura append +
+      flush + fsync. discard() con reescritura atómica. Descarte del archive ANTES del reintento de
+      formato mejorado (T24).
+    verify: "uv run pytest tests/archive/test_archive.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "archive"
+        - "dedup"
+  - id: 5
+    description: >-
+      core/download_engine.py: reintento de formato mejorado ante solo-audio degradado (T24) +
+      timeout (T23/T66): reintento tras timeout escribe a ruta .retry-N y renombra SOLO tras
+      verificar integridad (T66). I/O pesada (SHA-256, ffprobe, fsync) a to_thread (T12); ffprobe
+      con lista de argumentos + '--' antes de la ruta (T13).
+    verify: "uv run pytest tests/downloader/test_engine.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "downloader"
+        - "integrity"
+  - id: 6
+    description: >-
+      Tests (F.I.R.S.T., §14): test_engine.py (formato, targets objetos L-D1, timeout T23/T66),
+      test_failure_classification.py (literales reales T52/T53/T54/T55/T5), test_pacing.py
+      (T22/T62/L-C7, RNG inyectable; tests desactivan cooldown 0,0 L-D3), test_archive.py (L-C8/T47/
+      T24). SQLite :memory: + StaticPool; mocks de yt-dlp; nunca entorno real (T69).
+    verify: "uv run pytest tests/downloader/ tests/archive/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "downloader"
+        - "unit"

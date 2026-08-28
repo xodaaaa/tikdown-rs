@@ -1,0 +1,39 @@
+story_id: e04s01
+verified_at: "2026-08-28T06:00:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Engine: clasificación literales reales, pacing, archive"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 89
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T05:59:00Z"
+    note: "Single contiguous run — 89 passed"
+  manual:
+    steps:
+      - step: "Clasificación literales reales (T52/T53/T54/T5)"
+        expected: "auth=definitive, status0/samepage/403=transient, unavailable=definitive"
+        actual: "OK: 5/5 correctos"
+        passed: true
+      - step: "Pacing sorteo en rango (T62)"
+        expected: "delay en [30,60]"
+        actual: "OK: 37.1"
+        passed: true
+      - step: "Archive ambos formatos (L-C8)"
+        expected: "contiene 'tiktok <id>' y '<id>'"
+        actual: "OK: True True"
+        passed: true
+gaps:
+  closed: true
