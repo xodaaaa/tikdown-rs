@@ -1,13 +1,15 @@
 # Security Review — TikDown-rs
 
 **Última actualización:** 2026-08-28
-**Alcance:** e01 completa + e02s01 (supervised tasks)
+**Alcance:** e01 + e02s01 + e02s02 (supervised tasks, selfcheck, crypto)
 
 ## Hallazgos
 
-- **Ningún hallazgo HIGH.** e02s01: registro de tareas supervisadas (asyncio stdlib), sin I/O ni datos sensibles.
-- **Drenaje correcto:** cancel_pending_tasks (T28) como drenaje real; callback síncrono (T1); registro por id(task) (T30).
-- **e01:** higiene de secretos completa (T15/F-04/§0.1); migraciones idempotentes (T68); pines exactos (T2/T6).
+- **Ningún hallazgo HIGH.**
+- **e02s02 crypto:** clave Fernet 0600 (T7), generación atómica O_EXCL (T67), selfcheck descifra cookie (T16) — detecta rotación temprana.
+- **e02s02 selfcheck:** impersonación TLS 3 causas (T6); ffmpeg/ffprobe (T46); versión yt-dlp interna (T4).
+- **e02s01:** tareas supervisadas con drenaje (T28), callback síncrono (T1).
+- **e01:** higiene de secretos completa; migraciones idempotentes (T68); pines exactos (T2/T6).
 
 ## Veredicto
 

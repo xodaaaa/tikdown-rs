@@ -5,7 +5,7 @@ session:
   started_at: 2026-08-27T19:40:00Z
   active_flow: null
   active_epic: e02
-  active_story: e02s02
+  active_story: e02s03
   active_bug: null
 epic_cycle: {}
 metrics:
@@ -21,7 +21,7 @@ release:
   last_publish: null
   target_version: null
   ci_verified: false  # sin remote/CI configurado (repo local) — git-only fallback
-  merged_commit: 1e87fa4
+  merged_commit: 877cd4b
 git:
   branch: null
   worktree: null
