@@ -182,7 +182,10 @@ class YtDlpEngine:
                 return ydl.extract_info(url, download=False) or {}
 
         try:
-            return await asyncio.wait_for(asyncio.to_thread(_run), timeout=self._timeout)
+            info = await asyncio.wait_for(asyncio.to_thread(_run), timeout=self._timeout)
         except TimeoutError:
             LOG.warning("engine.extract_profile.timeout", extra={"username": username})
             raise
+        # yt-dlp con ignoreerrors deja entradas None (bloqueadas) — filtrar (T5)
+        entries = [e for e in (info or {}).get("entries") or [] if e is not None]
+        return {"entries": entries}
