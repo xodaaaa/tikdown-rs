@@ -1,0 +1,39 @@
+story_id: e07s04
+verified_at: "2026-08-28T11:00:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Contención: ventana rotativa, persistencia (T19/T37), dedupe flanco"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 162
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T10:59:00Z"
+    note: "162 passed"
+  manual:
+    steps:
+      - step: "Ventana rotativa (§5.8)"
+        expected: "busy_count cuenta eventos recientes"
+        actual: "OK: 2"
+        passed: true
+      - step: "Persistencia (T37/T19)"
+        expected: "daemon_state.db_busy_count_5min = 2"
+        actual: "OK: 2"
+        passed: true
+      - step: "Alerta con dedupe por flanco"
+        expected: "2 alertas (no 4)"
+        actual: "OK: 2"
+        passed: true
+gaps:
+  closed: true

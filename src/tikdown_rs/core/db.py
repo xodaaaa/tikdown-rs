@@ -76,3 +76,28 @@ def create_async_engine_wal(db_url: str) -> AsyncEngine:
         return None
 
     return engine
+
+
+class ContentionAlerter:
+    """Alerta daemon.db_contention con DEDUPE POR FLANCO (§5.8).
+
+    Emite solo al CRUZAR el umbral ascendente; re-emite al bajar y volver a
+    subir (no en cada heartbeat).
+    """
+
+    def __init__(self, threshold: int = 20) -> None:
+        self.threshold = threshold
+        self._above = False  # flanco
+
+    def check(self, count: int, on_event=None) -> bool:
+        """Evalúa el contador; emite daemon.db_contention al cruzar. Returns: alertó."""
+        if count >= self.threshold:
+            if not self._above:  # flanco ascendente
+                self._above = True
+                if on_event:
+                    on_event("daemon.db_contention", {"db_busy_count_5min": count})
+                LOG.warning("db.contention_alert", extra={"count": count})
+                return True
+            return False  # dedupe: sigue alto
+        self._above = False  # bajó del umbral → nuevo flanco disponible
+        return False

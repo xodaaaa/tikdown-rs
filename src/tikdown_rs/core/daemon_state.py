@@ -73,3 +73,12 @@ async def update_heartbeat(session: AsyncSession, pid: int | None = None) -> Non
     if pid is not None:
         values["daemon_pid"] = pid
     await _mutate(session, **values)
+
+
+async def persist_busy_count(session: AsyncSession, count: int) -> None:
+    """Persiste el contador de contención (T37: commit interno; T19: lo lee status)."""
+    await get_or_create_daemon_state(session)
+    await session.execute(
+        update(DaemonState).where(DaemonState.id == 1).values(db_busy_count_5min=count)
+    )
+    await session.commit()

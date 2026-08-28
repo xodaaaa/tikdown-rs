@@ -1,13 +1,62 @@
 # e07s04-tasks.yaml
 story_id: e07s04
-title: "Contención SQLite (db_busy_count_5min + retries)"
-status: todo
+title: "Contención SQLite (db_busy_count_5min + alerta)"
+status: passing
 bcps: 3
+risk: P0
+context: infra
 tasks:
-  - id: e07s04-t01
+  - id: 1
     description: >-
-      Manejo de SQLITE_BUSY/locked (§5.8): contador rotativo db_busy_count_5min persistido en
-      daemon_state; reintentos con backoff corto para sesiones cortas; daemon status muestra el
-      contador leído de daemon_state, NUNCA del proceso CLI propio (T19).
+      core/daemon_state.py: helper persist_busy_count(count) (T37: commit interno) — el heartbeat
+      persiste busy_count() en daemon_state.db_busy_count_5min. daemon status lee el contador desde
+      daemon_state, NUNCA del proceso CLI (T19).
     verify: "uv run pytest tests/db/test_busy_handling.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "db"
+        - "contention"
+  - id: 2
+    description: >-
+      core/db.py (o daemon): lógica de alerta daemon.db_contention (§5.8) — si busy_count() supera
+      DB_BUSY_TIMEOUT_ALERT_THRESHOLD (default 20) en la ventana de 5 min → emitir evento por
+      Telegram con DEDUPE POR FLANCO (solo al cruzar el umbral; re-emite al bajar y volver a subir,
+      no en cada heartbeat).
+    verify: "uv run pytest tests/db/test_busy_handling.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "db"
+        - "alert"
+  - id: 3
+    description: >-
+      Confirmar integración: el listener handle_error captura 'database is locked' y llama record_busy
+      (ya en e02s04); PRAGMA busy_timeout=5000 PRIMERO, journal_mode=WAL DESPUÉS (L-C5, e01s04) —
+      coexisten sin conflicto.
+    verify: "uv run pytest tests/db/test_busy_handling.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "db"
+        - "integration"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): test_busy_handling.py — listener captura y record_busy incrementa;
+      ventana rotativa descarta viejas; persist_busy_count persiste (T37); daemon status lee de
+      daemon_state (T19); alerta con dedupe por flanco (cruza umbral una vez, no repite). SQLite
+      :memory: + StaticPool; nunca entorno real (T69).
+    verify: "uv run pytest tests/db/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "db"
+        - "unit"
