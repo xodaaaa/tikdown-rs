@@ -1,23 +1,64 @@
 # e08s01-tasks.yaml
 story_id: e08s01
 title: "Estructura typer: 7 grupos + cli/common.py"
-status: todo
+status: passing
 bcps: 8
+risk: P1
+context: infra
 tasks:
-  - id: e08s01-t01
+  - id: 1
     description: >-
-      cli/main.py: app typer con @app.callback global --version e invoke_without_command=True
-      (sin él, tikdown-rs --help lanza RuntimeError, L-A1); grupos registrados con
-      app.add_typer(grupo, name="sustantivo") — exactamente 7: daemon, monitor, accounts, backfill,
-      cookies, videos, system. Sin comandos-verbo sueltos en la raíz (§3). Pares simétricos
-      pause/resume; borrado siempre remove.
-    verify: "uv run tikdown-rs --help"
-    status: todo
-  - id: e08s01-t02
-    description: >-
-      cli/common.py (T18): wrapper central asyncio.run() para comandos síncronos; run_or_exit()
-      convierte errores de negocio (AccountError, BackfillAccountError, ConfigurationError) en
-      'ERROR <mensaje>' + exit 1 sin tracebacks (F-21); aplica migraciones idempotentes pendientes
-      (§5.5) y construye Settings fresca por invocación (§5.6).
+      cli/common.py: run_sync(coro) — wrapper central de asyncio.run() para comandos síncronos (T18).
+      run_or_exit(fn) — convierte errores de negocio (AccountError, BackfillAccountError,
+      ConfigurationError) en 'ERROR <mensaje>' + exit 1 sin tracebacks (F-21).
     verify: "uv run pytest tests/cli/test_common.py -q"
-    status: todo
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "cli"
+        - "common"
+  - id: 2
+    description: >-
+      cli/common.py: prepare_invocation() — aplica migraciones idempotentes pendientes (§5.5: T29
+      comprobar alembic_version antes de stamp vs upgrade, T68 lock .migrate.lock, T70 localización
+      por candidatos) y construye Settings fresca por invocación (§5.6). --version y healthcheck NO
+      migran (R10).
+    verify: "uv run pytest tests/cli/test_common.py -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "cli"
+        - "migrations"
+  - id: 3
+    description: >-
+      cli/main.py: app typer con @app.callback() global --version e invoke_without_command=True
+      (L-A1: sin él, tikdown-rs --help lanza RuntimeError). Grupos registrados con
+      app.add_typer(grupo, name='sustantivo') — exactamente 7: daemon, monitor, accounts, backfill,
+      cookies, videos, system (§3). Sin comandos-verbo sueltos en la raíz. [project.scripts]
+      tikdown-rs = 'tikdown_rs.cli.main:run' (L-A2, ya en pyproject).
+    verify: "uv run tikdown-rs --help"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "cli"
+        - "main"
+  - id: 4
+    description: >-
+      Tests (F.I.R.S.T., §14): tests/cli/test_common.py — run_or_exit convierte errores en
+      ERROR + exit 1 (F-21, sin traceback), run_sync ejecuta corrutina, prepare_invocation aplica
+      migraciones (T29/T68/T70) y construye Settings. SQLite :memory: + StaticPool; nunca entorno
+      real (T69).
+    verify: "uv run pytest tests/cli/ -q"
+    risk: P1
+    status: passing
+    allure:
+      severity: high
+      categories:
+        - "cli"
+        - "unit"

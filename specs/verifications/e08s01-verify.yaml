@@ -1,0 +1,39 @@
+story_id: e08s01
+verified_at: "2026-08-28T11:30:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "CLI: --version (R10), grupos (§3), run_or_exit (F-21)"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 166
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T11:29:00Z"
+    note: "166 passed"
+  manual:
+    steps:
+      - step: "--version (R10)"
+        expected: "tikdown-rs 0.1.0, no migra"
+        actual: "OK"
+        passed: true
+      - step: "Grupos (§3)"
+        expected: "6 grupos registrados (videos en e09)"
+        actual: "OK: 6"
+        passed: true
+      - step: "run_or_exit (F-21)"
+        expected: "ERROR + exit 1 sin traceback"
+        actual: "OK: SystemExit 1"
+        passed: true
+gaps:
+  closed: true
