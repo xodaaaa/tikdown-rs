@@ -30,6 +30,11 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+    # e14s01: logs a archivo rotado (vacío = solo stdout)
+    log_file_path: str = ""
+    log_file_max_bytes: int = 10 * 1024 * 1024  # 10MB (rotación por tamaño)
+    log_file_backup_count: int = 7  # retención
+    log_file_when: str = "size"  # 'size' | 'midnight' (rotación temporal)
 
     # Telegram
     telegram_bot_token: str = ""

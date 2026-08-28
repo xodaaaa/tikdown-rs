@@ -1,7 +1,7 @@
 # e14s01-tasks.yaml
 story_id: e14s01
 title: "RotatingFileHandler/TimedRotatingFileHandler JSON + config env (T72)"
-status: failing
+status: passing
 bcps: 4
 risk: P2
 context: infra
@@ -15,7 +15,7 @@ tasks:
       handler de archivo (stdout puro, comportamiento actual).
     verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
@@ -30,7 +30,7 @@ tasks:
       El directorio padre se crea si no existe. stdout se mantiene (JSON a stdout + archivo).
     verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
@@ -44,7 +44,7 @@ tasks:
       del archivo se respetan automáticamente porque vienen de Settings.
     verify: "uv run pytest tests/logging/test_logging_rotated.py -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
@@ -59,7 +59,7 @@ tasks:
       para archivos (T69); nunca escribir en el repo.
     verify: "uv run pytest tests/logging/ -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
