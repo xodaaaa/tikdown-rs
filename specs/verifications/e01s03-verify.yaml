@@ -1,0 +1,35 @@
+story_id: e01s03
+verified_at: "2026-08-28T01:56:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "JsonFormatter emite JSON válido a stdout"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 11
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T01:55:00Z"
+    note: "Single contiguous run — 11 passed"
+  manual:
+    steps:
+      - step: "Emisión JSON a stdout"
+        expected: "Línea JSON con timestamp/level/logger/message"
+        actual: "OK: JSON válido emitido"
+        passed: true
+      - step: "Reaplicación tras migración (T72)"
+        expected: "Root mantiene nivel + formatter JSON tras re-setup"
+        actual: "OK: nivel DEBUG + JsonFormatter tras simular fileConfig"
+        passed: true
+gaps:
+  closed: true
