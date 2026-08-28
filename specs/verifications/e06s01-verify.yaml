@@ -1,0 +1,39 @@
+story_id: e06s01
+verified_at: "2026-08-28T08:30:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Bot: dual authz (§6.3), callback compacto (T38), expiración"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 133
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T08:29:00Z"
+    note: "133 passed"
+  manual:
+    steps:
+      - step: "Doble authz (§6.3)"
+        expected: "chat ok True, chat no False; user lista 333 True, 555 False"
+        actual: "OK"
+        passed: true
+      - step: "callback_data compacto (T38)"
+        expected: "<= 64 bytes"
+        actual: "OK: 25 bytes"
+        passed: true
+      - step: "Expiración 60s"
+        expected: "reciente False, viejo True"
+        actual: "OK"
+        passed: true
+gaps:
+  closed: true

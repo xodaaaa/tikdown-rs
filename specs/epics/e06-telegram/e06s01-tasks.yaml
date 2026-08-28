@@ -1,20 +1,92 @@
 # e06s01-tasks.yaml
 story_id: e06s01
 title: "Dispatcher PTB async (mismo event loop) + rate-limiter"
-status: todo
+status: passing
 bcps: 6
+risk: P0
+context: domain
 tasks:
-  - id: e06s01-t01
+  - id: 1
     description: >-
-      daemon/telegram/bot.py: python-telegram-bot[rate-limiter] (extra OBLIGATORIO, L-H2/T41);
-      ciclo de vida manual en el MISMO event loop del daemon (T10): initialize → start →
-      updater.start_polling(timeout=25); apagado updater.stop → stop → shutdown. Nunca run_polling
-      dentro de un loop existente. Modos disabled|commands|both desde Settings; sin token = apagado.
+      daemon/telegram/bot.py: TelegramBot con ciclo de vida MANUAL (T10) en el MISMO event loop del
+      daemon — await app.initialize() → await app.start() → await app.updater.start_polling(timeout=25).
+      NUNCA run_polling() (RuntimeError en loop existente, T10). Apagado: updater.stop() → stop() →
+      shutdown(). Sin token o modo disabled → bot no arranca. [OK] PTB 22.8 instalado.
     verify: "uv run pytest tests/telegram/test_bot_lifecycle.py -q"
-    status: todo
-  - id: e06s01-t02
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "lifecycle"
+  - id: 2
     description: >-
-      Autorización: TELEGRAM_CHAT_ID permitido (modo commands); no autenticación por red. Acceso
-      restringido por chat ID; sin exponer servidor HTTP.
+      daemon/telegram/bot.py: dependencias INYECTADAS por el daemon (T26) — engine SQLAlchemy,
+      motor de descarga, archive, clave Fernet, canal de eventos — en el constructor, NUNCA creadas
+      por comando (fugas de conexiones). Flag owns_engine decide si el bot dispone el engine al
+      terminar. En standalone, deps resueltas una vez en el constructor.
+    verify: "uv run pytest tests/telegram/test_bot_lifecycle.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "di"
+  - id: 3
+    description: >-
+      daemon/telegram/bot.py: doble autorización (§6.3) — solo TELEGRAM_CHAT_ID ejecuta comandos;
+      además se verifica from_user.id (TELEGRAM_USER_ID lista; vacío = propietario del chat). Guard
+      tolera updates sin effective_chat (F-18). No autorizado → evento bot.unauthorized_attempt
+      (warning, auditado). Se aplica en comandos, callbacks y documentos.
     verify: "uv run pytest tests/telegram/test_bot_authz.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "authz"
+  - id: 4
+    description: >-
+      daemon/telegram/bot.py: rate limiter (T41) — Application.builder().rate_limiter(AIORateLimiter
+      (max_retries=3)); el extra [rate-limiter] es OBLIGATORIO (sin él RuntimeError, L-H2). Servicio
+      de notificaciones usa ExtBot (no Bot plano). callback_data compacto (T38): <= 64 bytes,
+      encoding presupuestado (acción corta + timestamp epoch + payload acotado); botones con
+      expiración real (timestamp embebido validado en handler, 60s).
+    verify: "uv run pytest tests/telegram/test_bot_limits.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "limits"
+  - id: 5
+    description: >-
+      daemon/telegram/bot.py: handlers idempotentes (T48) — PTB mantiene offset en memoria; Telegram
+      puede re-entregar updates tras reinicio; todos los handlers idempotentes. Verificación del bot
+      con getMe/sendMessage, NUNCA getUpdates manual (T71: mata el polling con Conflict 409).
+    verify: "uv run pytest tests/telegram/test_bot_limits.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "idempotency"
+  - id: 6
+    description: >-
+      Tests (F.I.R.S.T., §14): test_bot_lifecycle.py — T10 (ciclo manual, no run_polling), T26 (deps
+      inyectadas, owns_engine). test_bot_authz.py — §6.3 doble auth (chat + user), F-18 (sin chat).
+      test_bot_limits.py — T38 (callback <= 64 bytes, expiración 60s), T41 (rate limiter). Mocks de
+      PTB; nunca red real (T69).
+    verify: "uv run pytest tests/telegram/ -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "telegram"
+        - "unit"
