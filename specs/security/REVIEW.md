@@ -1,18 +1,16 @@
 # Security Review — TikDown-rs
 
-**Fecha:** 2026-08-27
-**Alcance:** diff e01s01 (rama e01s01-estructura-paquete → master)
-**Método:** inline (release-branch gate 2a) — diff de bootstrap
+**Última actualización:** 2026-08-27
+**Alcance:** e01s01 (bootstrap) + e01s02 (settings)
 
 ## Hallazgos
 
-- **Ningún hallazgo HIGH.** El diff es de bootstrap: `pyproject.toml`, `uv.lock`, layout `src/`, `.python-version`, README, spec/tasks. Sin lógica de usuario, sin auth, sin datos sensibles, sin entrada externa.
-- **Superficie de ataque:** mínima (sin servidor HTTP, sin frontend — por diseño §0).
-- **Cadena de suministro:** deps `[OK]`; `prerelease-package` solo para yt-dlp (T2); sin `prerelease` global; pines exactos para yt-dlp/curl-cffi.
-- **Secretos:** ninguno en diff (scan OK); `.gitignore`/`.dockerignore` cubren `.env`, `*.db`, cookies, `fernet.key`.
+- **Ningún hallazgo HIGH.** e01s02 es configuración pura (pydantic-settings): sin lógica de usuario, sin I/O, sin auth, sin datos sensibles.
+- **Config fail-fast (T25):** `validate_for_daemon()` bloquea arranques con config inválida (token/chat_id/cooldown) — mitiga misconfiguración.
+- **Secretos:** campos `telegram_bot_token`/`webdav_password` son nombres de variable, sin valores; `.gitignore` cubre `.env`.
+- **Cadena de suministro:** pines exactos yt-dlp/curl-cffi; `prerelease-package` solo yt-dlp (T2).
 
 ## Veredicto
 
-- [x] No unresolved HIGH findings (confidence ≥ 8)
-- [x] No EXCEPTIONS.md needed (sin hallazgos)
+- [x] No unresolved HIGH findings
 - Estado: **PASS**
