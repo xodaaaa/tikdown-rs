@@ -1,15 +1,15 @@
 # Security Review — TikDown-rs
 
 **Última actualización:** 2026-08-28
-**Alcance:** e01-e06 completa (telegram)
+**Alcance:** e01-e06 + e07s01 (network monitor)
 
 ## Hallazgos
 
 - **Ningún hallazgo HIGH.**
-- **e06 completa:** bot con doble authz (§6.3), rate limiter (T41), callback compacto (T38), ciclo manual (T10); notificaciones con escape HTML (T40, anti-XSS vía contenido TikTok), spool solo con notif. habilitadas (T42), clip 4096 (F-07), coalescing (L-I3), sin doble @ (L-H7).
-- **e01-e05:** crypto, higiene secretos, pines, backfill, cookies.
+- **e07s01:** NetworkMonitor con probe a endpoints neutrales (nunca TikTok, §1); pausa/reanudación automática ante caída real (T35: blip no notifica online); fallos de red no penalizan (T64); evento seteado por defecto (L-D2); backoff del probe (F-13).
+- **e01-e06:** crypto, higiene secretos, pines, bot con authz, notificaciones.
 
 ## Veredicto
 
 - [x] No unresolved HIGH findings
-- Estado: **PASS** — e06 lista.
+- Estado: **PASS**
