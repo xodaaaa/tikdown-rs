@@ -77,14 +77,11 @@ class DownloadEngine(Protocol):
 
 
 # Formato de descarga por defecto (§4.2)
-DEFAULT_FORMAT = (
-    "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-    "bestvideo[height<=1080]+bestaudio/"
-    "best[height<=1080]/"
-    "best"
-)
+# Formato de descarga por defecto (§4.2). Single-format: TikTok bloquea la
+# resolución completa que exige separar video+audio (bug #9 — rehydration).
+DEFAULT_FORMAT = "best[height<=1080]/best"
 # Formato mejorado para el reintento ante solo-audio (§4.2)
-RETRY_FORMAT = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"
+RETRY_FORMAT = "best[ext=mp4]/best"
 
 
 class YtDlpEngine:
