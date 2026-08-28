@@ -191,6 +191,11 @@ class YtDlpEngine:
                 info = ydl.extract_info(url, download=True)
             return {"info": info, "target": target}
 
+        def _run() -> dict:
+            with yt_dlp.YoutubeDL(params) as ydl:
+                info = ydl.extract_info(url, download=True)
+            return {"info": info, "target": target}
+
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(_run),
@@ -231,6 +236,17 @@ class YtDlpEngine:
         except TimeoutError:
             LOG.warning("engine.extract_profile.timeout", extra={"username": username})
             raise
-        # yt-dlp con ignoreerrors deja entradas None (bloqueadas) — filtrar (T5)
-        entries = [e for e in (info or {}).get("entries") or [] if e is not None]
+        # yt-dlp con ignoreerrors deja entradas None (bloqueadas) — filtrar (T5).
+        # bug #15: el feed con cookies puede devolver URLs de CDN con query
+        # strings gigantes (id monstruoso → 'File name too long' al descargar).
+        # Normalizar cada entrada a URL de PÁGINA (https://www.tiktok.com/@u/video/<id>)
+        # para que download() genere IDs cortos y TikTok la resuelva bien.
+        entries: list[dict] = []
+        for e in (info or {}).get("entries") or []:
+            if e is None:
+                continue
+            vid_id = e.get("id")
+            if vid_id:
+                e["url"] = f"https://www.tiktok.com/@{username}/video/{vid_id}"
+            entries.append(e)
         return {"entries": entries}
