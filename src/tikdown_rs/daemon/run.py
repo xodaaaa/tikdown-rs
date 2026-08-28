@@ -136,6 +136,45 @@ class DaemonRunner:
             max_instances=1,
         )
 
+        # e13s01: recogida automática de backfills 'queued' + 'paused' reanudables
+        async def _backfill_collect_job() -> None:
+            engine = self._engine
+            if engine is None:
+                return
+            from sqlalchemy.ext.asyncio import async_sessionmaker
+
+            from tikdown_rs.core.tasks import create_supervised_task
+            from tikdown_rs.services import backfill as backfill_svc
+            from tikdown_rs.services.cookies import working_cookies_list
+
+            maker = async_sessionmaker(engine, expire_on_commit=False)
+            async with maker() as s:
+                cookie = await working_cookies_list(s)
+
+                # El job lanza la recogida como tarea supervisada (T27) — el
+                # estado de red del daemon se consulta vía el monitor (default online)
+                async def _run() -> None:
+                    async with maker() as s2:
+                        await backfill_svc.collect_queued_backfills(
+                            s2,
+                            engine=engine,
+                            cookies=cookie,
+                            owner="daemon",
+                        )
+
+                create_supervised_task(_run(), name="backfill-collect")
+
+        def _schedule_backfill() -> None:
+            create_supervised_task(_backfill_collect_job(), name="backfill-collect-job")
+
+        self.scheduler.add_job(
+            _schedule_backfill,
+            "interval",
+            seconds=60,
+            id="backfill-collect",
+            max_instances=1,  # T44: no solapar el ciclo
+        )
+
     # --- Bot (T10) ---
 
     async def _start_bot(self) -> None:

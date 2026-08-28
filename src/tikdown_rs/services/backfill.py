@@ -11,10 +11,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tikdown_rs.models.models import MonitoredAccount
+from tikdown_rs.models.models import BackfillSlot, MonitoredAccount
 
 LOG = logging.getLogger("tikdown_rs.backfill")
 
@@ -118,11 +118,18 @@ async def run_backfill(
         return "completed"
 
     except asyncio.CancelledError:
-        # F-10: interrupción → vuelve a queued (auto-reanudable)
+        # F-10/e13s01: interrupción → 'queued' (crash) o 'paused' (causa red/disco)
+        paused_disk = await _downloads_paused(session)
+        network_online = True  # el daemon conoce el estado; por defecto online
+        new_status = status_after_interruption(session, paused_disk, network_online)
+        reason = "disk" if paused_disk else ("network" if not network_online else None)
         await session.execute(
             update(MonitoredAccount)
             .where(MonitoredAccount.id == account.id)
-            .values(backfill_status="queued")
+            .values(
+                backfill_status=new_status,
+                backfill_pause_reason=reason,
+            )
         )
         await session.commit()
         raise
@@ -156,42 +163,78 @@ async def reconcile_stale_backfills(session: AsyncSession) -> int:
     return result.rowcount or 0
 
 
-# Slot único de backfill activo por proceso (§10) — adquisición no bloqueante
-_slot_lock: asyncio.Lock | None = None
+# --- Slot único de backfill CROSS-PROCESO (e13s01, T22) ---
+#
+# Reemplaza el asyncio.Lock por proceso: tabla singleton backfill_slot con
+# adquisición atómica CAS (UPDATE ... SET owner=:me WHERE owner IS NULL
+# RETURNING) visible para daemon + CLI + bot. Mismo patrón que
+# download_pacing_state (T22/L-C6).
 
 
-def _get_slot() -> asyncio.Lock:
-    global _slot_lock
-    if _slot_lock is None:
-        _slot_lock = asyncio.Lock()
-    return _slot_lock
+def status_after_interruption(
+    session: AsyncSession,
+    paused_disk: bool,
+    network_online: bool,
+) -> str:
+    """Estado tras una interrupción (e13s01).
 
-
-def backfill_slot_busy() -> bool:
-    """¿El slot único está ocupado? (F-10, §10) — solo comprobación.
-
-    La adquisición real es async (acquire_slot). Comprobar nunca adquiere:
-    si está libre devuelve False y el llamador decide si adquirir.
+    - disco pausado o red offline → 'paused' (estado real, se reanuda al
+      resolverse la causa)
+    - si no → 'queued' (F-10 crash, auto-reanudable)
     """
-    return _get_slot().locked()
+    if paused_disk or not network_online:
+        return "paused"
+    return "queued"
 
 
-async def acquire_slot() -> bool:
-    """Adquiere el slot de forma NO bloqueante (F-10/§10).
+async def _ensure_slot_row(session: AsyncSession) -> None:
+    """Crea la fila singleton con INSERT ... ON CONFLICT + commit (L-C6)."""
+    from tikdown_rs.models.models import BackfillSlot
 
-    if lock.locked(): return False; await lock.acquire(); return True.
+    session.add(BackfillSlot(id=1))
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+
+
+async def backfill_slot_busy(session: AsyncSession) -> bool:
+    """¿El slot cross-proceso está ocupado? (e13s01, T22)."""
+    await _ensure_slot_row(session)
+    result = await session.execute(select(BackfillSlot).where(BackfillSlot.id == 1))
+    row = result.scalar_one()
+    return row.owner is not None
+
+
+async def acquire_slot(session: AsyncSession, owner: str = "daemon") -> bool:
+    """Adquiere el slot cross-proceso de forma ATÓMICA (e13s01, T22).
+
+    UPDATE ... SET owner=:me WHERE owner IS NULL RETURNING — CAS vía SQLite;
+    solo un proceso gana. Devuelve True si lo adquirió.
     """
-    lock = _get_slot()
-    if lock.locked():
-        return False  # ocupado, no bloquear
-    await lock.acquire()
-    return True
+    await _ensure_slot_row(session)
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC).isoformat(timespec="milliseconds")
+    result = await session.execute(
+        text(
+            "UPDATE backfill_slot SET owner = :me, acquired_at = :now "
+            "WHERE id = 1 AND owner IS NULL RETURNING owner"
+        ),
+        {"me": owner, "now": now},
+    )
+    await session.commit()
+    return result.scalar_one_or_none() is not None
 
 
-def _release_slot() -> None:
-    lock = _get_slot()
-    if lock.locked():
-        lock.release()
+async def release_slot(session: AsyncSession, owner: str = "daemon") -> None:
+    """Libera el slot solo si este proceso lo posee (e13s01, T22)."""
+    await _ensure_slot_row(session)
+    await session.execute(
+        text("UPDATE backfill_slot SET owner = NULL WHERE id = 1 AND owner = :me"),
+        {"me": owner},
+    )
+    await session.commit()
 
 
 async def collect_queued_backfills(
@@ -199,22 +242,30 @@ async def collect_queued_backfills(
     engine,
     cookies: list,
     on_event=None,
+    owner: str = "daemon",
+    network_online: bool = True,
 ) -> list[str]:
-    """Recoge backfills 'queued' y los ejecuta con su slot (F-10/T75).
+    """Recoge backfills 'queued' + 'paused' reanudables (F-10/e13s01).
 
-    Comprueba backfill_slot_busy() antes de crear la tarea (F-10) y PROPAGA
-    el canal de eventos a run_backfill (T75: nunca None — L-I5).
+    - Slot cross-proceso (T22): si está ocupado (otro proceso), no ejecuta.
+    - 'paused' solo se reanuda si la causa se resolvió (red online + disco no
+      pausado).
+    - PROPAGA el canal de eventos (T75: nunca None — L-I5).
     """
-    if not await acquire_slot():  # F-10: comprobar antes de crear la tarea
+    if not await acquire_slot(session, owner=owner):  # T22: slot cross-proceso
         LOG.info("backfill.slot_busy")
         return []
     try:
+        paused_disk = await _downloads_paused(session)
+        statuses = ["queued"]
+        if network_online and not paused_disk:
+            statuses.append("paused")  # e13s01: paused con causa resuelta
         result = await session.execute(
-            select(MonitoredAccount).where(MonitoredAccount.backfill_status == "queued")
+            select(MonitoredAccount).where(MonitoredAccount.backfill_status.in_(statuses))
         )
-        queued = list(result.scalars().all())
+        pending = list(result.scalars().all())
         outcomes: list[str] = []
-        for account in queued:
+        for account in pending:
             outcome = await run_backfill(
                 session,
                 account.username,
@@ -226,7 +277,15 @@ async def collect_queued_backfills(
             outcomes.append(f"{account.username}:{outcome}")
         return outcomes
     finally:
-        _release_slot()
+        await release_slot(session, owner=owner)
+
+
+async def _downloads_paused(session: AsyncSession) -> bool:
+    """Lee downloads_paused del daemon_state (e13s01)."""
+    from tikdown_rs.core.daemon_state import get_or_create_daemon_state
+
+    row = await get_or_create_daemon_state(session)
+    return bool(row.downloads_paused)
 
 
 async def reconcile_transitions(session: AsyncSession) -> int:
