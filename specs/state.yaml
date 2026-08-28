@@ -18,8 +18,8 @@ git:
   branch: master
   worktree: null
 release:
-  last_tag: v0.3.0
-  last_publish: 2026-08-28T17:00:00Z
-  target_version: v0.3.0
+  last_tag: v0.3.1
+  last_publish: 2026-08-28T23:00:00Z
+  target_version: v0.3.1
   ci_verified: true  # CI Woodpecker configurado (.woodpecker.yml) — runner pendiente de activar
-  merged_commit: ad0880d  # tag v0.3.0 (cierre del backlog round 2: backfills + logs + métricas)
+  merged_commit: d3c1bbf  # tag v0.3.1 (squash PR #1: 16 fixes runtime Docker + comando videos)
