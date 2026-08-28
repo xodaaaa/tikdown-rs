@@ -1,21 +1,92 @@
 # e02s03-tasks.yaml
 story_id: e02s03
 title: "Runner del daemon (event loop, scheduler, drenaje)"
-status: todo
+status: passing
 bcps: 8
+risk: P0
+context: infra
 tasks:
-  - id: e02s03-t01
+  - id: 1
     description: >-
-      DaemonRunner: event loop único asyncio; AsyncIOScheduler (>=3.11,<4) con jobstore en memoria;
-      jobs de intervalo (monitor, validación de cookies, selfcheck periódico, probe de red, heartbeat);
-      bot de Telegram en el MISMO loop (long polling manual: initialize/start/updater.start_polling).
-      Fail-fast en arranque: selfcheck completo antes de nada (§5.1 paso 2, T6); si la configuración
-      es inválida, aborta.
+      core/daemon_state.py: helpers mutadores con commit INTERNO (T37) — p. ej. set_stop_requested,
+      set_monitor_running, update_heartbeat. Singleton con INSERT ... ON CONFLICT DO NOTHING + commit
+      inmediato (T17). No dependen del commit del llamador (una sesión corta hace rollback silencioso).
+      [OK] SQLAlchemy async ya instalado.
     verify: "uv run pytest tests/daemon/test_runner.py -q"
-    status: todo
-  - id: e02s03-t02
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "db"
+  - id: 2
     description: >-
-      Apagado limpio: señal SIGTERM → stop_requested; drenaje de tareas supervisadas; parada del bot
-      (updater.stop → stop → shutdown, T10); shutdown del scheduler. Nada de forks; foreground.
+      daemon/run.py: _lifecycle() — TODO el ciclo (start + run + shutdown) en UN único
+      asyncio.run(_lifecycle()) (L-B1, crítico). Orden de arranque: validate_for_daemon (T25) →
+      selfcheck impersonación (T6, aborta si falla) → asyncio.to_thread(apply_migrations) (L-B3) →
+      REAPLICAR logging (setup_logging force=True, T72). Monitor SIEMPRE arranca detenido
+      (MONITOR_AUTOSTART=false, T5.1).
+    verify: "uv run pytest tests/daemon/test_runner.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "runner"
+  - id: 3
+    description: >-
+      daemon/run.py: AsyncIOScheduler (>=3.11,<4) con jobstore en memoria. Los jobs de intervalo
+      lanzan su trabajo como create_supervised_task (T27). daemon/jobs.py: jobs de monitor, cookies,
+      selfcheck, probe y heartbeat. El monitor siempre arranca detenido (T5.1).
+    verify: "uv run pytest tests/daemon/test_runner.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "scheduler"
+  - id: 4
+    description: >-
+      daemon/run.py: bot de Telegram (si habilitado) en el MISMO loop con ciclo manual de PTB (T10):
+      await app.initialize() → await app.start() → await app.updater.start_polling(timeout=25).
+      NUNCA run_polling(). Apagado: updater.stop() → stop() → shutdown(). [OK] PTB instalado.
+    verify: "uv run pytest tests/daemon/test_runner.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "telegram"
+  - id: 5
+    description: >-
+      daemon/run.py: apagado limpio — watcher de stop_requested (L-B1) detecta SIGTERM/SIGINT;
+      drena el registro de tareas supervisadas (cancel_pending_tasks, T28) — NO el scheduler
+      (T9: shutdown(wait=True) cancela en vez de esperar); para el bot (T10); shutdown del scheduler.
+      Sin forks; foreground.
     verify: "uv run pytest tests/daemon/test_runner_shutdown.py -q"
-    status: todo
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "shutdown"
+  - id: 6
+    description: >-
+      Tests (F.I.R.S.T., §14): test_runner.py — arranque fail-fast (T25/T6), migraciones + re-logging
+      (T72), monitor detenido (T5.1), helpers commit interno (T37). test_runner_shutdown.py — L-B1
+      (watcher detecta stop_requested y completa apagado), drenaje (T9/T28), bot manual (T10).
+      SQLite :memory: + mocks; nunca entorno real (T69).
+    verify: "uv run pytest tests/daemon/test_runner.py tests/daemon/test_runner_shutdown.py -q"
+    risk: P0
+    status: passing
+    allure:
+      severity: critical
+      categories:
+        - "daemon"
+        - "runner"
+        - "unit"

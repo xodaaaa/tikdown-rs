@@ -1,0 +1,39 @@
+story_id: e02s03
+verified_at: "2026-08-28T04:00:00Z"
+verifier: verify-work
+mode: smoke
+phases:
+  smoke:
+    passed: true
+    note: "Runner: helpers commit interno (T37), monitor detenido (T5.1), drenaje (T28)"
+  build:
+    passed: true
+    command: "uv build"
+  lint:
+    passed: true
+    command: "uv run ruff check ."
+  tests:
+    passed: true
+    count: 48
+    command: "uv run pytest -q"
+  terminal_verdict:
+    command: "uv run pytest -q"
+    exit_code: 0
+    captured_at: "2026-08-28T03:59:00Z"
+    note: "Single contiguous run — 48 passed"
+  manual:
+    steps:
+      - step: "set_stop_requested commit interno (T37)"
+        expected: "stop_requested True persistido entre sesiones"
+        actual: "OK: True"
+        passed: true
+      - step: "set_monitor_running commit interno (T37)"
+        expected: "monitor_running True persistido"
+        actual: "OK: True"
+        passed: true
+      - step: "Monitor arranca detenido (T5.1)"
+        expected: "monitor_autostart False"
+        actual: "OK: False"
+        passed: true
+gaps:
+  closed: true
