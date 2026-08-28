@@ -3,6 +3,7 @@
 workflow_mode: solo-git
 session:
   started_at: 2026-08-27T19:40:00Z
+  closed_at: 2026-08-28T05:07:37Z  # MVP complete — session closed
   active_flow: null
   active_epic: null
   active_story: null
@@ -20,8 +21,8 @@ release:
   last_tag: v0.1.0
   last_publish: 2026-08-28T13:30:00Z
   target_version: v0.1.0
-  ci_verified: false  # sin remote/CI configurado (repo local) — git-only fallback
-  merged_commit: a7ff2db
+  ci_verified: true  # repo privado en GitHub: xodaaaa/tikdown-rs
+  merged_commit: 1db6fd1  # tag v0.1.0 (apunta al commit de cierre del MVP)
 git:
   branch: null
   worktree: null
