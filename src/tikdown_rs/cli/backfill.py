@@ -40,8 +40,11 @@ def run(user: str) -> None:
         downloader = YtDlpEngine()
         async with maker() as s:
             acct = await accounts.stats(s, user)
-            # Cookies: F-01 — sin cookies el backfill aborta (e05 las gestiona)
-            cookies = []
+            # F-01: cookies working — la CLI las carga del servicio (igual que el
+            # daemon), nunca vacías. Sin cookies el backfill aborta (e05).
+            from tikdown_rs.services.cookies import working_cookies_list
+
+            cookies = await working_cookies_list(s)
             try:
                 outcome = await run_backfill(s, user, engine=downloader, cookies=cookies)
                 print(f"OK backfill {user}: {outcome} (total={acct.backfill_total})")

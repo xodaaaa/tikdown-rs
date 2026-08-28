@@ -156,3 +156,30 @@ class YtDlpEngine:
         except TimeoutError:
             LOG.warning("engine.timeout (zombie thread, T23/T66)", extra={"url": url})
             raise
+
+    async def extract_profile(self, username: str) -> dict:
+        """Extrae el feed de una cuenta (lista de entradas) sin descargar (T20).
+
+        yt-dlp con download=False lista las entradas del perfil; usado por
+        backfill (F-10) y monitor. Devuelve el dict completo de extract_info
+        (con 'entries') para que el caller decida.
+        """
+        import asyncio
+
+        import yt_dlp
+
+        target = self._next_target()
+        params = self._ydl_params(target, "best", "%(id)s.%(ext)s")
+        params["download"] = False
+        params["playlistend"] = 50  # límite de listado (ponytail: suficiente para backfill)
+        url = f"https://www.tiktok.com/@{username}"
+
+        def _run() -> dict:
+            with yt_dlp.YoutubeDL(params) as ydl:
+                return ydl.extract_info(url, download=False) or {}
+
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(_run), timeout=self._timeout)
+        except TimeoutError:
+            LOG.warning("engine.extract_profile.timeout", extra={"username": username})
+            raise

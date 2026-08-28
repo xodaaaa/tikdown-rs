@@ -47,6 +47,11 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 COPY --from=builder /app/alembic /app/alembic
 
+# Limpiar bytecode stale: el COPY de .venv puede arrastrar __pycache__ viejo
+# (bug: import servía .pyc desactualizado → métodos faltantes en runtime)
+RUN find /app/.venv -name "__pycache__" -type d -exec rm -rf {} + \
+    && find /app/.venv -name "*.pyc" -delete
+
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH"
 ENV DATA_DIR=/app/data
