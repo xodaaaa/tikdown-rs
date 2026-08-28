@@ -1,15 +1,15 @@
 # Security Review — TikDown-rs
 
 **Última actualización:** 2026-08-28
-**Alcance:** e01-e05 + e06s01 (bot dispatcher)
+**Alcance:** e01-e06 completa (telegram)
 
 ## Hallazgos
 
 - **Ningún hallazgo HIGH.**
-- **e06s01:** bot con doble autorización (§6.3: chat + from_user.id, TELEGRAM_USER_ID configurable) — superficie de control restringida; unauthorized_attempt auditado; sin servidor HTTP (superficie mínima §0); rate limiter (T41) evita 429; callback_data compacto (T38); deps inyectadas (T26) sin fugas.
-- **e01-e05:** crypto Fernet, higiene secretos, pines exactos, backfill, cookies.
+- **e06 completa:** bot con doble authz (§6.3), rate limiter (T41), callback compacto (T38), ciclo manual (T10); notificaciones con escape HTML (T40, anti-XSS vía contenido TikTok), spool solo con notif. habilitadas (T42), clip 4096 (F-07), coalescing (L-I3), sin doble @ (L-H7).
+- **e01-e05:** crypto, higiene secretos, pines, backfill, cookies.
 
 ## Veredicto
 
 - [x] No unresolved HIGH findings
-- Estado: **PASS**
+- Estado: **PASS** — e06 lista.
