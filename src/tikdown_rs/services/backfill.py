@@ -66,16 +66,23 @@ async def run_backfill(
     if not cookies:
         raise NoCookiesError(f"backfill.no_cookies: sin cookies working para {username}")
 
-    # Marcar backfilling
+    # F-10: el listado del feed va DENTRO del try catástrofe; feed_entries=None
+    # → listar; [] explícito → sin entradas (test/foreground vacío). Listar
+    # PRIMERO: backfill_total usa las entradas reales (bug #13, F-09), no el
+    # feed_entries crudo (None → 0).
+    try:
+        entries = await _list_feed(engine, username) if feed_entries is None else feed_entries
+    except Exception:
+        # F-10: si el listado falla, el try catástrofe lo marca 'failed'
+        raise
+
+    # Marcar backfilling (tras listar para total real)
     account.backfill_status = "backfilling"
-    account.backfill_total = len(feed_entries or [])  # F-09: total al iniciar
+    account.backfill_total = len(entries)  # F-09: total al iniciar (bug #13)
     account.backfill_done = 0
     await session.commit()
 
     try:
-        # F-10: el listado del feed va DENTRO del try catástrofe
-        # feed_entries=None → listar; [] explícito → sin entradas (test/foreground vacío)
-        entries = await _list_feed(engine, username) if feed_entries is None else feed_entries
         scope_cursor = account.backfill_cursor or "00000000"  # L-F1: snapshot para break
         cursor = scope_cursor
 
