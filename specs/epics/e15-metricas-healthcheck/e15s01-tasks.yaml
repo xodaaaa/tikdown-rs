@@ -1,7 +1,7 @@
 # e15s01-tasks.yaml
 story_id: e15s01
 title: "daemon status ampliado + healthcheck con cookies/disco/errores (T19/T50)"
-status: failing
+status: passing
 bcps: 5
 risk: P2
 context: domain
@@ -16,7 +16,7 @@ tasks:
       leída de daemon_state (T19, nunca del proceso CLI). Lógica en services (nunca en cli/).
     verify: "uv run pytest tests/status/test_status.py -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
@@ -30,7 +30,7 @@ tasks:
       (L-A5) o rich — consistente con el resto de la CLI.
     verify: "uv run pytest tests/status/test_status.py -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
@@ -45,7 +45,7 @@ tasks:
       el healthcheck corre cada ~30s, no debe ser pesado). Exit 0/1.
     verify: "uv run pytest tests/status/test_status.py -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:
@@ -60,7 +60,7 @@ tasks:
       recientes. SQLite :memory: + StaticPool (T69).
     verify: "uv run pytest tests/status/ -q"
     risk: P2
-    status: failing
+    status: passing
     allure:
       severity: normal
       categories:

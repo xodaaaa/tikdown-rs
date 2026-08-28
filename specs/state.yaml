@@ -12,8 +12,11 @@ epic_cycle: {}
 metrics:
   story_start: "2026-08-28T15:00:00Z"  # e15s01 (métricas/healthcheck)
 handoff:
-  next_skill: kickoff-branch
+  next_skill: develop-tdd
   plan_ready: true
+git:
+  branch: feat/e15-metricas-healthcheck
+  worktree: null
 git:
   branch: master
   worktree: null
