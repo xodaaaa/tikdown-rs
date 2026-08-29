@@ -37,3 +37,19 @@ e08s02: done
 e09: done
 e09s01: done
 e09s02: done
+
+# gate-trace (2026-08-29): vibe rounds 1-2 bug registry
+gate_trace:
+  verdict: CONCERNS
+  generated_at: "2026-08-29T01:00:00Z"
+  rationale: >
+    R1-R5 pasan (18/18 bugs con files_changed+commit_type, cobertura 100%,
+    3 P0 cubiertos, 0 no-fixed). Refutacion adversarial: sin gap real (los
+    commits individuales fueron squasheados en d3c1bbf/4242bc1, pero los
+    archivos referenciados SI fueron tocados por esos PRs - 18/18 verificados).
+    CONCERNS por downgrade de oracle: todos los enlaces son manuales via
+    registry.yaml (heuristic_ratio=1.0 > 0.8) - no hay story tags automaticos
+    en los archivos de los fixes (los 16 fixes de PR1 viven en un solo commit
+    squash). No es un gap de cobertura, es una limitacion del modelo de traza.
+  heuristic_ratio: 1.0
+  downgrade_applied: false
