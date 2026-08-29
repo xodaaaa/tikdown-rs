@@ -81,3 +81,71 @@ async def test_transicion_then_monitor_misma_transaccion_t59(maker):
         row = (await s.execute(select(MonitoredAccount))).scalar_one()
         assert row.mode == "monitor"  # transicionó
         assert row.monitor_after_backfill is False  # bandera consumida
+
+
+async def test_requeue_completed_a_queued(maker):
+    """vibe r2: --queue resetea 'completed' a 'queued' para que el daemon lo recoja."""
+    async with maker() as s:
+        await accounts.add(s, "u1", mode="history")
+    async with maker() as s:
+        row = (await s.execute(select(MonitoredAccount))).scalar_one()
+        row.backfill_status = "completed"
+        row.backfill_done = 0
+        row.backfill_total = 4
+        await s.commit()
+
+    from tikdown_rs.services.backfill import requeue_backfill
+
+    async with maker() as s:
+        prev = await requeue_backfill(s, "u1")
+    assert prev == "completed"
+    async with maker() as s:
+        row = (await s.execute(select(MonitoredAccount))).scalar_one()
+        assert row.backfill_status == "queued"
+
+
+async def test_requeue_backfilling_rechaza(maker):
+    """vibe r2: --queue rechaza si la cuenta ya está en curso (backfilling)."""
+    async with maker() as s:
+        await accounts.add(s, "u1", mode="history")
+    async with maker() as s:
+        row = (await s.execute(select(MonitoredAccount))).scalar_one()
+        row.backfill_status = "backfilling"
+        await s.commit()
+
+    from tikdown_rs.services.backfill import requeue_backfill
+
+    async with maker() as s:
+        prev = await requeue_backfill(s, "u1")
+    assert prev == "rejected"
+    async with maker() as s:
+        row = (await s.execute(select(MonitoredAccount))).scalar_one()
+        assert row.backfill_status == "backfilling"  # no cambió
+
+
+async def test_requeue_failed_a_queued(maker):
+    """vibe r2: --queue encola 'failed' (el daemon reintenta con retry/backoff)."""
+    async with maker() as s:
+        await accounts.add(s, "u1", mode="history")
+    async with maker() as s:
+        row = (await s.execute(select(MonitoredAccount))).scalar_one()
+        row.backfill_status = "failed"
+        await s.commit()
+
+    from tikdown_rs.services.backfill import requeue_backfill
+
+    async with maker() as s:
+        prev = await requeue_backfill(s, "u1")
+    assert prev == "failed"
+    async with maker() as s:
+        row = (await s.execute(select(MonitoredAccount))).scalar_one()
+        assert row.backfill_status == "queued"
+
+
+async def test_requeue_cuenta_no_existe(maker):
+    """vibe r2: --queue con cuenta inexistente lanza ValueError."""
+    from tikdown_rs.services.backfill import requeue_backfill
+
+    async with maker() as s:
+        with pytest.raises(ValueError):
+            await requeue_backfill(s, "no-existe")

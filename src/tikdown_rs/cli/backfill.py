@@ -23,8 +23,11 @@ def _db_url(settings: Settings) -> str:
 
 
 @app.command("run")
-def run(user: str) -> None:
-    """Ejecuta un backfill foreground."""
+def run(
+    user: str,
+    queue: bool = typer.Option(False, "--queue", help="Re-encolar en vez de ejecutar foreground"),
+) -> None:
+    """Ejecuta un backfill foreground, o --queue lo re-encola para el daemon."""
     settings = Settings(_env_file=None)
 
     async def _go() -> None:
@@ -33,12 +36,24 @@ def run(user: str) -> None:
         from tikdown_rs.core.crypto import decrypt_cookie, load_or_create_fernet_key
         from tikdown_rs.core.download_engine import YtDlpEngine
         from tikdown_rs.services import accounts
-        from tikdown_rs.services.backfill import NoCookiesError, run_backfill
+        from tikdown_rs.services.backfill import NoCookiesError, requeue_backfill, run_backfill
         from tikdown_rs.services.cookies import working_cookies_list
 
         engine_db = create_async_engine_wal(_db_url(settings))
         maker = async_sessionmaker(engine_db, expire_on_commit=False)
         async with maker() as s:
+            # --queue: solo re-encola (el daemon lo recoge cada 60s con pacing T62)
+            if queue:
+                try:
+                    prev = await requeue_backfill(s, user)
+                except ValueError as exc:
+                    print(f"ERROR {exc}")
+                    sys.exit(1)
+                if prev == "rejected":
+                    print(f"ERROR backfill {user} ya está en curso (backfilling)")
+                    sys.exit(1)
+                print(f"OK backfill {user} re-encolado (era {prev}) → queued")
+                return
             acct = await accounts.stats(s, user)
             # F-01: cookies working — la CLI las carga del servicio y las pasa
             # descifradas al engine (bug #7): sin sesión, TikTok bloquea el feed.
