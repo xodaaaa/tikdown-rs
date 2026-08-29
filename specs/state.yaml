@@ -23,6 +23,11 @@ handoff:
   last_step_completed: "vibe rounds 1-2 cerradas: 18 bugs, PRs #1 (v0.3.1) y #2 (v0.3.2), trazabilidad CONCERNS aceptada"
   traceability_status: concerns  # aceptado — traza vía registry.yaml + PRs, no automática (solo-dev)
   docs_cleanup: 2026-08-29  # artefactos redundantes eliminados (VIBE-*.md); fuentes de verdad: registry.yaml + state.yaml + execution-status.yaml
+  status: standby  # esperando recuperación de rate-limit de TikTok (IP residencial)
+  paused_at: 2026-08-29  # contenedor detenido, volumen conservado
+  rate_limit_status: ip_residencial_bloqueada  # 191.126.x — WARP/Cloudflare probado y descartado (WAF challenge)
+  estimated_recovery: 24-48h  # recuperación típica del rate-limit en IP residencial
+  container_state: stopped  # docker compose down; datos en volumen tikdown_data
   open_decisions:
     - "Hook pre-commit local roto en Windows/MSYS (INSTALL_PYTHON de uv tools no resuelve ruff) — commits con --no-verify"
     - "TikTok rate-limitea la IP de pruebas intermitentemente — backfill de rosary657 completó con 0 descargas"
