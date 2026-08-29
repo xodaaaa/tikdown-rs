@@ -22,12 +22,12 @@ handoff:
   plan_ready: true
   last_step_completed: "vibe rounds 1-2 cerradas: 18 bugs, PRs #1 (v0.3.1) y #2 (v0.3.2), trazabilidad CONCERNS aceptada"
   traceability_status: concerns  # aceptado — traza vía registry.yaml + PRs, no automática (solo-dev)
+  docs_cleanup: 2026-08-29  # artefactos redundantes eliminados (VIBE-*.md); fuentes de verdad: registry.yaml + state.yaml + execution-status.yaml
   open_decisions:
     - "Hook pre-commit local roto en Windows/MSYS (INSTALL_PYTHON de uv tools no resuelve ruff) — commits con --no-verify"
     - "TikTok rate-limitea la IP de pruebas intermitentemente — backfill de rosary657 completó con 0 descargas"
   required_reading:
-    - specs/verifications/VIBE-TESTING-SESSION.md
-    - specs/verifications/VIBE-ROUND2.md
+    - specs/bugs/registry.yaml
     - specs/state.yaml
 git:
   branch: vibe
