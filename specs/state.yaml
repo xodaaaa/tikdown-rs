@@ -5,6 +5,7 @@ session:
   started_at: 2026-08-27T19:40:00Z
   closed_at: 2026-08-28T05:07:37Z  # MVP complete — session closed
   vibe_testing_round: 2026-08-28T23:00:00Z  # vibra testing round completado (16 fixes + videos)
+  vibe_round2: 2026-08-29T00:35:00Z  # ronda 2: flag --queue + bug #17 (daemon backfill automático)
   active_flow: null
   active_epic: null
   active_story: null
@@ -13,23 +14,25 @@ epic_cycle: {}
 metrics:
   story_start: "2026-08-28T15:00:00Z"  # e15s01 (métricas/healthcheck)
   fixes_vibe_round: 16  # bugs encontrados y corregidos en la ronda vibe
+  fixes_vibe_round2: 1  # bug #17 (daemon backfill-collect con AsyncEngine)
 handoff:
   next_skill: survey-context
   plan_ready: true
-  last_step_completed: "vibe testing round v0.3.1 — 16 fixes + comando videos, PR #1 mergeado"
+  last_step_completed: "vibe round 2 v0.3.2 — flag --queue + bug #17, PR #2 mergeado"
   open_decisions:
     - "Hook pre-commit local roto en Windows/MSYS (INSTALL_PYTHON de uv tools no resuelve ruff) — commits con --no-verify"
     - "TikTok rate-limitea la IP de pruebas intermitentemente — backfill de rosary657 completó con 0 descargas"
   required_reading:
     - specs/verifications/VIBE-TESTING-SESSION.md
+    - specs/verifications/VIBE-ROUND2.md
     - specs/state.yaml
 git:
   branch: vibe
   worktree: null
-  synced_with_master: true  # vibe == master (d3c1bbf), listo para próxima ronda
+  synced_with_master: true  # vibe == master (4242bc1), listo para próxima ronda
 release:
-  last_tag: v0.3.1
-  last_publish: 2026-08-28T23:00:00Z
-  target_version: v0.3.1
+  last_tag: v0.3.2
+  last_publish: 2026-08-29T00:35:00Z
+  target_version: v0.3.2
   ci_verified: true  # CI Woodpecker configurado (.woodpecker.yml) — runner pendiente de activar
-  merged_commit: d3c1bbf  # tag v0.3.1 (squash PR #1: 16 fixes runtime Docker + comando videos)
+  merged_commit: 4242bc1  # tag v0.3.2 (squash PR #2: flag --queue + bug #17)
