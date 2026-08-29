@@ -342,3 +342,25 @@ async def cancel_backfill(session: AsyncSession, username: str) -> None:
         .values(backfill_status="cancelled")
     )
     await session.commit()
+
+
+async def requeue_backfill(session: AsyncSession, username: str) -> str:
+    """Re-encola un backfill terminado (vibe round 2).
+
+    - 'backfilling' → rechaza (ya en curso; devuelve 'rejected')
+    - 'completed'/'failed'/'cancelled'/'paused'/'idle' → 'queued' para que el
+      daemon lo recoja en el siguiente ciclo (cada 60s, T62 pacing).
+    Devuelve el estado anterior (o 'rejected').
+    """
+    result = await session.execute(
+        select(MonitoredAccount).where(MonitoredAccount.username == username)
+    )
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise ValueError(f"cuenta no encontrada: {username}")
+    if account.backfill_status == "backfilling":
+        return "rejected"
+    prev = account.backfill_status
+    account.backfill_status = "queued"
+    await session.commit()
+    return prev
