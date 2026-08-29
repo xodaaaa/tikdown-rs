@@ -154,6 +154,8 @@ class DaemonRunner:
                 return
             from sqlalchemy.ext.asyncio import async_sessionmaker
 
+            from tikdown_rs.core.crypto import decrypt_cookie, load_or_create_fernet_key
+            from tikdown_rs.core.download_engine import YtDlpEngine
             from tikdown_rs.core.tasks import create_supervised_task
             from tikdown_rs.services import backfill as backfill_svc
             from tikdown_rs.services.cookies import working_cookies_list
@@ -162,13 +164,22 @@ class DaemonRunner:
             async with maker() as s:
                 cookie = await working_cookies_list(s)
 
+                # bug #17: el daemon NUNCA construía un YtDlpEngine — pasaba el
+                # AsyncEngine SQLAlchemy como motor de descarga (AttributeError).
+                # Construir el engine real con la cookie descifrada (F-01/F-15).
+                blob = None
+                if cookie:
+                    key = load_or_create_fernet_key(self.settings.data_dir / "fernet.key")
+                    blob = decrypt_cookie(cookie[0].encrypted_blob, key)
+                downloader = YtDlpEngine(cookies_blob=blob)
+
                 # El job lanza la recogida como tarea supervisada (T27) — el
                 # estado de red del daemon se consulta vía el monitor (default online)
                 async def _run() -> None:
                     async with maker() as s2:
                         await backfill_svc.collect_queued_backfills(
                             s2,
-                            engine=engine,
+                            engine=downloader,
                             cookies=cookie,
                             owner="daemon",
                         )
