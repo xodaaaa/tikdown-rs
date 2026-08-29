@@ -6,6 +6,7 @@ session:
   closed_at: 2026-08-28T05:07:37Z  # MVP complete — session closed
   vibe_testing_round: 2026-08-28T23:00:00Z  # vibra testing round completado (16 fixes + videos)
   vibe_round2: 2026-08-29T00:35:00Z  # ronda 2: flag --queue + bug #17 (daemon backfill automático)
+  vibe_round2_closed: 2026-08-28  # sesión cerrada — rate-limit TikTok en standby (24-48h), retomar en otra sesión
   active_flow: null
   active_epic: null
   active_story: null
@@ -18,7 +19,7 @@ metrics:
 handoff:
   next_skill: survey-context
   plan_ready: true
-  last_step_completed: "vibe round 2 v0.3.2 — flag --queue + bug #17, PR #2 mergeado"
+  last_step_completed: "vibe round 2 v0.3.2 — flag --queue + bug #17, PR #2 mergeado. Sesión cerrada; rate-limit TikTok en standby."
   open_decisions:
     - "Hook pre-commit local roto en Windows/MSYS (INSTALL_PYTHON de uv tools no resuelve ruff) — commits con --no-verify"
     - "TikTok rate-limitea la IP de pruebas intermitentemente — backfill de rosary657 completó con 0 descargas"
