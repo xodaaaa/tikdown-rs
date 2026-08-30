@@ -10,6 +10,9 @@ TikDown-rs es una herramienta de un solo usuario que archiva vídeos de TikTok d
 
 - **Daemon** (`uv run tikdown-rs daemon run`) — proceso de larga duración (entrypoint de Docker) con scheduler, monitor de cuentas, validación de cookies y bot de Telegram.
 - **CLI** (`tikdown-rs <grupo> <comando>`) — comandos de un solo disparo (cuentas, backfill, cookies, videos, system).
+- **Bot de Telegram** — comandos con paridad funcional con la CLI: `/list`, `/stats`, `/last`, `/disk`, `/cookies`, `/check`, `/add`, `/pause`, `/resume`, `/notify`, `/monitor`, `/backfill`.
+
+> **No implementado (auditoría 3.2):** notificaciones push externas. `NotificationService.send_event()` existe pero es un noop — no envía mensajes ni persiste en spool, y el bus `on_event` no se cablea desde el daemon porque los ciclos que emitirían eventos (monitor, breaker, disco, red) no se ejecutan hoy. El parámetro `telegram_bot_mode` no tiene efecto. Para activarlo hará falta un épico propio (ciclos emisores + envío real + spool persistente).
 
 ## Ejecución
 
@@ -41,7 +44,15 @@ El volumen de datos, cualquier archivo de cookies exportado del navegador, y el 
 
 ## Estado del proyecto
 
-Fundación (epic e01) en curso: toolchain uv, config, logging, modelos + DB, higiene de repo.
+MVP completo (v0.3.2): 15 épicos entregados (e01–e15) sobre el mismo código base:
+
+- **Core**: daemon con ciclo único asyncio (L-B1), scheduler (heartbeat, backfill-collect), apagado limpio por señal y por `daemon stop` (bug #21), healthcheck Docker (T50).
+- **Accounts**: añadir/pausar/resumir/notificar cuentas, comprobación manual con throttle, backfill con cursor y cola (`queued`) recogida por el daemon (pacing T62), reconciliación de backfills pausados (e13).
+- **Telegram**: bot de comandos con paridad funcional de la CLI (§6.4) — `/list /stats /last /disk /cookies /check /add /pause /resume /notify /monitor /backfill` — con doble autorización (§6.3), throttle y polling supervisado con auto-reinicio (e12).
+- **Resiliencia**: circuit breaker (clasificación definitiva/transitoria, T52), cooldown global en DB (T62), backoff anti-bot, probe de red con pausa automática (e07), verificación de integridad SHA-256 + ffprobe (e09), métricas y contención DB (e15).
+- **Operación**: logs JSON con rotación de archivo (e14), backups con retención y restauración, export del archivo, CI Woodpecker (lint, test con cobertura, build Docker + smoke, e10), cookies cifradas con Fernet (e05).
+
+> **No implementado**: notificaciones push externas — ver nota en la sección Telegram/README (auditoría 3.2).
 
 ## Licencia
 

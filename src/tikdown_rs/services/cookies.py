@@ -107,6 +107,12 @@ async def get_working_cookie(
     return None
 
 
+async def list_cookies(session: AsyncSession) -> list[Cookie]:
+    """Lista todas las cookies con su estado (paridad CLI/bot, §6.4)."""
+    result = await session.execute(select(Cookie).order_by(Cookie.id))
+    return list(result.scalars().all())
+
+
 async def working_cookies_list(session: AsyncSession) -> list:
     """Lista de cookies valid para backfill (e13s01).
 

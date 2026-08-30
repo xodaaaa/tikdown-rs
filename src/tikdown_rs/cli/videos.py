@@ -21,24 +21,38 @@ def _db_url(settings: Settings) -> str:
     return f"sqlite+aiosqlite:///{settings.data_dir / 'tikdown-rs.db'}"
 
 
+def _integrity_stmt(username: str | None):
+    """Stmt de integrity: join con la cuenta cuando se pide username (3.5).
+
+    El filtro anterior (account_id.is_not(None)) devolvía vídeos de CUALQUIER
+    cuenta ignorando el username pedido. Sin username: todos los vídeos.
+    """
+    from sqlalchemy import select
+
+    from tikdown_rs.models.models import MonitoredAccount, Video
+
+    stmt = select(Video)
+    if username:
+        stmt = stmt.join(MonitoredAccount, Video.account_id == MonitoredAccount.id).where(
+            MonitoredAccount.username == username.lstrip("@")
+        )
+    return stmt
+
+
 @app.command("integrity")
 def integrity(username: str | None = typer.Argument(None, help="Cuenta (opcional)")) -> None:
     """Verifica integridad de vídeos (tamaño + SHA-256 + ffprobe, §4.6)."""
     settings = Settings(_env_file=None)
 
     async def _go() -> None:
-        from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
         from tikdown_rs.core.db import create_async_engine_wal
-        from tikdown_rs.models.models import Video
         from tikdown_rs.services.integrity import verify_video
 
         engine = create_async_engine_wal(_db_url(settings))
         maker = async_sessionmaker(engine, expire_on_commit=False)
-        stmt = select(Video)
-        if username:
-            stmt = stmt.where(Video.account_id.is_not(None))
+        stmt = _integrity_stmt(username)
         async with maker() as s:
             videos = list((await s.execute(stmt)).scalars().all())
         await engine.dispose()

@@ -11,9 +11,18 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from tikdown_rs.models.models import Video
 
 LOG = logging.getLogger("tikdown_rs.videos")
+
+
+async def list_recent(session: AsyncSession, limit: int = 5) -> list[Video]:
+    """Últimos N vídeos descargados (paridad CLI/bot, §6.4)."""
+    result = await session.execute(select(Video).order_by(Video.downloaded_at.desc()).limit(limit))
+    return list(result.scalars().all())
 
 
 def retry_exhausted(video: Video, max_retry: int) -> bool:

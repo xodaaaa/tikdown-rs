@@ -2,6 +2,8 @@
 
 Comandos planos con paridad FUNCIONAL con la CLI (misma función de services/*
 detrás, nunca duplicar lógica). Escape HTML (T40/F-05); sin markup rico (L-A6).
+dispatch() orquesta services/* reales (auditoría 3.3-A) — recibe sesiones,
+nunca abre conexiones (el llamador gestiona el ciclo de vida del engine).
 
 story: e06s02
 """
@@ -13,7 +15,15 @@ import logging
 import math
 import time
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+from tikdown_rs.core.daemon_state import set_monitor_running
+from tikdown_rs.services import accounts as accounts_svc
+from tikdown_rs.services import backfill as backfill_svc
+from tikdown_rs.services import cookies as cookies_svc
+from tikdown_rs.services import status as status_svc
+from tikdown_rs.services import videos as videos_svc
 
 LOG = logging.getLogger("tikdown_rs.telegram.handlers")
 
@@ -33,42 +43,125 @@ COMMANDS = {
     "/backfill",
 }
 
+# /backfill solo re-encola (el job del daemon recoge cada 60s con pacing T62);
+# nunca ejecuta descargas dentro del handler del bot.
+_BACKFILL_REJECTED = "backfill en curso, rechazado"
+
 
 def _esc(text: str) -> str:
     """Escapa contenido dinámico para parse_mode=HTML (T40/F-05)."""
     return html.escape(str(text))
 
 
-def dispatch(command: str, args: str = "", **deps) -> str:
-    """Orquesta services/* para un comando (paridad funcional, §6.4)."""
+def _render_account(a) -> str:
+    """Línea de estado de una cuenta (paridad CLI accounts list/stats)."""
+    state = "paused" if a.paused else "active"
+    return (
+        f"@{_esc(a.username)} mode={_esc(a.mode)} state={state} "
+        f"notify={'on' if a.notify_on_download else 'off'} "
+        f"backfill={_esc(a.backfill_status)}"
+    )
+
+
+async def dispatch(command: str, args: str, session: AsyncSession, settings) -> str:
+    """Orquesta services/* para un comando (paridad funcional, §6.4, 3.3-A).
+
+    El llamador (bot.py) resuelve auth + throttle + sesión; dispatch solo
+    ejecuta y renderiza. AccountError se traduce a mensaje plano.
+    """
     command = command.lower()
     if command not in COMMANDS:
-        return f"Comando desconocido: {command}"
-    if command == "/stats":
-        username = args.strip().lstrip("@")
-        return f"Estadisticas de @{_esc(username)}: (via services/accounts)"
+        return f"Comando desconocido: {_esc(command)}"
+    parts = args.split()
+    username = parts[0].lstrip("@") if parts else ""
+    try:
+        return await _route(command, username, args, session, settings)
+    except accounts_svc.AccountError as exc:
+        return f"ERROR {_esc(str(exc))}"
+    except ValueError as exc:
+        return f"ERROR {_esc(str(exc))}"
+
+
+async def _route(command: str, username: str, args: str, session: AsyncSession, settings) -> str:
+    """Ruta un comando validado a su servicio y renderiza el resultado."""
     if command == "/list":
-        return "Cuentas: (via services/accounts.list)"
-    if command == "/disk":
-        return "Disco: (via services/system)"
-    if command == "/last":
-        return "Ultimos videos: (via services/videos)"
-    if command == "/cookies":
-        return "Cookies: (via services/cookies)"
+        accs = await accounts_svc.list_accounts(session)
+        if not accs:
+            return "No hay cuentas"
+        return "\n".join(_render_account(a) for a in accs)
+    if command == "/stats":
+        if not username:
+            return "ERROR falta usuario: /stats @usuario"
+        a = await accounts_svc.stats(session, username)
+        return (
+            f"@{_esc(a.username)}: followers={a.follower_count or '-'} "
+            f"videos={a.video_count or '-'} backfill={_esc(a.backfill_status)}"
+        )
     if command == "/check":
-        username = args.strip().lstrip("@")
-        return f"Comprobando @{_esc(username)}..."
+        if not username:
+            return "ERROR falta usuario: /check @usuario"
+        a = await accounts_svc.check(session, username)
+        return f"OK check @{_esc(a.username)} (last_check_at={a.last_check_at or '-'})"
     if command == "/add":
-        username = args.strip().lstrip("@")
-        return f"Anadida @{_esc(username)}"
-    if command in ("/pause", "/resume", "/notify"):
-        username = args.strip().lstrip("@")
-        return f"{command} @{_esc(username)}"
+        if not username:
+            return "ERROR falta usuario: /add @usuario [history|monitor]"
+        mode = "monitor" if "monitor" in args.lower().split() else "history"
+        a = await accounts_svc.add(session, username, mode=mode)
+        return f"OK cuenta @{_esc(a.username)} anadida (mode={_esc(a.mode)})"
+    if command == "/pause":
+        if not username:
+            return "ERROR falta usuario: /pause @usuario"
+        await accounts_svc.pause(session, username)
+        return f"OK @{_esc(username)} pausada"
+    if command == "/resume":
+        if not username:
+            return "ERROR falta usuario: /resume @usuario"
+        await accounts_svc.resume(session, username)
+        return f"OK @{_esc(username)} reactivada"
+    if command == "/notify":
+        if not username:
+            return "ERROR falta usuario: /notify @usuario on|off"
+        parts = args.lower().split()
+        on = "off" not in parts
+        await accounts_svc.set_notify(session, username, on)
+        return f"OK notify @{_esc(username)} {'ON' if on else 'OFF'}"
+    if command == "/last":
+        vids = await videos_svc.list_recent(session, limit=5)
+        if not vids:
+            return "Sin vídeos descargados"
+        return "\n".join(f"- {v.tiktok_video_id} {v.downloaded_at or '-'}" for v in vids)
+    if command == "/cookies":
+        rows = await cookies_svc.list_cookies(session)
+        if not rows:
+            return "Sin cookies"
+        return "\n".join(
+            f"#{c.id} {_esc(c.label or '-')} state={_esc(c.validation_state)} "
+            f"exp={_esc(c.expiration_date or '-')}"
+            for c in rows
+        )
+    if command == "/disk":
+        st = await status_svc.collect_status(session, settings)
+        d = st["disk"]
+        alert = "ALERTA" if d["alert"] else "OK"
+        cookies = st["cookies"]
+        return (
+            f"disco: {d['free_percent']:.1f}% libre (umbral {d['warning_threshold']}%) [{alert}]\n"
+            f"cookies: {cookies['valid']} validas, {cookies['invalid']} invalidas"
+        )
     if command == "/monitor":
-        return "Monitor: (via daemon_state)"
+        # paridad cli/monitor start|stop: escribir monitor_running (T37)
+        turn_on = "off" not in args.lower().split()
+        await set_monitor_running(session, turn_on)
+        return f"OK monitor {'ON' if turn_on else 'OFF'}"
     if command == "/backfill":
-        username = args.strip().lstrip("@")
-        return f"Backfill de @{_esc(username)}"
+        if not username:
+            return "ERROR falta usuario: /backfill @usuario"
+        prev = await backfill_svc.requeue_backfill(session, username)
+        if prev == "rejected":
+            return _BACKFILL_REJECTED
+        return f"OK backfill @{_esc(username)} encolado (era {_esc(prev)})"
+    # Inalcanzable: COMMANDS y _route deben estar sincronizados.
+    LOG.warning("bot.comando_sin_ruta", extra={"command": command})
     return "OK"
 
 
