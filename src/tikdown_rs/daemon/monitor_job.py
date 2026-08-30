@@ -24,6 +24,7 @@ import logging
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tikdown_rs.core.config import Settings
+from tikdown_rs.core.paths import videos_root
 
 LOG = logging.getLogger("tikdown_rs.monitor_job")
 
@@ -137,13 +138,20 @@ class MonitorJob:
         downloaded (ok), failed (error categorizado), skipped (slideshow).
         El fallo de UN vídeo no aborta el lote (T5) — se registra y continúa.
         Devuelve el número de vídeos procesados.
+
+        Ronda 4: verificación post-descarga real vía services/integrity
+        (verify_video con ffprobe, T13) y clasificación de fallos vía
+        classify_failure (T52) — sin heurísticas propias (3.2/3.3).
         """
         from datetime import UTC, datetime
 
         from sqlalchemy import select
 
+        from tikdown_rs.core.download_engine import classify_failure
         from tikdown_rs.core.pacing import reserve_slot
         from tikdown_rs.models.models import Video
+        from tikdown_rs.services.integrity import verify_video
+        from tikdown_rs.services.videos import classify_integrity
 
         pendings = list(
             (await session.execute(select(Video).where(Video.status == "pending"))).scalars().all()
@@ -160,25 +168,39 @@ class MonitorJob:
                 await asyncio.sleep(delay)
             url = video.url or f"https://www.tiktok.com/@x/video/{video.tiktok_video_id}"
             try:
-                result = await downloader.download(url, archive_path=None)
+                await downloader.download(url, archive_path=None)
             except Exception as exc:  # noqa: BLE001 - T5: un fallo no aborta el lote
+                category = classify_failure(repr(exc))  # 3.3: nunca 'transient' fijo
                 LOG.warning(
                     "monitor_job.download_failed",
-                    extra={"video": video.tiktok_video_id, "exc": repr(exc)},
+                    extra={"video": video.tiktok_video_id, "category": category},
                 )
                 video.status = "failed"
-                video.error_category = "transient"
+                video.error_category = category
                 video.error_message = repr(exc)[:500]
                 video.updated_at = now
                 await session.commit()
                 continue
-            info = result.get("info") or {}
-            has_stream = bool(info.get("formats"))
-            if has_stream:
-                video.status = "downloaded"
+            # 3.2: verificación real del archivo con ffprobe (T13/T12) +
+            # clasificación compartida del proyecto (T55) — no heurísticas
+            path = self._find_downloaded_file(video.tiktok_video_id)
+            result = verify_video(path) if path else {"ok": False, "has_video_stream": False}
+            verdict = classify_integrity(
+                expected_has_video=True,
+                has_video_stream=bool(result.get("has_video_stream")),
+            )
+            # classify_integrity puede devolver 'integrity' — estado NO permitido
+            # por el CHECK de Video.status (solo error_category lo usa): mapear
+            # a failed + categoría (lección 2.1-bis, ronda 3).
+            if verdict == "integrity":
+                video.status = "failed"
+                video.error_category = "integrity"
+                video.error_message = "sin pista de video o duracion 0"
             else:
-                # T55: sin pista de vídeo → slideshow; no es fallo ni reintenta
-                video.status = "skipped"
+                video.status = verdict
+            if path:
+                video.local_path = str(path)
+                video.file_hash = result.get("sha256")
             video.downloaded_at = now
             video.updated_at = now
             await session.commit()
@@ -187,6 +209,14 @@ class MonitorJob:
                 extra={"video": video.tiktok_video_id, "status": video.status},
             )
         return len(pendings)
+
+    def _find_downloaded_file(self, video_id: str):
+        """Localiza el archivo descargado: glob por ID en videos_root (T8)."""
+        root = videos_root(self.settings)
+        matches = list(root.glob(f"**/*{video_id}*.mp4")) or list(
+            root.glob(f"**/*{video_id}*.webm")
+        )
+        return matches[0] if matches else None
 
     async def join(self, timeout: float = 10.0) -> None:
         """Espera el drenaje del loop tras stop (T28)."""

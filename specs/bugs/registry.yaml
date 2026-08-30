@@ -586,3 +586,26 @@ bugs:
     follow_ups: "Ciclo end-to-end real contra TikTok cuando lo permita el rate-limit (Fase 4 ronda 1, sigue pendiente)"
     file: null
     status: "fixed"
+  - bug_id: "BUG-2026-08-30T232900"
+    date: "2026-08-30"
+    severity: "low"
+    priority: "p3"
+    scope: "daemon-monitor"
+    what_happened: "Hallazgos 3.1/3.2/3.3 de la ronda 4 (menores, no bloqueantes): (3.1) la migracion a1b2c3d4e5f6_pending_status tenia revision id hecho a mano (hex secuencial + slug pegado, no generado por alembic revision); (3.2) download_pendings detectaba slideshow con heuristica propia debil bool(info.get('formats')) en vez de verify_video()+classify_integrity; (3.3) marcaba todos los fallos 'transient' sin classify_failure."
+    what_expected: "Trazabilidad alembic real (id generado por la herramienta); verificacion post-descarga con ffprobe real; clasificacion de fallos con el clasificador del proyecto."
+    steps_to_reproduce:
+      - "3.2: slideshow real registrado como downloaded (formats no vacia)"
+      - "3.3: video eliminado de TikTok quedaba 'transient' y reintentaba forever"
+    root_cause: "Reinvencion de utilidades existentes al escribir download_pendings de forma aislada; id de migracion inventado por no ejecutar alembic revision."
+    files_changed: "alembic/versions/c09bde76270e_video_pending_status.py, src/tikdown_rs/daemon/monitor_job.py, tests/daemon/test_pending_migration.py"
+    approach: "Migracion regenerada con alembic revision (c09bde76270e) y test a 'upgrade head'; download_pendings usa verify_video (ffprobe) + classify_integrity con mapeo 'integrity'->failed (CHECK no admite integrity en status) + classify_failure para la categoria; test con FakeEngine que escribe archivo y ffprobe mockeado."
+    risk_level: "low"
+    new_tests: 1
+    type_check: "pass"
+    lint: "pass"
+    commit_type: "fix"
+    release_type: "patch"
+    commit_message: "refactor(monitor): verify_video + classify_failure en download_pendings (auditoria 3.2/3.3)"
+    follow_ups: "run_backfill (services/backfill.py) hereda la misma carencia de classify_failure en su except - NO se toca porque backfill no crea filas Video (error_category es de Video); revisar si backfill debe registrar videos."
+    file: null
+    status: "fixed"

@@ -136,7 +136,7 @@ def test_migracion_pending_status(tmp_path):
     # 3. Migrar (stamp previo + upgrade hasta nuestra revisión)
     cfg = _alembic_cfg(tmp_path)
     command.stamp(cfg, "e13s01_backfill_slot")
-    command.upgrade(cfg, "a1b2c3d4e5f6_pending_status")
+    command.upgrade(cfg, "head")
 
     # 4. 'pending' ahora VÁLIDO; la fila vieja intacta
     conn = sqlite3.connect(db_path)
@@ -167,21 +167,26 @@ async def test_model_metadata_incluye_pending():
     assert "'pending'" in ddl and "ck_videos_status" in ddl
 
 
-async def test_monitor_job_download_pendings(maker, tmp_path):
+async def test_monitor_job_download_pendings(maker, tmp_path, monkeypatch):
     """2.1-ter: el monitor DESCARGA lo descubierto (mismo motor que backfill,
     pacing T62) — descubre → persiste pending → descarga → marca downloaded."""
     from tikdown_rs.core.config import Settings
     from tikdown_rs.daemon.monitor_job import MonitorJob
 
     class FakeEngine:
-        def __init__(self):
+        def __init__(self, videos_root):
             self.downloaded: list[str] = []
+            self._videos_root = videos_root
 
         async def extract_profile(self, username: str) -> dict:
             return {"entries": [{"id": "7401", "title": "v", "upload_date": "20260830"}]}
 
         async def download(self, url: str, archive_path=None, **kw) -> dict:
             self.downloaded.append(url)
+            # yt-dlp escribiría el archivo en videos_root (T8) — simularlo
+            dest = self._videos_root / "@obs" / "7401.mp4"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(b"fake-video-data" * 100)
             return {
                 "info": {"id": "7401", "formats": [{"ext": "mp4"}]},
                 "target": None,
@@ -192,7 +197,14 @@ async def test_monitor_job_download_pendings(maker, tmp_path):
         await conn.run_sync(Base.metadata.create_all)
     m = async_sessionmaker(engine, expire_on_commit=False)
     settings = Settings(_env_file=None, data_dir=tmp_path)
-    fake = FakeEngine()
+    fake = FakeEngine(settings.data_dir / "videos")
+
+    # ffprobe mockeado (T69): el archivo tiene pista de vídeo con duración
+    class _ProbeResult:
+        stdout = '{"streams": [{"codec_type": "video", "duration": "5.0"}]}'
+        returncode = 0
+
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: _ProbeResult())
 
     try:
         job = MonitorJob(m, settings=settings, engine=fake)
@@ -217,11 +229,64 @@ async def test_monitor_job_download_pendings(maker, tmp_path):
             ).scalar_one()
             assert row.status == "downloaded"
             assert row.downloaded_at is not None
+            assert row.local_path is not None and row.file_hash is not None
             assert row.url is not None
 
         # 3. Sin pendientes: no reintenta ni re-descarga
         async with m() as s:
             await job.download_pendings(s)
         assert fake.downloaded.count("https://www.tiktok.com/@obs/video/7401") == 1
+    finally:
+        await engine.dispose()
+
+
+async def test_download_pendings_usa_verify_y_classify(maker, tmp_path, monkeypatch):
+    """Ronda 4 (3.2/3.3): download_pendings reutiliza verify_video() para el
+    estado post-descarga (no la heurística formats) y classify_failure() para
+    categorizar el error (no 'transient' fijo)."""
+    import inspect
+
+    from tikdown_rs.daemon.monitor_job import MonitorJob
+
+    src = inspect.getsource(MonitorJob.download_pendings)
+    assert "verify_video" in src, "debe verificar el archivo con services/integrity"
+    assert "classify_failure" in src, "debe clasificar el fallo con classify_failure"
+    assert 'info.get("formats")' not in src, "heurística propia eliminada (3.2)"
+    assert 'error_category = "transient"' not in src, "categoría fija eliminada (3.3)"
+
+    # Comportamiento: fallo con mensaje definitivo → categoría definitive
+    from tikdown_rs.core.config import Settings
+
+    class FailEngine:
+        async def extract_profile(self, username: str) -> dict:
+            return {"entries": []}
+
+        async def download(self, url: str, archive_path=None, **kw) -> dict:
+            raise RuntimeError("Video has been removed from the servers")
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    m = async_sessionmaker(engine, expire_on_commit=False)
+    settings = Settings(_env_file=None, data_dir=tmp_path)
+    try:
+        job = MonitorJob(m, settings=settings, engine=FailEngine())
+        async with m() as s:
+            s.add(
+                Video(
+                    tiktok_video_id="7402",
+                    status="pending",
+                    url="https://www.tiktok.com/@obs/video/7402",
+                )
+            )
+            await s.commit()
+        async with m() as s:
+            await job.download_pendings(s)
+        async with m() as s:
+            row = (
+                await s.execute(select(Video).where(Video.tiktok_video_id == "7402"))
+            ).scalar_one()
+        assert row.status == "failed"
+        assert row.error_category == "definitive", "classify_failure debe detectar 'removed'"
     finally:
         await engine.dispose()
