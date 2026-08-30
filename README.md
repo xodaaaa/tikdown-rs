@@ -46,7 +46,7 @@ El volumen de datos, cualquier archivo de cookies exportado del navegador, y el 
 
 MVP completo (v0.3.2): 15 épicos entregados (e01–e15) sobre el mismo código base:
 
-- **Core**: daemon con ciclo único asyncio (L-B1), scheduler (heartbeat, backfill-collect), apagado limpio por señal y por `daemon stop` (bug #21), healthcheck Docker (T50).
+- **Core**: daemon con ciclo único asyncio (L-B1), scheduler (heartbeat, monitor de cuentas con descarga automática, backfill-collect, disco, red), apagado limpio por señal y por `daemon stop` (bug #21), healthcheck Docker (T50).
 - **Accounts**: añadir/pausar/resumir/notificar cuentas, comprobación manual con throttle, backfill con cursor y cola (`queued`) recogida por el daemon (pacing T62), reconciliación de backfills pausados (e13).
 - **Telegram**: bot de comandos con paridad funcional de la CLI (§6.4) — `/list /stats /last /disk /cookies /check /add /pause /resume /notify /monitor /backfill` — con doble autorización (§6.3), throttle y polling supervisado con auto-reinicio (e12).
 - **Resiliencia**: circuit breaker (clasificación definitiva/transitoria, T52), cooldown global en DB (T62), backoff anti-bot, probe de red con pausa automática (e07), verificación de integridad SHA-256 + ffprobe (e09), métricas y contención DB (e15).
