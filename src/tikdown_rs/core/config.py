@@ -8,9 +8,39 @@ story: e01s02
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+LOG = logging.getLogger("tikdown_rs.config")
+
+# Prefijos que la app considera suyos: una variable con estos prefijos que no
+# matchee Settings es casi seguro un typo o una variable muerta (auditoría 4.1).
+_OWNED_PREFIXES = ("TIKDOWN_", "TELEGRAM_")
+
+
+def warn_unknown_env_vars(env: dict[str, str] | None = None) -> list[str]:
+    """Avisa de variables con prefijo propio que Settings no consume (4.1).
+
+    `extra="ignore"` traga typos en silencio (p.ej. HEARTBEAT_INTTERVAL).
+    Compara el entorno con los campos de Settings y loggea un WARNING por
+    variable de prefijo TIKDOWN_/TELEGRAM_ sin correspondencia. Devuelve la
+    lista de desconocidas (testable, sin capturar logs).
+    """
+    env = os.environ if env is None else env
+    known = {f.upper() for f in Settings.model_fields}
+    unknown = [key for key in env if key.startswith(_OWNED_PREFIXES) and key not in known]
+    for key in unknown:
+        LOG.warning(
+            "config.unknown_env_var",
+            extra={
+                "var": key,
+                "hint": "variable con prefijo propio que Settings no consume (typo o muerta)",
+            },
+        )
+    return unknown
 
 
 class ConfigurationError(Exception):
@@ -24,6 +54,12 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",  # variables desconocidas del entorno no rompen la carga
     )
+
+    def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002
+        super().__init__(*args, **kwargs)
+        # 4.1: el chequeo corre SIEMPRE al construir Settings (tests lo llaman
+        # con _env_file=None; el entorno real procesal aquí).
+        warn_unknown_env_vars()
 
     # Rutas — toda ruta de datos deriva de DATA_DIR (T8)
     data_dir: Path = Path("/app/data")

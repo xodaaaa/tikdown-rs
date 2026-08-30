@@ -492,3 +492,26 @@ bugs:
     follow_ups: null
     file: null
     status: "fixed"
+  - bug_id: "BUG-2026-08-30T212900"
+    date: "2026-08-30"
+    severity: "low"
+    priority: "p3"
+    scope: "config"
+    what_happened: "Hallazgo 4.1 de la auditoria externa: Settings usa extra=ignore, asi que una variable mal escrita (p.ej. HEARTBEAT_INTTERVAL_SECONDS) o muerta con prefijo TIKDOWN_/TELEGRAM_ se tragaba en silencio y el usuario creia tener una config activa que no aplicaba."
+    what_expected: "Al construir Settings (arranque del daemon, CLI) se debe avisar con WARNING de toda variable con prefijo propio que no matchee un campo."
+    steps_to_reproduce:
+      - "TIKDOWN_HEARTBEAT_INTTERVAL_SECONDS=10 (typo) en .env"
+      - "Arrancar el daemon: antes no habia ningun aviso"
+    root_cause: "extra=ignore de pydantic-settings sin ningun chequeo complementario."
+    files_changed: "src/tikdown_rs/core/config.py, tests/config/test_settings.py"
+    approach: "warn_unknown_env_vars() compara os.environ con Settings.model_fields (prefijos TIKDOWN_/TELEGRAM_) y loggea config.unknown_env_var con la variable en extra; invocado desde Settings.__init__. 3 tests nuevos."
+    risk_level: "low"
+    new_tests: 3
+    type_check: "pass"
+    lint: "pass"
+    commit_type: "feat"
+    release_type: "minor"
+    commit_message: "feat(config): warning al arrancar por variables de entorno desconocidas (auditoria 4.1)"
+    follow_ups: null
+    file: null
+    status: "fixed"
