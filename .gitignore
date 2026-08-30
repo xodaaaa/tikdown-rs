@@ -45,3 +45,4 @@ build/
 
 # Migration lock (runtime, T68)
 .migrate.lock
+coverage.xml

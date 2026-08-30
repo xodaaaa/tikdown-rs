@@ -10,6 +10,9 @@ TikDown-rs es una herramienta de un solo usuario que archiva vídeos de TikTok d
 
 - **Daemon** (`uv run tikdown-rs daemon run`) — proceso de larga duración (entrypoint de Docker) con scheduler, monitor de cuentas, validación de cookies y bot de Telegram.
 - **CLI** (`tikdown-rs <grupo> <comando>`) — comandos de un solo disparo (cuentas, backfill, cookies, videos, system).
+- **Bot de Telegram** — comandos con paridad funcional con la CLI: `/list`, `/stats`, `/last`, `/disk`, `/cookies`, `/check`, `/add`, `/pause`, `/resume`, `/notify`, `/monitor`, `/backfill`.
+
+> **No implementado (auditoría 3.2):** notificaciones push externas. `NotificationService.send_event()` existe pero es un noop — no envía mensajes ni persiste en spool, y el bus `on_event` no se cablea desde el daemon porque los ciclos que emitirían eventos (monitor, breaker, disco, red) no se ejecutan hoy. El parámetro `telegram_bot_mode` no tiene efecto. Para activarlo hará falta un épico propio (ciclos emisores + envío real + spool persistente).
 
 ## Ejecución
 

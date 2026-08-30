@@ -239,6 +239,9 @@ class DaemonRunner:
         """
         from tikdown_rs.daemon.telegram.bot import TelegramBot
 
+        # on_event=None (auditoría 3.2-B): el bus de eventos NO está cableado —
+        # los ciclos que emitirían eventos (monitor/breaker/disco/red) no corren
+        # en el daemon (T5.1) y NotificationService.send_event es un noop.
         bot = TelegramBot(
             settings=self.settings,
             engine=self._engine,
