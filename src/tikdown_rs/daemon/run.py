@@ -41,6 +41,12 @@ class DaemonRunner:
         self._stop_event = asyncio.Event()
         self._bot = None
         self._engine = None
+        self._network_monitor = None  # 2.1-r2: probe de red (§9)
+        # 2.1-r2: job del monitor de cuentas (comandado por monitor_running)
+        from tikdown_rs.daemon.monitor_job import MonitorJob
+
+        self._monitor_job = MonitorJob(maker=None, settings=settings)
+        self._monitor_job._maker = None  # se inyecta en _register_jobs (engine)
 
     # --- Ciclo de vida (L-B1: un solo asyncio.run) ---
 
@@ -151,6 +157,11 @@ class DaemonRunner:
 
     def _register_jobs(self) -> None:
         """Registra jobs de intervalo que lanzan tareas supervisadas (T27)."""
+        # 2.1-r2: inyectar el maker del engine al job del monitor
+        if self._engine is not None:
+            from sqlalchemy.ext.asyncio import async_sessionmaker
+
+            self._monitor_job._maker = async_sessionmaker(self._engine, expire_on_commit=False)
         hb_seconds = self.settings.heartbeat_interval_seconds
 
         async def _heartbeat_job() -> None:
@@ -163,6 +174,10 @@ class DaemonRunner:
             maker = async_sessionmaker(engine, expire_on_commit=False)
             async with maker() as s:
                 await update_heartbeat(s)
+            # e03s02/2.1-r2: el heartbeat APLICA monitor_running en caliente
+            # (lo que cli/monitor.py siempre prometió) — el job lee el flag de
+            # daemon_state, mismo patrón que stop_requested (fix 3.1).
+            await self._monitor_job.read_monitor_running()
 
         # Heartbeat como tarea supervisada (T27/T28)
         async def _schedule_heartbeat() -> None:
@@ -176,6 +191,56 @@ class DaemonRunner:
             "interval",
             seconds=hb_seconds,
             id="heartbeat",
+            max_instances=1,
+        )
+
+        # 2.1-r2: job de DISCO (T65, 15-30 min) — productor de downloads_paused
+        # y de monitor.disk_warning (reanuda automáticamente al liberar espacio).
+        async def _disk_job() -> None:
+            engine = self._engine
+            if engine is None:
+                return
+            from sqlalchemy.ext.asyncio import async_sessionmaker
+
+            from tikdown_rs.core.disk import disk_job as disk_job_fn
+
+            maker = async_sessionmaker(engine, expire_on_commit=False)
+            async with maker() as s:
+                await disk_job_fn(s, self.settings)
+
+        async def _schedule_disk() -> None:
+            await create_supervised_task(_disk_job(), name="disk-job")
+
+        self.scheduler.add_job(
+            _schedule_disk,
+            "interval",
+            seconds=self.settings.disk_check_interval_seconds,
+            id="disk-check",
+            max_instances=1,
+        )
+
+        # 2.1-r2: PROBE DE RED (§9/e07s01) — máquina de estados online/offline;
+        # el evento network_available gobierna las descargas (L-D2: nace seteado,
+        # sin monitor la red se asume disponible).
+        if self._network_monitor is None:
+            from tikdown_rs.core.network_monitor import NetworkMonitor
+
+            self._network_monitor = NetworkMonitor(self.settings)
+
+        async def _network_probe_job() -> None:
+            monitor = self._network_monitor
+            if monitor is None:
+                return
+            await monitor.probe()  # probe_fn=None → HEAD httpx real (§1: nunca TikTok)
+
+        async def _schedule_network() -> None:
+            await create_supervised_task(_network_probe_job(), name="network-probe")
+
+        self.scheduler.add_job(
+            _schedule_network,
+            "interval",
+            seconds=self.settings.network_probe_interval_seconds,
+            id="network-probe",
             max_instances=1,
         )
 
@@ -239,9 +304,9 @@ class DaemonRunner:
         """
         from tikdown_rs.daemon.telegram.bot import TelegramBot
 
-        # on_event=None (auditoría 3.2-B): el bus de eventos NO está cableado —
-        # los ciclos que emitirían eventos (monitor/breaker/disco/red) no corren
-        # en el daemon (T5.1) y NotificationService.send_event es un noop.
+        # on_event=None (auditoría 3.2-B): el bus de eventos NO está conectado
+        # al bot — los jobs (monitor/disco/red/backfill) emiten vía callbacks
+        # inyectables pero send_event es un noop (ver README).
         bot = TelegramBot(
             settings=self.settings,
             engine=self._engine,
