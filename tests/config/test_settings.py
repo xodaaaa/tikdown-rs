@@ -57,6 +57,46 @@ def test_validate_ok_config_valida():
     s.validate_for_daemon()  # no debe lanzar
 
 
+# --- Auditoría 4.1: warning por variables de entorno desconocidas ---
+
+
+def test_warn_unknown_tikdown_vars(monkeypatch, caplog):
+    """4.1: TIKDOWN_/TELEGRAM_ sin match en Settings emiten warning (extra≠ignore).
+
+    Convención del repo: mensaje-clave + datos en extra (r.var).
+    """
+    import logging
+
+    monkeypatch.setenv("TIKDOWN_HEARTBEAT_INTTERVAL_SECONDS", "10")  # typo real
+    with caplog.at_level(logging.WARNING, logger="tikdown_rs.config"):
+        Settings(_env_file=None)
+    vars_avisadas = [getattr(r, "var", "") for r in caplog.records]
+    assert "TIKDOWN_HEARTBEAT_INTTERVAL_SECONDS" in vars_avisadas
+
+
+def test_warn_unknown_telegram_vars(monkeypatch, caplog):
+    """4.1: TELEGRAM_* desconocida también avisa (es el otro prefijo crítico)."""
+    import logging
+
+    monkeypatch.setenv("TELEGRAM_POLLING_TIMEOUT", "25")  # variable muerta histórica
+    with caplog.at_level(logging.WARNING, logger="tikdown_rs.config"):
+        Settings(_env_file=None)
+    vars_avisadas = [getattr(r, "var", "") for r in caplog.records]
+    assert "TELEGRAM_POLLING_TIMEOUT" in vars_avisadas
+
+
+def test_no_warn_para_vars_conocidas(monkeypatch, caplog):
+    """4.1: variables que SÍ matchean (o prefijos ajenos) no generan warning."""
+    import logging
+
+    monkeypatch.setenv("LOG_LEVEL", "DEBUG")  # conocida
+    monkeypatch.setenv("HOME", "/tmp")  # prefijo ajeno, irrelevante
+    with caplog.at_level(logging.WARNING, logger="tikdown_rs.config"):
+        s = Settings(_env_file=None)
+    assert s.log_level == "DEBUG"
+    assert not [r for r in caplog.records if "LOG_LEVEL" in r.message]
+
+
 def test_webda_variables_no_en_settings():
     """WEBDAV_* NO está en Settings (F-17) — lo lee el sidecar rclone, no la app."""
     s = Settings(_env_file=None)
