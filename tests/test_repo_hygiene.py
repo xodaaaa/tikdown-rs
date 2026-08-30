@@ -68,6 +68,32 @@ def test_env_example_sin_secretos_reales():
             )
 
 
+def test_env_example_sincronizado_con_settings():
+    """Auditoría 3.4: todo campo de Settings debe estar documentado en .env.example.
+
+    Convención pydantic-settings: campo `foo_bar` ←→ variable FOO_BAR. Detecta
+    variables muertas en .env.example (no leídas por pydantic con extra=ignore)
+    y campos de Settings sin documentar (drift silencioso).
+    """
+    env_content = (ROOT / ".env.example").read_text(encoding="utf-8")
+    env_keys = {
+        line.split("=", 1)[0].strip()
+        for line in env_content.splitlines()
+        if line.strip() and not line.strip().startswith("#") and "=" in line
+    }
+    from tikdown_rs.core.config import Settings
+
+    settings_keys = {f.upper() for f in Settings.model_fields}
+    # Excepción: FERNET_KEY se lee vía os.getenv en core/crypto.py (fuera de Settings).
+    settings_keys.add("FERNET_KEY")
+    faltantes = settings_keys - env_keys
+    sobrantes = env_keys - settings_keys
+    assert not faltantes, f"Campos de Settings ausentes en .env.example: {sorted(faltantes)}"
+    assert not sobrantes, (
+        f"Variables de .env.example que pydantic ignora (muertas): {sorted(sobrantes)}"
+    )
+
+
 def test_readme_completo():
     """§0.1: README con disclaimer legal, qué NO commitear, backup fernet.key, naming -rs."""
     p = ROOT / "README.md"
