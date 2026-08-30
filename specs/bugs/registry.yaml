@@ -422,3 +422,27 @@ bugs:
     follow_ups: null
     file: null
     status: "fixed"
+  - bug_id: "BUG-2026-08-29T194800"
+    date: "2026-08-29"
+    severity: "critical"
+    priority: "p0"
+    scope: "daemon-cli"
+    what_happened: "Bug #21 de la auditoria externa: `daemon stop` escribia stop_requested=True en daemon_state pero el daemon nunca leia esa columna - el flag era letra muerta y solo SIGTERM/SIGINT detenia el daemon."
+    what_expected: "`daemon stop` debe detener el daemon con apagado limpio (drenaje de tareas, shutdown de bot y scheduler)."
+    steps_to_reproduce:
+      - "uv run tikdown-rs daemon run"
+      - "En otra terminal: uv run tikdown-rs daemon stop"
+      - "El daemon sigue corriendo indefinidamente (solo muere con SIGTERM)"
+    root_cause: "El watcher del loop principal de _run() solo esperaba el stop_event de senales; ninguna ruta leia stop_requested de la DB (F-03 de la auditoria)."
+    files_changed: "src/tikdown_rs/daemon/run.py, tests/daemon/test_runner.py"
+    approach: "Watcher de _run() sondea stop_requested cada ~0.5s via asyncio.wait_for(stop_event.wait(), timeout=poll); al detectarlo consume el flag (reset a False, evita auto-apagado del proximo arranque) y activa el stop_event para apagado limpio."
+    risk_level: "high"
+    new_tests: 2
+    type_check: "pass"
+    lint: "pass"
+    commit_type: "fix"
+    release_type: "patch"
+    commit_message: "fix(daemon): leer stop_requested en DB para que `daemon stop` funcione (bug #21)"
+    follow_ups: null
+    file: null
+    status: "fixed"

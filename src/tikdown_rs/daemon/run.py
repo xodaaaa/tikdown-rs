@@ -17,7 +17,7 @@ import signal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from tikdown_rs.core.config import Settings
-from tikdown_rs.core.daemon_state import update_heartbeat
+from tikdown_rs.core.daemon_state import set_stop_requested, update_heartbeat
 from tikdown_rs.core.db import create_async_engine_wal
 from tikdown_rs.core.logging import setup_logging
 from tikdown_rs.core.migrations import apply_migrations
@@ -25,6 +25,11 @@ from tikdown_rs.core.tasks import cancel_pending_tasks, create_supervised_task
 from tikdown_rs.core.verify import selfcheck_ffmpeg, selfcheck_impersonation
 
 LOG = logging.getLogger("tikdown_rs.daemon")
+
+# Sondeo de stop_requested (bug #21): mitad del intervalo de heartbeat,
+# acotado a [0.5, 5]s para que la latencia de apagado nunca supere ~5s.
+STOP_POLL_SECONDS = 0.5
+STOP_POLL_MAX_SECONDS = 5.0
 
 
 class DaemonRunner:
@@ -72,8 +77,29 @@ class DaemonRunner:
 
         LOG.info("daemon.started")
 
+    async def _check_stop_requested(self) -> None:
+        """Lee stop_requested de daemon_state y consume el flag (bug #21).
+
+        `daemon stop` (CLI) escribe stop_requested=True vía SQLite; el daemon
+        no recibe señal alguna, así que debe sondear la DB. Consumir el flag
+        (reset a False) evita que el próximo arranque se auto-apague en seco.
+        """
+        if self._engine is None:
+            return
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from tikdown_rs.core.daemon_state import get_or_create_daemon_state
+
+        maker = async_sessionmaker(self._engine, expire_on_commit=False)
+        async with maker() as s:
+            row = await get_or_create_daemon_state(s)
+            if row.stop_requested:
+                await set_stop_requested(s, False)  # consumir (commit interno)
+                LOG.info("daemon.stop_requested_detected")
+                self._stop_event.set()
+
     async def _run(self) -> None:
-        """Bucle principal: watcher de stop_requested (L-B1)."""
+        """Bucle principal: watcher de stop_requested (L-B1, bug #21)."""
         # Registrar jobs de intervalo como tareas supervisadas (T27)
         self._register_jobs()
 
@@ -81,9 +107,15 @@ class DaemonRunner:
         if self.settings.telegram_bot_token:
             await self._start_bot()
 
-        # Watcher: espera stop_requested o señal (L-B1)
+        # Watcher: espera señal (stop_event) o sondea stop_requested en DB
+        # cada ~0.5s (bug #21) — `daemon stop` no envía señales.
+        poll = min(STOP_POLL_SECONDS, self.settings.heartbeat_interval_seconds / 2)
+        poll = max(min(poll, STOP_POLL_MAX_SECONDS), STOP_POLL_SECONDS)
         while not self._stop_event.is_set():
-            await asyncio.sleep(0.5)
+            try:
+                await asyncio.wait_for(self._stop_event.wait(), timeout=poll)
+            except TimeoutError:
+                await self._check_stop_requested()
 
     async def _shutdown(self) -> None:
         """Apagado limpio (§5.2): drena el registro, no el scheduler (T9/T28)."""
