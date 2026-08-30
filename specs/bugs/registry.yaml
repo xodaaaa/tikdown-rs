@@ -609,3 +609,26 @@ bugs:
     follow_ups: "run_backfill (services/backfill.py) hereda la misma carencia de classify_failure en su except - NO se toca porque backfill no crea filas Video (error_category es de Video); revisar si backfill debe registrar videos."
     file: null
     status: "fixed"
+  - bug_id: "BUG-2026-08-30T235000"
+    date: "2026-08-30"
+    severity: "critical"
+    priority: "p0"
+    scope: "migrations"
+    what_happened: "Hallazgo 5.1 de la ronda 5: dos heads en el grafo de Alembic. El fix 3.1 (ronda 4) regenero la migracion (c09bde76270e) pero el archivo viejo a1b2c3d4e5f6 sobrevivio en master: el borrado vivia solo en commits de vibe que el squash del PR #9 no preservo (master dbc18d8 quedo con el archivo), y el merge master->vibe 66af9a6 (hecho fuera de mis sesiones) lo reintrodujo en vibe antes del squash #10. Resultado: alembic upgrade head falla con MultipleHeadRevisions y el daemon no arranca en ningun entorno con el master del PR #10."
+    what_expected: "Un unico head en el grafo (c09bde76270e) y arranque del daemon funcional."
+    steps_to_reproduce:
+      - "En master 6f27f34: uv run alembic heads -> dos heads"
+      - "tikdown-rs daemon run -> CommandError Multiple head revisions en apply_migrations"
+    root_cause: "Interaccion squash-merge + merge master->vibe externo: el borrado del archivo viejo hecho en vibe no llego a master (squash de #9 lo contenia), y el merge externo lo reintrodujo. Cadena de custody no verificada tras el merge #10."
+    files_changed: "alembic/versions/a1b2c3d4e5f6_video_pending_status.py (borrado), specs/bugs/registry.yaml"
+    approach: "git rm del archivo obsoleto; verificacion con alembic heads y upgrade head real contra DB vacia y DB pre-existente."
+    risk_level: "high"
+    new_tests: 0
+    type_check: "pass"
+    lint: "pass"
+    commit_type: "fix"
+    release_type: "patch"
+    commit_message: "fix(migrations): eliminar migracion obsoleta a1b2c3d4e5f6 (duplicaba head con c09bde76270e)"
+    follow_ups: "1) instalaraciones stamped con a1b2c3d4e5f6_pending_status requieren re-stamp manual a c09bde76270e (solo la DB local de dev, corregida). 2) Añadir chequeo de grafo Alembico (single-head) al preflight/CI (recomendacion Fase 1 del auditor)."
+    file: null
+    status: "fixed"
