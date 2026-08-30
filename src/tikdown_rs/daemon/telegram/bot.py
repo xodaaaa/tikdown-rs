@@ -157,37 +157,60 @@ class TelegramBot:
             self._restarting = False
 
     def _register_handlers(self, app) -> None:
-        """Registra CommandHandler(/list) y CallbackQueryHandler(listp:) (e11s01)."""
+        """Registra CommandHandlers (§6.4) y CallbackQueryHandler(listp:) (e11s01)."""
         from telegram.ext import CallbackQueryHandler, CommandHandler
 
         from tikdown_rs.daemon.telegram.handlers import (
+            COMMANDS,
             build_list_keyboard,
+            dispatch,
             handle_list_callback,
             parse_list_callback,
             render_list_page,
         )
         from tikdown_rs.services import accounts as accounts_svc
 
-        async def _cmd_list(update, context) -> None:  # noqa: ANN001
-            """Handler de /list: pagina cuentas + teclado inline."""
+        def _authorized(update) -> str | None:
+            """Auth doble (§6.3) + throttle 2s (F-18). Devuelve chat_id o None."""
             chat_id = str(update.effective_chat.id) if update.effective_chat else None
             user_id = str(update.effective_user.id) if update.effective_user else None
             if not self.settings or not is_authorized(self.settings, chat_id, user_id):
                 LOG.warning("bot.unauthorized_attempt", extra={"chat_id": chat_id})
-                return
-            # Throttle 1 comando/2s por chat (F-18, también en comandos)
+                return None
             now = int(time.time())
             last = self._last_cmd_ts.get(chat_id)
             if last is not None and (now - last) < 2:
-                return
+                return None
             self._last_cmd_ts[chat_id] = now
-            # Orquesta services/accounts (paridad funcional, §6.4)
+            return chat_id
+
+        async def _run_dispatch(update, args: list[str]) -> None:
+            """Ejecuta dispatch() en sesión corta (T32) y responde al chat."""
+            msg = update.effective_message
+            command = f"/{msg.text.split()[0].lstrip('/').split('@')[0]}"
+            args = " ".join(args)
+            async with self._session() as session:
+                text = await dispatch(command, args, session, self.settings)
+            await msg.reply_text(text)
+
+        def _make_command_handler(cmd: str):
+            """Handler fino por comando: auth+throttle → dispatch → reply."""
+            name = cmd.lstrip("/")
+
+            async def _handler(update, context) -> None:  # noqa: ANN001
+                if not _authorized(update):
+                    return
+                await _run_dispatch(update, context.args or [])
+
+            return CommandHandler(name, _handler)
+
+        async def _cmd_list(update, context) -> None:  # noqa: ANN001
+            """Handler de /list: pagina cuentas + teclado inline."""
+            if not _authorized(update):
+                return
             rows = []
             if self.engine is not None:
-                from sqlalchemy.ext.asyncio import async_sessionmaker
-
-                maker = async_sessionmaker(self.engine, expire_on_commit=False)
-                async with maker() as session:
+                async with self._session() as session:
                     accs = await accounts_svc.list_accounts(session)
                     rows = [
                         {
@@ -212,10 +235,7 @@ class TelegramBot:
             # Reconstruir accounts desde services
             rows = []
             if self.engine is not None:
-                from sqlalchemy.ext.asyncio import async_sessionmaker
-
-                maker = async_sessionmaker(self.engine, expire_on_commit=False)
-                async with maker() as session:
+                async with self._session() as session:
                     accs = await accounts_svc.list_accounts(session)
                     rows = [
                         {"username": a.username, "mode": a.mode, "paused": a.paused} for a in accs
@@ -249,6 +269,16 @@ class TelegramBot:
 
         app.add_handler(CommandHandler("list", _cmd_list))
         app.add_handler(CallbackQueryHandler(_cb_list, pattern=r"^listp:"))
+        # §6.4 (3.3-A): los 11 comandos restantes vía dispatcher real.
+        for cmd in COMMANDS - {"/list"}:
+            app.add_handler(_make_command_handler(cmd))
+
+    def _session(self):
+        """Sesión corta sobre el engine inyectado (T32)."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        maker = async_sessionmaker(self.engine, expire_on_commit=False)
+        return maker()
 
     async def stop(self) -> None:
         """Apagado del bot (T10): updater.stop → stop → shutdown."""
