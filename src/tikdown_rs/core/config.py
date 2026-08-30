@@ -16,9 +16,22 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LOG = logging.getLogger("tikdown_rs.config")
 
-# Prefijos que la app considera suyos: una variable con estos prefijos que no
-# matchee Settings es casi seguro un typo o una variable muerta (auditoría 4.1).
-_OWNED_PREFIXES = ("TIKDOWN_", "TELEGRAM_")
+# Variables de la app leídas FUERA de pydantic (os.getenv en core/crypto.py).
+_EXTRA_KNOWN_VARS = {"FERNET_KEY"}
+
+
+def _owned_prefixes() -> tuple[str, ...]:
+    """Deriva los prefijos vigilados de los campos reales de Settings (2.2).
+
+    Ronda 2: los prefijos fijos TIKDOWN_/TELEGRAM_ no cubrían los prefijos
+    reales (HEARTBEAT_, LOG_, DATA_, ...) — el ejemplo del propio docstring
+    (HEARTBEAT_INTTERVAL) no se detectaba. Derivar de model_fields garantiza
+    cobertura total y automática ante campos nuevos. Se añaden los namespaces
+    de la app sin campos: TIKDOWN_ (marca) y FERNET_ (secretos, crypto.py).
+    """
+    derived = {name.upper().split("_")[0] + "_" for name in Settings.model_fields}
+    derived |= {"TIKDOWN_", "FERNET_"}
+    return tuple(sorted(derived))
 
 
 def warn_unknown_env_vars(env: dict[str, str] | None = None) -> list[str]:
@@ -26,12 +39,16 @@ def warn_unknown_env_vars(env: dict[str, str] | None = None) -> list[str]:
 
     `extra="ignore"` traga typos en silencio (p.ej. HEARTBEAT_INTTERVAL).
     Compara el entorno con los campos de Settings y loggea un WARNING por
-    variable de prefijo TIKDOWN_/TELEGRAM_ sin correspondencia. Devuelve la
-    lista de desconocidas (testable, sin capturar logs).
+    variable con prefijo propio (derivado de los propios campos) sin
+    correspondencia. Devuelve la lista de desconocidas (testable, sin capturar
+    logs).
     """
     env = os.environ if env is None else env
-    known = {f.upper() for f in Settings.model_fields}
-    unknown = [key for key in env if key.startswith(_OWNED_PREFIXES) and key not in known]
+    known = {f.upper() for f in Settings.model_fields} | _EXTRA_KNOWN_VARS
+    # 2.2: prefijos derivados de los campos reales — cubre HEARTBEAT_, LOG_,
+    # DATA_, COOKIE_, YTDLP_, NETWORK_... (antes solo TIKDOWN_/TELEGRAM_).
+    prefixes = _owned_prefixes()
+    unknown = [key for key in env if key.startswith(prefixes) and key not in known]
     for key in unknown:
         LOG.warning(
             "config.unknown_env_var",
@@ -94,6 +111,8 @@ class Settings(BaseSettings):
     # DB / disco
     db_busy_timeout_alert_threshold: int = 20
     disk_warning_free_percent: int = 10
+    # 2.1-r2: intervalo del job de disco (T65: 15-30 min)
+    disk_check_interval_seconds: int = 900
 
     # Daemon / heartbeat
     heartbeat_interval_seconds: int = 10  # frescura = 3x este valor (T50)

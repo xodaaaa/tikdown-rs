@@ -515,3 +515,50 @@ bugs:
     follow_ups: null
     file: null
     status: "fixed"
+  - bug_id: "BUG-2026-08-30T221200"
+    date: "2026-08-30"
+    severity: "critical"
+    priority: "p0"
+    scope: "daemon-monitor"
+    what_happened: "Hallazgo 2.1 de la ronda 2 de auditoria: el daemon nunca ejecutaba el ciclo de monitor, el chequeo de disco ni el probe de red. run_monitor_cycle (la funcionalidad principal del producto: descubrir videos nuevos en cuentas mode=monitor), disk_job y NetworkMonitor existian bien testeados pero SIN NINGUN llamador; monitor start/stop escribian monitor_running en DB que nadie leia (el docstring del heartbeat prometia aplicarlo 'en caliente' y era falso)."
+    what_expected: "monitor start/stop deben comandar el ciclo real del monitor en el daemon (aplicado en caliente por el heartbeat); disco y red con jobs periodicos propios, todo como tarea supervisada."
+    steps_to_reproduce:
+      - "monitor start (OK) con cuentas mode=monitor"
+      - "Esperar: nunca se descubre video nuevo (run_monitor_cycle sin llamadores)"
+      - "Disco llenandose: ninguna pausa automatica (disk_job sin llamadores)"
+    root_cause: "Patron repetido de la ronda 1 (3.2/3.3): logica pura muy testeada en aislamiento + tests verdes que crean falsa sensacion de integracion; _register_jobs() solo registraba heartbeat y backfill-collect."
+    files_changed: "src/tikdown_rs/daemon/monitor_job.py, src/tikdown_rs/daemon/run.py, src/tikdown_rs/core/config.py, .env.example, tests/daemon/test_monitor_job.py"
+    approach: "MonitorJob: read_monitor_running() lee el flag (patron stop_requested 3.1) y arranca/drena el loop en caliente; ciclo = run_monitor_cycle + discover del daemon (YtDlpEngine + cookies working, registra Video, no toca backfill §10); heartbeat invoca read_monitor_running en cada tick. Jobs de disco (T65, 900s) y probe de red (§9) registrados en el scheduler. 5 tests de integracion nuevos."
+    risk_level: "high"
+    new_tests: 5
+    type_check: "pass"
+    lint: "pass"
+    commit_type: "feat"
+    release_type: "minor"
+    commit_message: "feat(daemon): ejecutar el ciclo de monitor comandado por monitor_running (auditoria 2.1-r2)"
+    follow_ups: "Cablear el bus on_event de los nuevos jobs a notificaciones (epico 3.2-B pendiente)"
+    file: null
+    status: "fixed"
+  - bug_id: "BUG-2026-08-30T221300"
+    date: "2026-08-30"
+    severity: "low"
+    priority: "p3"
+    scope: "config"
+    what_happened: "Hallazgo 2.2 de la ronda 2: el warning de variables desconocidas (4.1) usaba _OWNED_PREFIXES=('TIKDOWN_','TELEGRAM_') — TIKDOWN_ no es prefijo de ningun campo real, asi que solo vigilaba TELEGRAM_ y el ejemplo del propio docstring (HEARTBEAT_INTTERVAL_SECONDS) NO se detectaba. Sin test dedicado."
+    what_expected: "El warning debe cubrir los prefijos reales de la app (HEARTBEAT_, LOG_, DATA_, ...) y el caso del docstring debe estar testeado."
+    steps_to_reproduce:
+      - "HEARTBEAT_INTTERVAL_SECONDS=10 (typo) + arrancar el daemon"
+      - "Antes: ningun warning (el prefijo no estaba vigilado)"
+    root_cause: "Lista fija de prefijos que no correspondia a los nombres reales de Settings; test de 4.1 solo cubria TIKDOWN_/TELEGRAM_."
+    files_changed: "src/tikdown_rs/core/config.py, tests/config/test_settings.py"
+    approach: "_owned_prefixes() deriva los prefijos de Settings.model_fields (cobertura automatica ante campos nuevos) + namespaces de la app sin campos (TIKDOWN_ marca, FERNET_ secretos via os.getenv). Tests: caso del docstring + cobertura de prefijos de .env.example."
+    risk_level: "low"
+    new_tests: 2
+    type_check: "pass"
+    lint: "pass"
+    commit_type: "fix"
+    release_type: "patch"
+    commit_message: "fix(config): warning de env cubre los prefijos reales derivados de Settings (auditoria 2.2-r2)"
+    follow_ups: null
+    file: null
+    status: "fixed"

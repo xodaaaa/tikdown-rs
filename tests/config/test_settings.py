@@ -91,10 +91,54 @@ def test_no_warn_para_vars_conocidas(monkeypatch, caplog):
 
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")  # conocida
     monkeypatch.setenv("HOME", "/tmp")  # prefijo ajeno, irrelevante
+    monkeypatch.setenv("FERNET_KEY", "x")  # conocida fuera de pydantic (crypto.py)
     with caplog.at_level(logging.WARNING, logger="tikdown_rs.config"):
         s = Settings(_env_file=None)
     assert s.log_level == "DEBUG"
-    assert not [r for r in caplog.records if "LOG_LEVEL" in r.message]
+    assert not [r for r in caplog.records if getattr(r, "var", "") in {"LOG_LEVEL", "FERNET_KEY"}]
+
+
+def test_warn_detecta_caso_del_docstring(monkeypatch, caplog):
+    """4.1-r2: HEARTBEAT_INTTERVAL_SECONDS (el ejemplo del docstring) se detecta.
+
+    Ronda 2 (2.2): los prefijos TIKDOWN_/TELEGRAM_ no cubrían ningún prefijo
+    real de Settings (HEARTBEAT_, LOG_, DATA_, ...) — el propio ejemplo de la
+    función no se detectaba. Ahora los prefijos se derivan de Settings.
+    """
+    import logging
+
+    monkeypatch.setenv("HEARTBEAT_INTTERVAL_SECONDS", "10")
+    with caplog.at_level(logging.WARNING, logger="tikdown_rs.config"):
+        Settings(_env_file=None)
+    assert "HEARTBEAT_INTTERVAL_SECONDS" in [getattr(r, "var", "") for r in caplog.records]
+
+
+def test_warn_cubre_todos_los_prefijos_de_env_example():
+    """4.1-r2: los prefijos vigilados cubren los de .env.example (los reales).
+
+    Si un día se añade un campo con un prefijo nuevo, este test lo exige en
+    los prefijos derivados de Settings — el warning nunca vuelve a quedarse
+    ciego. Derivar de model_fields (2.2) hace que esto pase por construcción;
+    el test protege contra una regresión a prefijos fijos incompletos.
+    """
+    import re
+
+    from tikdown_rs.core.config import _owned_prefixes
+
+    env_content = (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8")
+    env_keys = [
+        ln.split("=", 1)[0].strip()
+        for ln in env_content.splitlines()
+        if ln.strip() and not ln.strip().startswith("#") and "=" in ln
+    ]
+    required = {k.split("_")[0] + "_" for k in env_keys}
+    derived = set(_owned_prefixes())
+    assert required.issubset(derived), (
+        f"prefijos de .env.example ausentes en los derivados de Settings: "
+        f"{sorted(required - derived)}"
+    )
+    # Sanidad: los prefijos derivados tienen forma VALIDA_ (re.)
+    assert all(re.fullmatch(r"[A-Z]+_", p) for p in _owned_prefixes())
 
 
 def test_webda_variables_no_en_settings():
