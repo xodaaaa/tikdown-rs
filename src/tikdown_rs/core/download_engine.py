@@ -57,7 +57,12 @@ def classify_failure(message: str) -> str:
 
 
 class DownloadEngine(Protocol):
-    """Contrato del motor (inyectado en CLI/bot/daemon, T26)."""
+    """Contrato del motor (inyectado en CLI/bot/daemon, T26).
+
+    Solo los métodos que los consumers usan de verdad (auditoría 3.6):
+    services/backfill llama download() y extract_profile(); list_videos y
+    validate_cookie no tenían implementación ni llamadores.
+    """
 
     async def download(self, url: str, archive_path: str | None = None, **kwargs) -> dict:
         """Descarga un vídeo; devuelve resumen con expected_has_video."""
@@ -65,14 +70,6 @@ class DownloadEngine(Protocol):
 
     async def extract_profile(self, username: str) -> dict:
         """Extrae el perfil de una cuenta (sec_uid, stats)."""
-        ...
-
-    async def list_videos(self, username: str) -> list[dict]:
-        """Lista vídeos de una cuenta (para backfill/monitor)."""
-        ...
-
-    async def validate_cookie(self, cookie_blob: bytes) -> str:
-        """Valida una cookie: 'valid' | 'invalid' | 'inconclusive'."""
         ...
 
 
@@ -185,11 +182,6 @@ class YtDlpEngine:
         params = self._ydl_params(target, format_string, outtmpl)
         if archive_path:
             params["download_archive"] = archive_path
-
-        def _run() -> dict:
-            with yt_dlp.YoutubeDL(params) as ydl:
-                info = ydl.extract_info(url, download=True)
-            return {"info": info, "target": target}
 
         def _run() -> dict:
             with yt_dlp.YoutubeDL(params) as ydl:

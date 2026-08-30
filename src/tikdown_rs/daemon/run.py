@@ -270,8 +270,6 @@ def run_daemon(settings: Settings) -> None:
         runner._stop_event.set()
 
     # Watcher de señales (SIGTERM/SIGINT) → stop_event (L-B1)
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
         signal.signal(signal.SIGTERM, _request_stop)
         signal.signal(signal.SIGINT, _request_stop)
