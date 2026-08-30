@@ -42,11 +42,11 @@ class DaemonRunner:
         self._bot = None
         self._engine = None
         self._network_monitor = None  # 2.1-r2: probe de red (§9)
-        # 2.1-r2: job del monitor de cuentas (comandado por monitor_running)
+        # 2.1-r2: job del monitor de cuentas (comandado por monitor_running).
+        # Cookies working se resuelven en _run() y se inyectan al job.
         from tikdown_rs.daemon.monitor_job import MonitorJob
 
         self._monitor_job = MonitorJob(maker=None, settings=settings)
-        self._monitor_job._maker = None  # se inyecta en _register_jobs (engine)
 
     # --- Ciclo de vida (L-B1: un solo asyncio.run) ---
 
@@ -104,8 +104,26 @@ class DaemonRunner:
                 LOG.info("daemon.stop_requested_detected")
                 self._stop_event.set()
 
+    async def _resolve_cookies_blob(self) -> bytes | None:
+        """Blob descifrado de la primera cookie working (F-01/F-15) o None."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from tikdown_rs.core.crypto import decrypt_cookie, load_or_create_fernet_key
+        from tikdown_rs.services.cookies import working_cookies_list
+
+        maker = async_sessionmaker(self._engine, expire_on_commit=False)
+        async with maker() as s:
+            cookie = await working_cookies_list(s)
+        if not cookie:
+            return None
+        key = load_or_create_fernet_key(self.settings.data_dir / "fernet.key")
+        return decrypt_cookie(cookie[0].encrypted_blob, key)
+
     async def _run(self) -> None:
         """Bucle principal: watcher de stop_requested (L-B1, bug #21)."""
+        # 2.1-r3: cookies working para el motor del monitor (antes de los jobs)
+        if self._engine is not None:
+            self._monitor_job._cookies_blob = await self._resolve_cookies_blob()
         # Registrar jobs de intervalo como tareas supervisadas (T27)
         self._register_jobs()
 
@@ -157,7 +175,8 @@ class DaemonRunner:
 
     def _register_jobs(self) -> None:
         """Registra jobs de intervalo que lanzan tareas supervisadas (T27)."""
-        # 2.1-r2: inyectar el maker del engine al job del monitor
+        # 2.1-r2: inyectar el maker del engine al job del monitor. Las cookies
+        # working las resuelve _run() en caliente (DB lista, antes de los jobs).
         if self._engine is not None:
             from sqlalchemy.ext.asyncio import async_sessionmaker
 

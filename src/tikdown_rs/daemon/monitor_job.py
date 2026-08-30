@@ -38,6 +38,8 @@ class MonitorJob:
         interval_seconds: float | None = None,
         cycle_fn=None,
         discover_fn=None,
+        cookies_blob: bytes | None = None,
+        engine=None,
     ) -> None:
         self._maker = maker
         self.settings = settings
@@ -46,6 +48,26 @@ class MonitorJob:
         self._interval = interval_seconds  # inyectable (tests); default: Settings
         self._cycle_fn = cycle_fn  # inyectable (tests); default: services
         self._discover_fn = discover_fn  # inyectable (tests); default: daemon_discover
+        # cookies working (blob descifrado) para el motor real; inyectable en tests
+        self._cookies_blob = cookies_blob
+        # engine de descarga inyectable (tests); default: YtDlpEngine real (2.1-ter)
+        self.engine = engine
+
+    def _make_engine(self):
+        """Motor de descarga: el inyectado (tests) o YtDlpEngine real."""
+        if self.engine is not None:
+            return self.engine
+        from tikdown_rs.core.download_engine import YtDlpEngine
+
+        return YtDlpEngine(cookies_blob=self._cookies_blob)
+
+    def _cooldown_reserve(self):
+        """Cooldown T62: de Settings; 0/0 en tests (inyección via engine fake)."""
+        from tikdown_rs.core.pacing import CooldownReserve
+
+        if self.engine is not None:
+            return CooldownReserve(min_seconds=0, max_seconds=0)  # tests: sin sleep
+        return CooldownReserve()
 
     def _default_interval(self) -> float:
         if self._interval is not None:
@@ -103,6 +125,68 @@ class MonitorJob:
     async def _run_one_cycle(self) -> None:
         async with self._maker() as session:
             await self._cycle()(session, self._discover())
+            # 2.1-ter (ronda 3): descargar lo descubierto en el mismo ciclo
+            # (mismo motor y pacing T62 que backfill)
+            await self.download_pendings(session)
+
+    async def download_pendings(self, session) -> int:
+        """Descarga los vídeos 'pending' descubiertos (2.1-ter, ronda 3).
+
+        Mismo motor y pacing T62 que el backfill (reserve_slot ANTES de cada
+        descarga, anti-bloqueo TikTok cross-proceso). Estados de resultado:
+        downloaded (ok), failed (error categorizado), skipped (slideshow).
+        El fallo de UN vídeo no aborta el lote (T5) — se registra y continúa.
+        Devuelve el número de vídeos procesados.
+        """
+        from datetime import UTC, datetime
+
+        from sqlalchemy import select
+
+        from tikdown_rs.core.pacing import reserve_slot
+        from tikdown_rs.models.models import Video
+
+        pendings = list(
+            (await session.execute(select(Video).where(Video.status == "pending"))).scalars().all()
+        )
+        if not pendings:
+            return 0
+        downloader = self._make_engine()
+        now = datetime.now(UTC).isoformat()
+        for video in pendings:
+            # T62: pacing cross-proceso ANTES de cada descarga (como backfill)
+            delay = await reserve_slot(session, self._cooldown_reserve())
+            if delay:
+                LOG.info("monitor_job.pacing_wait", extra={"seconds": delay})
+                await asyncio.sleep(delay)
+            url = video.url or f"https://www.tiktok.com/@x/video/{video.tiktok_video_id}"
+            try:
+                result = await downloader.download(url, archive_path=None)
+            except Exception as exc:  # noqa: BLE001 - T5: un fallo no aborta el lote
+                LOG.warning(
+                    "monitor_job.download_failed",
+                    extra={"video": video.tiktok_video_id, "exc": repr(exc)},
+                )
+                video.status = "failed"
+                video.error_category = "transient"
+                video.error_message = repr(exc)[:500]
+                video.updated_at = now
+                await session.commit()
+                continue
+            info = result.get("info") or {}
+            has_stream = bool(info.get("formats"))
+            if has_stream:
+                video.status = "downloaded"
+            else:
+                # T55: sin pista de vídeo → slideshow; no es fallo ni reintenta
+                video.status = "skipped"
+            video.downloaded_at = now
+            video.updated_at = now
+            await session.commit()
+            LOG.info(
+                "monitor_job.video_downloaded",
+                extra={"video": video.tiktok_video_id, "status": video.status},
+            )
+        return len(pendings)
 
     async def join(self, timeout: float = 10.0) -> None:
         """Espera el drenaje del loop tras stop (T28)."""
@@ -135,17 +219,9 @@ class MonitorJob:
 
         from sqlalchemy import select
 
-        from tikdown_rs.core.crypto import decrypt_cookie, load_or_create_fernet_key
-        from tikdown_rs.core.download_engine import YtDlpEngine
         from tikdown_rs.models.models import Video
-        from tikdown_rs.services.cookies import working_cookies_list
 
-        blob = None
-        cookie_rows = await working_cookies_list(session)
-        if cookie_rows and self.settings is not None:
-            key = load_or_create_fernet_key(self.settings.data_dir / "fernet.key")
-            blob = decrypt_cookie(cookie_rows[0].encrypted_blob, key)
-        downloader = YtDlpEngine(cookies_blob=blob)
+        downloader = self._make_engine()
 
         profile = await downloader.extract_profile(account.username)
         entries = profile.get("entries") or []
@@ -168,10 +244,12 @@ class MonitorJob:
                 Video(
                     tiktok_video_id=str(vid),
                     account_id=account.id,
+                    # URL de página normalizada (bug #15: nunca la URL CDN del feed)
+                    url=f"https://www.tiktok.com/@{account.username}/video/{vid}",
                     title=(entry.get("title") or "")[:500] or None,
                     upload_date=entry.get("upload_date"),
                     duration=entry.get("duration"),
-                    status="new",
+                    status="pending",  # 2.1-bis: dentro del CHECK ck_videos_status
                     created_at=now,
                     updated_at=now,
                 )
