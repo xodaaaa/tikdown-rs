@@ -74,7 +74,8 @@ class Video(Base):
     __tablename__ = "videos"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('downloaded','failed','cancelled','skipped')",
+            # 'pending' = descubierto por el monitor, aún no descargado (2.1-bis)
+            "status IN ('downloaded','failed','cancelled','skipped','pending')",
             name="ck_videos_status",
         ),
         CheckConstraint(

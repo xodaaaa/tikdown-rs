@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from tikdown_rs.core.daemon_state import set_monitor_running
-from tikdown_rs.models.models import Base, DaemonState, MonitoredAccount
+from tikdown_rs.models.models import Base, DaemonState, MonitoredAccount, Video
 
 
 @pytest.fixture
@@ -119,6 +119,65 @@ async def test_monitor_job_ejecuta_ciclos_para_cuentas_monitor(maker):
         assert cycles == n_con_running, "con monitor_running=False no debe haber ciclos nuevos"
     finally:
         await job.stop()
+        await engine.dispose()
+
+
+async def test_daemon_discover_real_respeta_check_constraint(maker):
+    """2.1-bis (ronda 3): daemon_discover() REAL (no fake) contra DB con el
+    CHECK constraint de Video.status activo.
+
+    El bug: insertaba status='new' fuera del constraint; el ciclo fallaba en
+    el commit y run_loop se lo tragaba con un WARNING (fallo silencioso justo
+    cuando hay contenido nuevo). El test usa extract_profile mockeado y
+    verifica: descubre pendientes, deduplica, y NO revienta el commit.
+    """
+    from tikdown_rs.daemon.monitor_job import MonitorJob
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    m = async_sessionmaker(engine, expire_on_commit=False)
+
+    try:
+        job = MonitorJob(m)
+
+        class FakeEngine:
+            async def extract_profile(self, username: str) -> dict:
+                return {
+                    "entries": [
+                        {"id": "7301", "title": "nuevo", "upload_date": "20260830"},
+                        {"id": "7302", "title": "nuevo2", "upload_date": "20260830"},
+                    ]
+                }
+
+        job.engine = FakeEngine()  # inyectado: extract_profile sin red
+
+        async with m() as s:
+            s.add(MonitoredAccount(username="obs", mode="monitor"))
+            await s.commit()
+
+        # Primera pasada: descubre y persiste como 'pending' (constraint OK)
+        async with m() as s:
+            acct = (
+                await s.execute(select(MonitoredAccount).where(MonitoredAccount.username == "obs"))
+            ).scalar_one()
+            await job.daemon_discover(s, acct)
+        async with m() as s:
+            rows = (await s.execute(select(Video))).scalars().all()
+            assert sorted(v.tiktok_video_id for v in rows) == ["7301", "7302"]
+            assert all(v.status == "pending" for v in rows)
+            assert all(v.account_id is not None for v in rows)
+
+        # Segunda pasada: deduplica (no reinserta, no revienta)
+        async with m() as s:
+            acct = (
+                await s.execute(select(MonitoredAccount).where(MonitoredAccount.username == "obs"))
+            ).scalar_one()
+            await job.daemon_discover(s, acct)
+        async with m() as s:
+            n = len((await s.execute(select(Video))).scalars().all())
+        assert n == 2, "segunda pasada no debe duplicar"
+    finally:
         await engine.dispose()
 
 

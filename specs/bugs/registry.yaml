@@ -562,3 +562,27 @@ bugs:
     follow_ups: null
     file: null
     status: "fixed"
+  - bug_id: "BUG-2026-08-30T230200"
+    date: "2026-08-30"
+    severity: "critical"
+    priority: "p0"
+    scope: "daemon-monitor"
+    what_happened: "Hallazgos 2.1-bis y 2.1-ter de la ronda 3: (bis) daemon_discover insertaba Video.status='new' fuera del CHECK ck_videos_status (downloaded|failed|cancelled|skipped) — el commit fallaba silenciosamente (run_loop traga el error con WARNING) justo cuando el monitor encontraba contenido nuevo; el test de ronda 2 no lo atrapo porque usaba un discover fake que no pasaba status ni ejercitaba daemon_discover real (que ademas construia YtDlpEngine real e ignoraba inyecciones - hizo una llamada de red real en un test). (ter) aunque el CHECK se arreglara, nadie consumia los pending: el monitor descubria pero no descargaba."
+    what_expected: "daemon_discover persiste 'pending' sin violar constraint (testado con la funcion real contra DB con CHECK activo); el monitor descarga automaticamente lo descubierto con el mismo motor y pacing T62 que el backfill."
+    steps_to_reproduce:
+      - "monitor start con cuenta mode=monitor y cookie working"
+      - "La cuenta sube un video nuevo → IntegrityError en el commit → solo un WARNING en el log"
+      - "Ningun video aparece (indistinguible de 'no ha subido nada')"
+    root_cause: "Desconocimiento del CHECK del schema al escribir el discover (mi bug, introducido en el fix 2.1 de la ronda 2); test de integracion con discover fake en vez de la funcion real."
+    files_changed: "alembic/versions/a1b2c3d4e5f6_video_pending_status.py, src/tikdown_rs/models/models.py, src/tikdown_rs/daemon/monitor_job.py, src/tikdown_rs/daemon/run.py, tests/daemon/test_monitor_job.py, tests/daemon/test_pending_migration.py, README.md"
+    approach: "Migracion batch_alter_table del CHECK + 'pending'; daemon_discover con status='pending' y URL normalizada; MonitorJob.engine/cookies_blob inyectables; download_pendings() con reserve_slot T62, downloaded/skipped/failed, un fallo no aborta el lote (T5); _run_one_cycle() = discover + download_pendings. Tests: migracion sobre el camino real (old schema → rechazo → migrar → OK), discover real con extract_profile mockeado y CHECK activo, ciclo completo descubre-descubre-descarga con engine fake."
+    risk_level: "high"
+    new_tests: 3
+    type_check: "pass"
+    lint: "pass"
+    commit_type: "fix"
+    release_type: "patch"
+    commit_message: "fix(models): CHECK de Video.status admite 'pending' via migracion Alembic (auditoria 2.1-bis)"
+    follow_ups: "Ciclo end-to-end real contra TikTok cuando lo permita el rate-limit (Fase 4 ronda 1, sigue pendiente)"
+    file: null
+    status: "fixed"
