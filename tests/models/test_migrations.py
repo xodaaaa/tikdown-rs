@@ -25,6 +25,19 @@ def test_find_alembic_ini_error_si_ninguno(tmp_path, monkeypatch):
         mig._find_alembic_ini()
 
 
+def test_alembic_single_head():
+    """Auditoría ronda 5 (5.1): dos heads rompen `alembic upgrade head` y el arranque del daemon."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(Config(_find_alembic_ini()))
+    heads = script.get_heads()
+    assert len(heads) == 1, (
+        f"Alembic tiene {len(heads)} heads {heads}: "
+        "consolida en uno antes de mergear"
+    )
+
+
 def test_apply_migrations_idempotente(tmp_path):
     """T29/T68: apply_migrations aplica y es reaplicable (idempotente)."""
     db_file = tmp_path / "data" / "test.db"
