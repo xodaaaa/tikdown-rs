@@ -25,3 +25,4 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M1 row, §
 - T4: commit `0d410c4`; worker (53 focused tests) + parent layering fix; classify_error is the single project classifier (rule-2 only, M2 extends); suite 215 passed.
 - T5: worker + parent test_db.py one-line fix; suite 233 passed; run_selfcheck in services/selfcheck.py with injected probes (services stay yt_dlp-free); deviation accepted: degraded_reason via 0002 op.add_column (0001 marker content untouched), final schema verified on migrated DB.
 - T6: final gate 2026-09-26: ruff clean, format clean, pytest 233 passed, 7 CLI smokes OK, architecture guard green. M1 acceptance criteria met: 3-category validation tests (valid/invalid/inconclusive incl. broken-probe cases), regenerated Netscape loaded with real YoutubeDLCookieJar, daemon status/healthcheck with cookies/selfcheck/disk.
+- Close: user delegated merge (2026-09-26). Merge --no-ff to master; branch deleted. Next: M2 (Motor).
