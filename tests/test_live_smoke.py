@@ -32,9 +32,7 @@ async def test_list_public_feed_live() -> None:
     # (T-ASYNC-8). §14.6: 'Unable to extract secondary user ID' is a known
     # TRANSIENT degradation - a single failure here does not fail the milestone;
     # re-run manually or pick another verified public account.
-    entries: list[dict[str, Any]] = await asyncio.to_thread(
-        engine.list_videos, PUBLIC_ACCOUNT, 5
-    )
+    entries: list[dict[str, Any]] = await asyncio.to_thread(engine.list_videos, PUBLIC_ACCOUNT, 5)
     assert len(entries) >= 1, "public feed listing returned no entries"
     first = entries[0]
     assert first["id"], "entry without id"
