@@ -7,21 +7,27 @@ import asyncio
 import logging
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from alembic import context
 
 config = context.config
 
 # fileConfig only when the config came from an ini file (T-DEPLOY-2 guard).
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False alone does not neutralize T-DEPLOY-6 (the
+    # reapply-with-force step after migrations does), but it avoids disabling
+    # loggers imported before this point.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Alembic chatter stays at WARNING (§5.4).
 logging.getLogger("alembic").setLevel(logging.WARNING)
 
-from tikdown_rs.models import Base  # noqa: E402
-from tikdown_rs.models import daemon_state  # noqa: E402,F401  (registers tables on metadata)
+from tikdown_rs.models import (
+    Base,
+    daemon_state,  # noqa: F401  (registers tables on metadata)
+)
 
 target_metadata = Base.metadata
 

@@ -139,3 +139,22 @@ def test_reapplication_does_not_duplicate_handlers(
     assert len(_owned_stdout_handlers()) == 1
     # force=True removes every root handler, foreign ones included (T-DEPLOY-6).
     assert all(getattr(h, "_tikdown_rs_owned", False) for h in root.handlers)
+
+
+def test_force_reapply_reenables_disabled_loggers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Alembic's fileConfig sets logger.disabled=True on pre-existing loggers.
+
+    Replacing handlers alone leaves them silent for the process lifetime
+    ('docker logs 0 bytes', T-DEPLOY-6); force=True must re-enable them.
+    """
+    monkeypatch.setenv("LOG_FILE_PATH", str(tmp_path / "app.log"))
+    settings = Settings()
+    victim = logging.getLogger("tikdown_rs.core.db")
+    try:
+        victim.disabled = True
+        setup_logging(settings, force=True)
+        assert victim.disabled is False
+    finally:
+        victim.disabled = False

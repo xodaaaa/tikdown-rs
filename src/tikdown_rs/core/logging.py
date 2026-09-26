@@ -36,10 +36,16 @@ def setup_logging(settings: Settings, force: bool = False) -> None:
     Reapplication-safe: replaces handlers attached by a previous call, so a later
     work unit can reapply with ``force=True`` after Alembic's fileConfig stomps
     the root logger (T-DEPLOY-6). With ``force=False`` foreign handlers survive.
+    ``force=True`` also clears ``logger.disabled`` set by Alembic's fileConfig:
+    replacing handlers alone leaves pre-existing module loggers silent for the
+    whole process lifetime (the 'docker logs 0 bytes' failure mode).
     """
     root = logging.getLogger()
     if force:
         stale = list(root.handlers)
+        for logger_obj in [root, *logging.root.manager.loggerDict.values()]:
+            if isinstance(logger_obj, logging.Logger):
+                logger_obj.disabled = False
     else:
         stale = [h for h in root.handlers if getattr(h, _OWNED_ATTRIBUTE, False)]
     for handler in stale:
