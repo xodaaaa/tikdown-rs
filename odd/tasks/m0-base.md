@@ -31,3 +31,4 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M0 row, §
 - T8: commit `69aec68`; worker; suite 93 green; subprocess stop smoke 2.2s; real subprocess T-CLI-6 case covered; T-DB-10 two-revision regression still deferred to M1.
 - T9: commit `75a788a`; worker (Dockerfile/compose/12 static guards) + live build by parent; root-cause found live: relative COPY before WORKDIR -> files in `/` (rule 10 §16 applied: regression test + T-DEPLOY-23 + §14.6 row). Live acceptance: --version OK, heartbeat written, daemon stop -> Exited(0), alembic_version=0001_daemon_state in volume DB.
 - T10: final gate 2026-09-26: ruff clean, format clean, pytest 107 passed, 11 CLI smokes OK, docker --version OK. M0 acceptance criteria met.
+- Close: user delegated merge decision (2026-09-26). Merging feature/m0-base -> master with --no-ff; branch deleted after merge. Next milestone: M1 (Datos y cookies) — proposed, not started.
