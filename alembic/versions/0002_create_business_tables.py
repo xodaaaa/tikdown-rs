@@ -15,6 +15,7 @@ Create Date: 2026-09-26 17:59:49.046905
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "55a967f19162"
@@ -49,17 +50,14 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.Text(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("username"),
-        sa.CheckConstraint(
-            "mode IN ('history', 'monitor')", name="ck_monitored_accounts_mode"
-        ),
+        sa.CheckConstraint("mode IN ('history', 'monitor')", name="ck_monitored_accounts_mode"),
         sa.CheckConstraint(
             "backfill_status IN ('idle', 'queued', 'backfilling', 'paused',"
             " 'completed', 'failed', 'cancelled')",
             name="ck_monitored_accounts_backfill_status",
         ),
         sa.CheckConstraint(
-            "backfill_pause_reason IS NULL OR"
-            " backfill_pause_reason IN ('disk', 'network')",
+            "backfill_pause_reason IS NULL OR backfill_pause_reason IN ('disk', 'network')",
             name="ck_monitored_accounts_backfill_pause_reason",
         ),
     )
@@ -91,8 +89,7 @@ def upgrade() -> None:
             name="ck_videos_status",
         ),
         sa.CheckConstraint(
-            "error_category IS NULL OR"
-            " error_category IN ('definitive', 'transient', 'integrity')",
+            "error_category IS NULL OR error_category IN ('definitive', 'transient', 'integrity')",
             name="ck_videos_error_category",
         ),
     )
