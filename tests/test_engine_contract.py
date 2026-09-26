@@ -10,6 +10,7 @@ exactly what hid that bug (T-ENGINE-16). The double here replicates the FULL
 signature surface (**kwargs, all Protocol methods, T-DEPLOY-20).
 """
 
+import inspect
 from pathlib import Path
 
 import pytest
@@ -25,8 +26,15 @@ PROTOCOL_METHODS = ("download", "extract_profile", "list_videos", "validate_cook
 class FullSignatureDouble:
     """Test double implementing ALL Protocol methods with full **kwargs surface."""
 
-    def download(self, *args, **kwargs):
-        return None
+    def download(
+        self,
+        page_url: str,
+        video_id: str,
+        uploader: str | None,
+        retry_index: int = 0,
+        archive: object | None = None,
+    ) -> Path:
+        return Path()
 
     def extract_profile(self, *args, **kwargs):
         return {}
@@ -70,12 +78,13 @@ def test_building_without_cookies_raises() -> None:
         YtDlpEngine(cookies_blob=b"", settings=Settings())
 
 
-def test_download_is_an_explicit_stub(engine: YtDlpEngine) -> None:
-    # Not implemented in this work unit (M2/T4); the stub must be callable and
-    # raise a clear error naming the follow-up unit (T-ENGINE-16: never
-    # AttributeError).
-    with pytest.raises(RuntimeError, match="T4"):
-        engine.download("https://www.tiktok.com/@user/video/1", "out/%(id)s.%(ext)s")
+def test_download_signature_double_matches_concrete() -> None:
+    # T-DEPLOY-20: the double replicates the FULL download signature so a
+    # Protocol change that drifts from the concrete engine fails here first.
+    concrete = inspect.signature(YtDlpEngine.download)
+    double = inspect.signature(FullSignatureDouble.download)
+    assert list(concrete.parameters) == list(double.parameters)
+    assert concrete.return_annotation is not inspect.Signature.empty
 
 
 # --- core/paths (4.5, T-BACKFILL-21, T-ENGINE-14) ---

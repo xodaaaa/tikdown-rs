@@ -11,6 +11,17 @@ class ConfigurationError(Exception):
     """A configuration problem the operator must fix before the daemon can run."""
 
 
+class DownloadTimeoutError(Exception):
+    """A download exceeded ``download_timeout_seconds`` (4.5, T-ASYNC-8).
+
+    ``asyncio.wait_for`` does NOT kill the native yt-dlp thread (T-ASYNC-14/15):
+    the zombie keeps making requests and may keep writing the outtmpl, which is
+    why every retry writes ``.retry-N`` and only renames after integrity. The
+    engine counts the zombie in ``YtDlpEngine.zombie_threads``; classifying this
+    error is the CALLER's job (4.4 rule 9: a timeout is transient).
+    """
+
+
 AUTH_MARKERS: tuple[str, ...] = (
     "requiring login",
     "login required",

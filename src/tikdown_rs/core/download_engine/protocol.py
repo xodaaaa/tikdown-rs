@@ -11,7 +11,10 @@ needs is exactly what hid that bug. Naming is unambiguous: ``DownloadEngine``
 """
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol, TypedDict, runtime_checkable
+
+from tikdown_rs.core.archive import DownloadArchive
 
 ProbeFn = Callable[[bytes, str, int], list[dict]]
 
@@ -46,8 +49,20 @@ class ProfileData(TypedDict):
 class DownloadEngine(Protocol):
     """The engine surface the rest of the system programs against (4.8)."""
 
-    def download(self, url: str, outtmpl: str) -> None:
-        """Download one video to ``outtmpl``; implemented in M2/T4."""
+    def download(
+        self,
+        page_url: str,
+        video_id: str,
+        uploader: str | None,
+        retry_index: int = 0,
+        archive: DownloadArchive | None = None,
+    ) -> Path:
+        """Download one video; returns the final file Path (4.5).
+
+        Trampas neutralizadas: T-ENGINE-18 (archive on both funnel calls,
+        discard before fallback), T-ASYNC-8/14/15 (to_thread + zombie
+        accounting, .retry-N outtmpl). Implemented in M2/T4.
+        """
         ...
 
     def extract_profile(self, username: str) -> ProfileData:

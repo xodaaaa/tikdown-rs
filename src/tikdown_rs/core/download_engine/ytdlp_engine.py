@@ -22,20 +22,24 @@ persists state) stays the caller-facing path and the engine only exposes the
 probe composition with the same three-state semantics (T-COOKIES-2/3).
 """
 
+import asyncio
 import logging
 import re
+from pathlib import Path
 
 import yt_dlp
 
+from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.cookie_parser import write_canonical_netscape_tempfile
 from tikdown_rs.core.download_engine.protocol import ProbeFn, ProfileData, VideoData
-from tikdown_rs.core.errors import ConfigurationError, classify_error
+from tikdown_rs.core.errors import ConfigurationError, DownloadTimeoutError, classify_error
+from tikdown_rs.core.paths import outtmpl_for
 from tikdown_rs.core.verify import entries_have_video, probe_profile
 
 logger = logging.getLogger("tikdown_rs.core.download_engine")
 
-# 4.2 format chain (constants only this unit; download lands in M2/T4).
+# 4.2 format chain.
 DEFAULT_FORMAT = "best[height<=1080]/best"  # progressive first (T-ENGINE-10)
 FALLBACK_FORMAT = "bestvideo[height<=1080]+bestaudio/best"  # DASH as last resort
 MERGE_OUTPUT_FORMAT = "mp4"
@@ -84,11 +88,120 @@ class YtDlpEngine:
             )
         self._cookies_blob = cookies_blob
         self._settings = settings
+        # T-ASYNC-14/15: timed-out yt-dlp native threads that wait_for cannot
+        # kill; the pacer/daemon expose this counter in daemon status later.
+        self.zombie_threads = 0
 
-    def download(self, url: str, outtmpl: str) -> None:
-        # ponytail: contract stub so the Protocol method EXISTS and is callable
-        # (T-ENGINE-16); the real download/integrity implementation lands in M2/T4.
-        raise RuntimeError("download lands in M2/T4")
+    async def download(
+        self,
+        page_url: str,
+        video_id: str,
+        uploader: str | None,
+        retry_index: int = 0,
+        archive: DownloadArchive | None = None,
+    ) -> Path:
+        """Download one video; returns the final downloaded file Path (4.5).
+
+        ``uploader`` is accepted for the caller's contract: yt-dlp fills
+        ``%(uploader)s`` in the outtmpl from its own extraction metadata, and
+        the feed layer already normalizes entries to the canonical page URL
+        (T-ENGINE-14).
+
+        Format chain (4.2, T-ENGINE-10): ``settings.download_format`` override
+        runs ALONE (operator decision, no fallback); otherwise DEFAULT_FORMAT
+        first and FALLBACK_FORMAT as last resort. The SAME ``--download-archive``
+        file path is passed on BOTH funnel calls, and the archive entry for
+        ``video_id`` is DISCARDED before the fallback attempt, or yt-dlp would
+        answer 'already downloaded' (T-ENGINE-18). ``merge_output_format`` is
+        always mp4 (4.2).
+
+        Timeouts (T-ASYNC-8/14/15): the blocking yt-dlp call runs inside
+        ``asyncio.to_thread``; ``asyncio.wait_for`` does NOT kill the native
+        thread, so on timeout the zombie is counted in ``zombie_threads`` and
+        DownloadTimeoutError is raised -- classifying it is the caller's job.
+        The retry outtmpl writes ``%(id)s.retry-N`` so a still-writing zombie
+        can never collide with the retry's file; renaming after integrity is
+        the CALLER's job in the next unit, never here.
+        """
+        outtmpl = self._download_outtmpl(retry_index)
+        override = self._settings.download_format
+        formats = [override] if override else [DEFAULT_FORMAT, FALLBACK_FORMAT]
+        for attempt, fmt in enumerate(formats):
+            options: dict = {
+                "format": fmt,
+                "outtmpl": outtmpl,
+                "merge_output_format": MERGE_OUTPUT_FORMAT,
+                "quiet": True,
+                "no_warnings": True,
+                "socket_timeout": SOCKET_TIMEOUT,
+            }
+            if archive is not None:
+                options["download_archive"] = str(archive.archive_path)
+            try:
+                info = await asyncio.wait_for(
+                    asyncio.to_thread(self._download_sync, page_url, options),
+                    timeout=self._settings.download_timeout_seconds,
+                )
+            except TimeoutError:
+                # T-ASYNC-14/15: wait_for cancels the awaitable but the native
+                # yt-dlp thread keeps running as a zombie; count it. No fallback:
+                # a timeout is not a format problem.
+                self.zombie_threads += 1
+                raise DownloadTimeoutError(
+                    f"download of {video_id} exceeded download_timeout_seconds="
+                    f"{self._settings.download_timeout_seconds}"
+                ) from None
+            except Exception:
+                if attempt == len(formats) - 1:
+                    raise
+                # T-ENGINE-18: discard the archive entry BEFORE the fallback
+                # attempt, or yt-dlp answers 'already downloaded'.
+                if archive is not None:
+                    await archive.remove(video_id)
+                continue
+            return self._resolve_downloaded_path(info)
+        raise AssertionError("unreachable: the format chain is never empty")
+
+    @staticmethod
+    def _resolve_downloaded_path(info: dict | None) -> Path:
+        """Final file Path from yt-dlp's documented return value.
+
+        ``extract_info(url, download=True)`` returns the info dict; for a real
+        download it carries ``requested_downloads`` whose entries hold
+        ``filepath`` updated to the FINAL path by MoveFilesAfterDownloadPP
+        (locked source: yt_dlp/YoutubeDL.py process_video_result). An empty
+        ``requested_downloads`` means nothing was downloaded (e.g. the video is
+        already in the archive, T-ENGINE-18 context): that outcome is surfaced
+        to the caller, never silently swallowed and never a format fallback.
+        """
+        for entry in (info or {}).get("requested_downloads") or []:
+            filepath = entry.get("filepath")
+            if filepath:
+                return Path(filepath)
+        raise RuntimeError(
+            "yt-dlp returned no downloaded file (requested_downloads empty): "
+            "the video may already be in the download archive (T-ENGINE-18)"
+        )
+
+    def _download_outtmpl(self, retry_index: int) -> str:
+        """outtmpl from core/paths (4.5); retries append ``.retry-N`` (T-ASYNC-14/15)."""
+        outtmpl = outtmpl_for(self._settings.data_dir)
+        if retry_index > 0:
+            outtmpl = outtmpl.replace("%(id)s.%(ext)s", f"%(id)s.retry-{retry_index}.%(ext)s")
+        return outtmpl
+
+    def _download_sync(self, page_url: str, options: dict) -> dict | None:
+        """Blocking yt-dlp download; ALWAYS run inside ``asyncio.to_thread`` (T-ASYNC-8)."""
+        tmp_path = write_canonical_netscape_tempfile(self._cookies_blob.decode("utf-8"))
+        try:
+            options = {**options, "cookiefile": str(tmp_path)}
+            with yt_dlp.YoutubeDL(options) as ydl:
+                return ydl.extract_info(page_url, download=True)
+        finally:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError as exc:
+                logger.warning("could not delete cookies tempfile %s (%s)", tmp_path, exc)
 
     def extract_profile(self, username: str) -> ProfileData:
         """Profile refresh info from the first flat page (4.6)."""
