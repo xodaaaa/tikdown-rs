@@ -1,6 +1,7 @@
 """Cookie format detection and canonical Netscape conversion.
 
-Trampas neutralizadas: T-COOKIES-1, T-COOKIES-6, T-COOKIES-7. Regla: 4.3, 7.
+Trampas neutralizadas: T-COOKIES-1, T-COOKIES-5, T-COOKIES-6, T-COOKIES-7.
+Regla: 4.3, 7.
 
 T-COOKIES-1: the real parser (YoutubeDLCookieJar -> MozillaCookieJar._really_load)
 refuses a Netscape file without the magic header `# Netscape HTTP Cookie File`
@@ -19,6 +20,7 @@ import json
 import logging
 import os
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -26,6 +28,27 @@ logger = logging.getLogger("tikdown_rs.core.cookie_parser")
 
 HEADER = "# Netscape HTTP Cookie File"
 _DEFAULT_DOMAIN = ".tiktok.com"
+# T-COOKIES-5: absurd expiry epochs overflow datetime.fromtimestamp; clamp
+# everything beyond this ceiling before any fromtimestamp use.
+_MAX_EXPIRY_TS = int(datetime(2100, 12, 31, tzinfo=UTC).timestamp())
+
+
+def clamp_expiry(ts: int) -> int:
+    """Clamp an absurd expiry epoch to 2100-12-31 before fromtimestamp (T-COOKIES-5).
+
+    This is the clamp for STORING expiry values; use seconds_until_expiry for
+    countdowns (7: never reuse the clamp helper for countdown).
+    """
+    return min(ts, _MAX_EXPIRY_TS)
+
+
+def seconds_until_expiry(expiry_ts: int, now_ts: int) -> int:
+    """Dedicated countdown (7): positive seconds if future, 0 if past.
+
+    Deliberately NOT implemented via clamp_expiry: they are inverse helpers and
+    a countdown must never report a clamped fake future.
+    """
+    return max(0, expiry_ts - now_ts)
 
 
 def detect_cookie_format(text: str) -> Literal["netscape", "json", "cookie-string"]:
@@ -77,7 +100,7 @@ def _json_to_lines(text: str) -> list[str]:
                 include_subdomains="TRUE" if domain.startswith(".") else "FALSE",
                 path=cookie.get("path") or "/",
                 secure=bool(cookie.get("secure")),
-                expires=int(cookie.get("expires") or 0),
+                expires=clamp_expiry(int(cookie.get("expires") or 0)),  # T-COOKIES-5
                 name=cookie["name"],
                 value=cookie.get("value", ""),
             )
