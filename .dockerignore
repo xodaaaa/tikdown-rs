@@ -1,0 +1,14 @@
+# T-DEPLOY-11: keep secrets and runtime state out of the build context.
+.env*
+data/
+videos/
+*.db*
+cookies*
+.git/
+.venv/
+odd/
+specs/
+tests/
+.atl/
+# T-DEPLOY-11: re-include README.md (hatchling requires it for the wheel).
+!README.md

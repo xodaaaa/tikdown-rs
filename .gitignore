@@ -1,2 +1,18 @@
 # Local Pi runtime state
 .atl/
+
+# Secrets
+.env
+
+# Runtime state
+*.db*
+/app/data/
+videos/
+cookies*
+.migrate.lock
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/

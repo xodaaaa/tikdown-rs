@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tikdown-rs"
+version = "0.1.0"
+description = "Self-hosted TikTok archive daemon: monitor accounts, backfill videos, expose status."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "yt-dlp[default,pin-curl-cffi]==2026.9.16.232951.dev0",
+    "sqlalchemy>=2.0.51,<2.1",
+    "alembic>=1.19.1",
+    "aiosqlite>=0.22.1,!=0.22.0",
+    "apscheduler>=3.11,<4",
+    "typer>=0.27.1",
+    "rich>=15.0.0",
+    "pydantic>=2.13",
+    "pydantic-settings>=2.13",
+    "httpx>=0.28.1",
+    "python-telegram-bot>=22.8",
+]
+
+[project.scripts]
+tikdown-rs = "tikdown_rs.cli.main:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.0",
+    "pytest-timeout>=2.3",
+    "ruff>=0.13",
+]
+
+[tool.uv]
+# T-ENGINE-21: allow prereleases only for yt-dlp (nightly channel), never globally.
+prerelease-package = { "yt-dlp" = "allow" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-q"
