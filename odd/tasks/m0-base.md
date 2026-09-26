@@ -17,8 +17,8 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M0 row, §
 - [x] T6 — WU3: CLI skeleton 7 groups (§10.1, T-CLI-1..5) + cli/common (run_or_exit) + smoke tests. Commit `a7a3f94` (29 commands, RED->GREEN).
 - [x] T7 — WU4: core/db (PRAGMAs §3.7, T-DB-5/9) + core/migrations idempotent (§5.4, T-DEPLOY-1..4, T-DB-10) + alembic env async (T-DEPLOY-2) + initial migration with marker table `daemon_state` + tests. Commit `8c65b70` (20 new tests RED->GREEN; production caller pending WU5 by design).
 - [x] T8 — WU5: daemon/run minimal lifecycle (§5.1 order, §5.2, heartbeat job, stop watcher, T-CLI-6/7, T-ASYNC-3) + `daemon stop/status/healthcheck` + tests red-first. Commit `69aec68` (12 mandated cases incl. real subprocess stop test; T-DEPLOY-6 disabled-logger gap found by worker and fixed inline with regression test).
-- [ ] T9 — WU6: Dockerfile multi-stage uv pattern (§14.1, T-DEPLOY-5/11/12/13/14) + docker-compose + docker build smoke (`--version`, alembic.ini present, migrate command). Commit: TBD.
-- [ ] T10 — Gate final: ruff check / ruff format --check / pytest green / CLI smokes / docker smoke.
+- [x] T9 — WU6: Dockerfile multi-stage uv pattern (§14.1, T-DEPLOY-5/11/12/13/14) + docker-compose + docker build smoke. Commit `75a788a` (includes live-smoke bug fix: WORKDIR/COPY ordering -> T-DEPLOY-23).
+- [x] T10 — Gate final: ruff check / ruff format --check / pytest green / CLI smokes / docker smoke. All green: 107 passed.
 
 ## Evidence log
 
@@ -29,3 +29,5 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M0 row, §
 - T6: commit `a7a3f94`; worker; 58 tests green; command tree 1:1 with §10.1 (29 incl. site render).
 - T7: commit `8c65b70`; worker; suite 78 green; T-DB-10 two-revision regression deferred to M1 when a second migration exists (single-revision stamp path tested).
 - T8: commit `69aec68`; worker; suite 93 green; subprocess stop smoke 2.2s; real subprocess T-CLI-6 case covered; T-DB-10 two-revision regression still deferred to M1.
+- T9: commit `75a788a`; worker (Dockerfile/compose/12 static guards) + live build by parent; root-cause found live: relative COPY before WORKDIR -> files in `/` (rule 10 §16 applied: regression test + T-DEPLOY-23 + §14.6 row). Live acceptance: --version OK, heartbeat written, daemon stop -> Exited(0), alembic_version=0001_daemon_state in volume DB.
+- T10: final gate 2026-09-26: ruff clean, format clean, pytest 107 passed, 11 CLI smokes OK, docker --version OK. M0 acceptance criteria met.
