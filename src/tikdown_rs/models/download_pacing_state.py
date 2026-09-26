@@ -23,6 +23,12 @@ class DownloadPacingState(Base):
     next_allowed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+async def read_next_allowed_at(session: AsyncSession) -> str | None:
+    """Read the singleton's current slot; None when the row is absent."""
+    row = await session.get(DownloadPacingState, 1)
+    return row.next_allowed_at if row is not None else None
+
+
 async def reserve_download_slot(session: AsyncSession, now: str, next_allowed: str) -> bool:
     """Atomically claim the next download slot.
 

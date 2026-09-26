@@ -103,12 +103,16 @@ def test_auth_marker_is_definitive(marker: str) -> None:
         "429 Too Many Requests",
         "connection timed out",
         "Unable to extract challenge data",
-        "does not have any videos posted",
         "video unavailable; status code 0",
     ],
 )
 def test_non_auth_error_is_transient(message: str) -> None:
     assert classify_error(message) == "transient"
+
+
+def test_no_videos_posted_is_info_not_transient() -> None:
+    """§4.4 rule 8: informative literal, counts for nothing (not transient)."""
+    assert classify_error("user does not have any videos posted") == "info"
 
 
 def test_classify_error_is_case_insensitive() -> None:
