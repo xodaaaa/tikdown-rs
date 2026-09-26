@@ -88,6 +88,24 @@ async def clear_daemon_runtime(session: AsyncSession) -> None:
     await session.commit()
 
 
+async def record_selfcheck(session: AsyncSession, ok: bool, degraded_reason: str | None) -> None:
+    """Persist the last selfcheck result, committing immediately (T-DB-13).
+
+    Upsert, so an absent singleton row is fine (T-DB-12). `degraded_reason` is
+    NULL when ok, else a short ASCII cause like 'impersonation: curl_cffi-missing'.
+    """
+    await session.execute(
+        _upsert(
+            {
+                "last_selfcheck_at": _utcnow_iso(),
+                "last_selfcheck_ok": ok,
+                "degraded_reason": degraded_reason,
+            }
+        )
+    )
+    await session.commit()
+
+
 async def read_status(session: AsyncSession) -> DaemonState | None:
     """Read the singleton row for daemon status/healthcheck (None when never started)."""
     return await session.get(DaemonState, _ROW_ID)

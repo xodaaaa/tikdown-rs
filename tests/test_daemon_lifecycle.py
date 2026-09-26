@@ -8,26 +8,46 @@ Rules: 5.1, 5.2, 11.2, 13.2 (daemon mandatory cases).
 import asyncio
 import contextlib
 import os
+import shutil
 import sqlite3
 import subprocess
 import threading
 import time
+from collections import namedtuple
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy.exc import OperationalError
 
+import tikdown_rs.core.verify as verify_module
 import tikdown_rs.daemon.run as daemon_run
 from tikdown_rs.core.config import load_settings
 from tikdown_rs.core.daemon_state import read_status, set_stop_requested
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.migrations import run_migrations
 from tikdown_rs.daemon.run import run_daemon_lifecycle
+from tikdown_rs.models import Base
 from tikdown_rs.models.daemon_state import DaemonState
+from tikdown_rs.services.selfcheck import run_selfcheck
 
 DB_FILE = "tikdown-rs.db"
 POLL_STEP_SECONDS = 0.05
+
+
+def _all_output(result) -> str:
+    """stdout + stderr across click versions (mix_stderr differences)."""
+    try:
+        return result.output + result.stderr
+    except ValueError:  # click < 8.2: stderr already mixed into output
+        return result.output
+
+
+def _fake_which(missing: set[str] = frozenset()):
+    def fake(name):
+        return None if name in missing else f"/fake-bin/{name}"
+
+    return fake
 
 
 async def _read_row(data_dir: Path) -> DaemonState | None:
@@ -183,6 +203,31 @@ def _sqlite_write_heartbeat(data_dir: Path, age_seconds: float) -> None:
         connection.close()
 
 
+def _sqlite_insert_cookie(data_dir: Path, state: str) -> None:
+    connection = sqlite3.connect(data_dir / DB_FILE)
+    try:
+        connection.execute(
+            "INSERT INTO cookies (cookie_blob, validation_state) VALUES (?, ?)",
+            (b"# Netscape HTTP Cookie File", state),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+_USAGE = namedtuple("usage", ("total", "used", "free"))
+
+
+def _mock_disk_usage(free_percent: float, total: int = 1_000_000):
+    """T-DEPLOY-21: controlled free percentage, never the real disk."""
+
+    def fake(path):
+        free = total * free_percent / 100
+        return _USAGE(total=total, used=total - free, free=free)
+
+    return fake
+
+
 @pytest.mark.timeout(120)
 def test_daemon_run_stop_real_subprocess(tmp_path) -> None:
     """13.2 mandatory case: `daemon stop` really stops the `daemon run` process (T-CLI-6)."""
@@ -262,10 +307,14 @@ def test_healthcheck_fresh_stale_and_no_row(tmp_path, monkeypatch) -> None:
     result = runner.invoke(app, ["daemon", "healthcheck"])
     assert result.exit_code == 1
 
-    # Fresh heartbeat (age 0 <= 3 x 10 s default interval).
+    # §10.1 binary thresholds: fresh ALSO needs >= 1 valid cookie and disk ok.
+    monkeypatch.setattr(shutil, "disk_usage", _mock_disk_usage(50.0))
+    _sqlite_insert_cookie(tmp_path, "valid")
+
+    # Fresh heartbeat (age 0 <= 3 x 10 s default interval) + valid cookie + disk ok.
     _sqlite_write_heartbeat(tmp_path, age_seconds=0.0)
     result = runner.invoke(app, ["daemon", "healthcheck"])
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 0, _all_output(result)
 
     # Stale heartbeat: older than 3 x HEARTBEAT_INTERVAL_SECONDS (30 s).
     _sqlite_write_heartbeat(tmp_path, age_seconds=35.0)
@@ -306,3 +355,221 @@ def test_daemon_status_prints_m0_keys_and_exit_codes(tmp_path, monkeypatch) -> N
     assert "daemon_pid: 4321" in result.output
     # T-CLI-1: ASCII-only output.
     result.output.encode("ascii")
+
+
+@pytest.mark.timeout(60)
+def test_healthcheck_rejects_without_valid_cookie(tmp_path, monkeypatch) -> None:
+    """§10.1 binary cookie threshold: zero VALID cookies -> unhealthy (strict)."""
+    from typer.testing import CliRunner
+
+    from tikdown_rs.cli.main import app
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(shutil, "disk_usage", _mock_disk_usage(50.0))
+    run_migrations(tmp_path)
+    _sqlite_write_heartbeat(tmp_path, age_seconds=0.0)
+    _sqlite_insert_cookie(tmp_path, "invalid")
+    _sqlite_insert_cookie(tmp_path, "inconclusive")
+
+    result = CliRunner().invoke(app, ["daemon", "healthcheck"])
+    assert result.exit_code == 1
+    assert "cookie" in _all_output(result)
+
+
+@pytest.mark.timeout(60)
+def test_healthcheck_rejects_low_disk(tmp_path, monkeypatch) -> None:
+    """§10.1 binary disk threshold: free <= threshold -> unhealthy (T-DEPLOY-21)."""
+    from typer.testing import CliRunner
+
+    from tikdown_rs.cli.main import app
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(shutil, "disk_usage", _mock_disk_usage(5.0))  # < 10% default
+    run_migrations(tmp_path)
+    _sqlite_write_heartbeat(tmp_path, age_seconds=0.0)
+    _sqlite_insert_cookie(tmp_path, "valid")
+
+    result = CliRunner().invoke(app, ["daemon", "healthcheck"])
+    assert result.exit_code == 1
+    assert "disk" in _all_output(result)
+
+
+@pytest.mark.timeout(60)
+def test_daemon_status_prints_cookies_and_selfcheck(tmp_path, monkeypatch) -> None:
+    """10.1: status shows cookies by state and the last selfcheck result (ASCII)."""
+    from typer.testing import CliRunner
+
+    from tikdown_rs.cli.main import app
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run_migrations(tmp_path)
+    # T-DB-10 chain confirmation: the unreleased 0002 DDL ships degraded_reason.
+    connection = sqlite3.connect(tmp_path / DB_FILE)
+    try:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(daemon_state)")}
+    finally:
+        connection.close()
+    assert "degraded_reason" in columns
+    connection = sqlite3.connect(tmp_path / DB_FILE)
+    try:
+        connection.execute(
+            "INSERT INTO daemon_state (id, daemon_pid, last_heartbeat_at, monitor_running,"
+            " last_selfcheck_at, last_selfcheck_ok, degraded_reason) VALUES (1, 4321, ?, 1, ?, 0, ?)",
+            (
+                datetime.now(UTC).isoformat(),
+                datetime.now(UTC).isoformat(),
+                "impersonation: curl_cffi-missing",
+            ),
+        )
+        for state in ("valid", "invalid", "invalid", "inconclusive"):
+            connection.execute(
+                "INSERT INTO cookies (cookie_blob, validation_state) VALUES (?, ?)",
+                (b"# Netscape HTTP Cookie File", state),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+    result = CliRunner().invoke(app, ["daemon", "status"])
+    assert result.exit_code == 0, _all_output(result)
+    output = _all_output(result)
+    assert "cookies_valid: 1" in output
+    assert "cookies_invalid: 2" in output
+    assert "cookies_inconclusive: 1" in output
+    assert "last_selfcheck_ok: 0" in output
+    assert "degraded_reason: impersonation: curl_cffi-missing" in output
+    output.encode("ascii")  # T-CLI-1
+
+
+async def _selfcheck_session_factory():
+    engine = create_db_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    return engine, make_session_factory(engine)
+
+
+async def test_run_selfcheck_all_ok_updates_daemon_state(tmp_path, monkeypatch) -> None:
+    """All probes ok -> ok result and daemon_state updated (ok=True, reason NULL)."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(verify_module, "probe_impersonation", lambda: (True, "private-api", 3))
+    monkeypatch.setattr(shutil, "which", _fake_which())
+    settings = load_settings()
+
+    engine, factory = await _selfcheck_session_factory()
+    try:
+        result = await run_selfcheck(settings, factory)
+        assert result.ok is True
+        assert result.degraded_reason is None
+        async with factory() as session:
+            row = await session.get(DaemonState, 1)
+        assert row.last_selfcheck_ok is True
+        assert row.degraded_reason is None
+        assert row.last_selfcheck_at is not None
+    finally:
+        await engine.dispose()
+
+
+async def test_run_selfcheck_ffprobe_missing_degrades(tmp_path, monkeypatch) -> None:
+    """T-DEPLOY-10: ffprobe is a hard binary dependency; missing -> degraded."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(verify_module, "probe_impersonation", lambda: (True, "private-api", 3))
+    monkeypatch.setattr(shutil, "which", _fake_which({"ffprobe"}))
+    settings = load_settings()
+
+    engine, factory = await _selfcheck_session_factory()
+    try:
+        result = await run_selfcheck(settings, factory)
+        assert result.ok is False
+        assert "ffprobe" in result.degraded_reason
+        async with factory() as session:
+            row = await session.get(DaemonState, 1)
+        assert row.last_selfcheck_ok is False
+        assert "ffprobe" in row.degraded_reason
+    finally:
+        await engine.dispose()
+
+
+async def test_run_selfcheck_impersonation_unavailable_degrades(tmp_path, monkeypatch) -> None:
+    """4.1/T-ENGINE-22: no impersonation -> degraded with the probe cause."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        verify_module, "probe_impersonation", lambda: (False, "curl_cffi-missing", 0)
+    )
+    monkeypatch.setattr(shutil, "which", _fake_which())
+    settings = load_settings()
+
+    engine, factory = await _selfcheck_session_factory()
+    try:
+        result = await run_selfcheck(settings, factory)
+        assert result.ok is False
+        assert "impersonation" in result.degraded_reason
+        assert "curl_cffi-missing" in result.degraded_reason
+    finally:
+        await engine.dispose()
+
+
+async def test_run_selfcheck_data_dir_unwritable_degrades(tmp_path, monkeypatch) -> None:
+    """Unwritable DATA_DIR -> degraded naming data_dir (no exception escape)."""
+    blocker = tmp_path / "blocker"
+    blocker.write_bytes(b"")  # a FILE: mkdir/writes on it fail
+    monkeypatch.setenv("DATA_DIR", str(blocker))
+    monkeypatch.setattr(verify_module, "probe_impersonation", lambda: (True, "private-api", 3))
+    monkeypatch.setattr(shutil, "which", _fake_which())
+    settings = load_settings()
+
+    engine, factory = await _selfcheck_session_factory()
+    try:
+        result = await run_selfcheck(settings, factory)
+        assert result.ok is False
+        assert "data_dir" in result.degraded_reason
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.timeout(60)
+def test_daemon_selfcheck_command_ok_and_degraded(tmp_path, monkeypatch) -> None:
+    """CLI selfcheck: ASCII report, exit 0 ok / exit 1 degraded, state persisted."""
+    from typer.testing import CliRunner
+
+    from tikdown_rs.cli.main import app
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(verify_module, "probe_impersonation", lambda: (True, "private-api", 3))
+    monkeypatch.setattr(shutil, "which", _fake_which())
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["daemon", "selfcheck"])
+    assert result.exit_code == 0, _all_output(result)
+    output = _all_output(result)
+    assert "impersonation:" in output
+    assert "binaries:" in output
+    assert "data_dir:" in output
+    assert "overall: ok" in output
+    output.encode("ascii")  # T-CLI-1
+    connection = sqlite3.connect(tmp_path / DB_FILE)
+    try:
+        persisted = list(
+            connection.execute(
+                "SELECT last_selfcheck_ok, degraded_reason FROM daemon_state WHERE id = 1"
+            )
+        )
+    finally:
+        connection.close()
+    assert persisted == [(1, None)]
+
+    # Degraded run: ffprobe missing -> exit 1 with an actionable message.
+    monkeypatch.setattr(shutil, "which", _fake_which({"ffprobe"}))
+    result = runner.invoke(app, ["daemon", "selfcheck"])
+    assert result.exit_code == 1
+    assert "ffprobe" in _all_output(result)
+    connection = sqlite3.connect(tmp_path / DB_FILE)
+    try:
+        persisted = list(
+            connection.execute(
+                "SELECT last_selfcheck_ok, degraded_reason FROM daemon_state WHERE id = 1"
+            )
+        )
+    finally:
+        connection.close()
+    assert persisted[0][0] == 0
+    assert "ffprobe" in persisted[0][1]

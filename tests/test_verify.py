@@ -7,6 +7,8 @@ The yt_dlp double replicates the FULL real constructor signature (T-DEPLOY-20):
 a trimmed fake would mask dead parameters.
 """
 
+import sys
+import types
 from pathlib import Path
 
 import yt_dlp
@@ -49,6 +51,94 @@ class FakeYoutubeDL:
 
 FAKE_ENTRY = {"url": "https://www.tiktok.com/@probe/video/1", "duration": 12.0}
 FAKE_ENTRY2 = {"url": "https://www.tiktok.com/@probe/video/2", "duration": 30.0}
+
+
+class _FakeImpersonationYDL:
+    """Fake YoutubeDL for the impersonation probe (T-DEPLOY-20 signature)."""
+
+    accessor_result: object = None
+    accessor_raises: Exception | None = None
+
+    def __init__(self, params=None, auto_init=True, tokenizer=None):  # real signature
+        self.params = params
+
+    def _get_available_impersonate_targets(self):
+        if _FakeImpersonationYDL.accessor_raises is not None:
+            raise _FakeImpersonationYDL.accessor_raises
+        return _FakeImpersonationYDL.accessor_result
+
+
+class _AccessorlessYDL:
+    """Double where the private accessor does not exist (API removed upstream)."""
+
+    def __init__(self, params=None, auto_init=True, tokenizer=None):  # real signature
+        self.params = params
+
+
+def test_probe_impersonation_layer1_tuples_normalized(monkeypatch) -> None:
+    """Layer 1: (target, handler) tuples are normalized (T-ENGINE-6 shapes)."""
+    from tikdown_rs.core.verify import probe_impersonation
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _FakeImpersonationYDL, raising=True)
+    _FakeImpersonationYDL.accessor_result = [(object(), "h1"), (object(), "h2")]
+    _FakeImpersonationYDL.accessor_raises = None
+
+    assert probe_impersonation() == (True, "private-api", 2)
+
+
+def test_probe_impersonation_layer1_strings_normalized(monkeypatch) -> None:
+    from tikdown_rs.core.verify import probe_impersonation
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _FakeImpersonationYDL, raising=True)
+    _FakeImpersonationYDL.accessor_result = ["chrome124", "safari131"]
+    _FakeImpersonationYDL.accessor_raises = None
+
+    assert probe_impersonation() == (True, "private-api", 2)
+
+
+def test_probe_impersonation_layer1_missing_falls_to_layer2(monkeypatch) -> None:
+    """No private accessor (API removed) is 'unavailable', not 'uninspectable'."""
+    from tikdown_rs.core.verify import probe_impersonation
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _AccessorlessYDL, raising=True)
+    monkeypatch.setitem(sys.modules, "curl_cffi", types.ModuleType("curl_cffi"))
+
+    assert probe_impersonation() == (True, "curl_cffi-importable", 0)
+
+
+def test_probe_impersonation_layer1_raises_falls_to_layer2(monkeypatch) -> None:
+    from tikdown_rs.core.verify import probe_impersonation
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _FakeImpersonationYDL, raising=True)
+    _FakeImpersonationYDL.accessor_result = None
+    _FakeImpersonationYDL.accessor_raises = RuntimeError("API shape changed")
+    monkeypatch.setitem(sys.modules, "curl_cffi", types.ModuleType("curl_cffi"))
+
+    assert probe_impersonation() == (True, "curl_cffi-importable", 0)
+
+
+def test_probe_impersonation_curl_cffi_missing(monkeypatch) -> None:
+    """Layer 2 blocked: unavailable with the curl_cffi-missing cause (T-ENGINE-22)."""
+    from tikdown_rs.core.verify import probe_impersonation
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _AccessorlessYDL, raising=True)
+    # None in sys.modules makes `import curl_cffi` raise ImportError.
+    monkeypatch.setitem(sys.modules, "curl_cffi", None)
+
+    assert probe_impersonation() == (False, "curl_cffi-missing", 0)
+
+
+def test_probe_impersonation_garbage_never_raises(monkeypatch) -> None:
+    """T-ENGINE-22: garbage from the private API is inspection-failed, never raised."""
+    from tikdown_rs.core.verify import probe_impersonation
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _FakeImpersonationYDL, raising=True)
+    _FakeImpersonationYDL.accessor_result = 42  # not iterable: cannot inspect
+    _FakeImpersonationYDL.accessor_raises = None
+    assert probe_impersonation() == (False, "inspection-failed", 0)
+
+    _FakeImpersonationYDL.accessor_result = None
+    assert probe_impersonation() == (False, "inspection-failed", 0)
 
 
 def test_probe_profile_option_surface_and_tempfile_lifecycle(monkeypatch) -> None:

@@ -11,6 +11,7 @@ from tikdown_rs.core.daemon_state import (
     clear_stop_requested,
     read_status,
     read_stop_requested,
+    record_selfcheck,
     register_daemon_start,
     request_daemon_stop,
     set_stop_requested,
@@ -88,6 +89,32 @@ async def test_request_daemon_stop_sets_flag_when_running(session_factory) -> No
         await register_daemon_start(session, pid=999)
         await request_daemon_stop(session)
         assert await read_stop_requested(session)
+
+
+async def test_record_selfcheck_ok_persists_null_reason(session_factory) -> None:
+    """T-DB-13: record_selfcheck commits internally; visible from a second session."""
+    async with session_factory() as session:
+        await record_selfcheck(session, ok=True, degraded_reason=None)
+
+    async with session_factory() as second_session:
+        row = await second_session.get(DaemonState, 1)
+    assert row is not None
+    assert row.last_selfcheck_ok is True
+    assert row.degraded_reason is None
+    parsed = datetime.fromisoformat(row.last_selfcheck_at)
+    assert parsed.tzinfo is not None  # ISO8601 with explicit UTC offset
+
+
+async def test_record_selfcheck_degraded_persists_reason(session_factory) -> None:
+    async with session_factory() as session:
+        await record_selfcheck(
+            session, ok=False, degraded_reason="impersonation: curl_cffi-missing"
+        )
+
+    async with session_factory() as second_session:
+        row = await second_session.get(DaemonState, 1)
+    assert row.last_selfcheck_ok is False
+    assert row.degraded_reason == "impersonation: curl_cffi-missing"
 
 
 async def test_read_status_returns_row_or_none(session_factory) -> None:

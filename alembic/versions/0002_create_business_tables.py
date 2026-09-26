@@ -137,9 +137,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["account_id"], ["monitored_accounts.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
+    # degraded_reason lives on daemon_state (created by 0001, an unreleased sibling
+    # revision); 0002 ships the column as pure DDL so the chain stays one head.
+    op.add_column("daemon_state", sa.Column("degraded_reason", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column("daemon_state", "degraded_reason")
     op.drop_table("download_archive")
     op.drop_table("download_pacing_state")
     op.drop_table("backfill_slot")
