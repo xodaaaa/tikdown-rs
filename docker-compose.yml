@@ -1,0 +1,27 @@
+# Runtime composition for TikDown-rs (specs §14.1).
+# Healthcheck is inherited from the image definition (Dockerfile HEALTHCHECK).
+services:
+  tikdown-rs:
+    build:
+      context: .
+    restart: on-failure
+    # T-DEPLOY-13: a clean `daemon stop` (exit 0) must stay stopped; only
+    # crashes (non-zero exit) are restarted. Never use the always-restart policy.
+    env_file:
+      # Local secrets; .env must NOT be committed (.gitignore keeps it out).
+      - path: .env
+        required: false
+    volumes:
+      # <host-data> placeholder: point this at the real host data directory.
+      - ./data:/app/data
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

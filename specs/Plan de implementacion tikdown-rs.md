@@ -1326,7 +1326,7 @@ propia clasificación de evidencia `[real]`/`[doc]`/`[raz]`.
 | Síntoma | Causa | Solución |
 |---|---|---|
 | Crash-loop, `No such command 'run'` | `daemon run` no registrado contra el árbol real de typer (T-CLI-5) | el `CMD` del Dockerfile y el subcomando se verifican juntos como unidad; re-ejecutar los tests de humo de CLI |
-| `FileNotFoundError: alembic.ini` en el primer arranque | el stage runtime no copió los recursos (T-DEPLOY-5) | `docker compose exec tikdown-rs test -f /app/alembic.ini`; el Dockerfile copia `alembic.ini` + `alembic/` explícitamente |
+| `FileNotFoundError: alembic.ini` en el primer arranque | el stage runtime no copió los recursos (T-DEPLOY-5) — o los copió con destino relativo ANTES de `WORKDIR /app`, cayendo en `/` aunque `docker history` muestre las capas (T-DEPLOY-23) | `docker compose exec tikdown-rs test -f /app/alembic.ini`; el Dockerfile copia `alembic.ini` + `alembic/` explícitamente y con `WORKDIR /app` antes de todo COPY relativo |
 | `daemon stop` reporta éxito pero el proceso sigue vivo | nadie relee `stop_requested` (T-CLI-6) | el watcher sondea cada 0,5 s; buscar `daemon.stop_requested detected via watcher` en logs; un flag heredado no bloquea el arranque siguiente (se limpia al inicio, T-CLI-7) |
 | `daemon healthcheck` unhealthy con daemon vivo | heartbeat stale: la frescura debe ser ≤ 3 × `HEARTBEAT_INTERVAL_SECONDS` (T-DEPLOY-7) | revisar carga del sistema; el healthcheck es liviano y nunca migra (T-DEPLOY-1) |
 | `docker logs` con 0 bytes y daemon healthy | el `fileConfig()` de Alembic pisó el root logger (T-DEPLOY-6) | corregido: el logging se reaplica con `force=True` inmediatamente después de migrar |
@@ -1787,6 +1787,7 @@ por decisión propia están en A.10.
 | T-DEPLOY-20 | Un doble de test sin los kwargs nuevos enmascara un parámetro muerto, y el error real queda envuelto entre las excepciones de negocio | los dobles replican la firma real completa | §13.1 [real] |
 | T-DEPLOY-21 | Un test de disco usaba el `disk_usage()` real del entorno con un umbral asumido: pasaba en una máquina y fallaba en otra | mockear `shutil.disk_usage` con un porcentaje libre controlado | §13.1 [real] |
 | T-DEPLOY-22 | Un assert compara `str(Path)` (con `\` en Windows) contra una cadena con `/` | comparar objetos `Path`, nunca strings con separador fijo | §13.1 [real] |
+| T-DEPLOY-23 | `COPY` con destino relativo `./` ejecutado antes de `WORKDIR /app` en el stage runtime: los archivos caen en `/` y el primer arranque muere con `alembic.ini not found` aunque las capas COPY existan en `docker history` | `WORKDIR /app` antes de todo COPY con destino relativo; test estático que exige `WORKDIR` precediendo a los COPY de alembic | §14.1 [real] |
 
 ### A.10 Clases de fallo que este diseño evita por decisión propia
 
