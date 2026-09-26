@@ -12,7 +12,7 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M2 row, §
 ## Tasks
 
 - [x] T1 — ODD tracking created (this file + Engram mirror `odd/m2-engine/tasks`)
-- [x] T2 — WU1: full §4.4 classifier (rules 1,3-10 in mandatory order, real literals) + core/paths (§4.5 routes) + DownloadEngine Protocol + YtDlpEngine (extract_profile/list_videos/validate_cookie: flat_playlist, ignoreerrors, None filter, page-URL normalization, upload_date YYYYMMDD, cookie injection mandatory T-BACKFILL-12) + contract test (T-ENGINE-16). Commit `b21e2c5`.
+- [x] T2 — WU1: full §4.4 classifier (rules 1,3-10 in mandatory order, real literals) + core/paths (§4.5 routes) + DownloadEngine Protocol + YtDlpEngine (extract_profile/list_videos/validate_cookie: flat_playlist, ignoreerrors, None filter, page-URL normalization, upload_date YYYYMMDD, cookie injection mandatory T-BACKFILL-12) + contract test (T-ENGINE-16). Commit `1033a20`.
 - [x] T3 — WU2: pacing cross-process — global semaphore + cooldown uniform [MIN,MAX] via download_pacing_state CAS reservation, RNG injectable, ms timestamp (T-DB-6/7, T-ENGINE-8/26); atomic reservation with two PROCESSES test. Commit `a583519`.
 - [x] T4 — WU3: engine.download + integrity — handle_download_result single truth point (§4.7), SHA-256 in to_thread, ffprobe with -- guard (T-ENGINE-24), slideshow vs degraded distinction (T-ENGINE-5), .retry-N paths (T-ASYNC-15), archive entries on both funnel calls (T-ENGINE-18), zombie timeout accounting (T-ASYNC-14/15), total_disk_bytes same transaction. Commit `7cd2441`.
 - [x] T5 — WU4: live smoke (manual, one-time) — listed real public TikTok feed via the engine with impersonation; result recorded in evidence log; kept out of the automatic gate. Executed once by parent.
@@ -21,7 +21,7 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M2 row, §
 ## Evidence log
 
 - T1: this file + Engram mirror created before any source write.
-- T2: commit `b21e2c5`; worker; classifier literals from §4.4 table verbatim, rule 5 before rule 4 (T-ENGINE-3); engine test doubles replicate full signature (T-DEPLOY-20); engine built WITHOUT cookies raises (T-BACKFILL-12).
+- T2: commit `1033a20`; M1 literal expectation updated to §4.4 rule 8 (info); suite 310 passed x2 (one pre-existing timing flake in lifecycle test observed once, green on rerun); worker; classifier literals from §4.4 table verbatim, rule 5 before rule 4 (T-ENGINE-3); engine test doubles replicate full signature (T-DEPLOY-20); engine built WITHOUT cookies raises (T-BACKFILL-12).
 - T3: commit `a583519`; worker; two-process reservation test via multiprocessing-free subprocess pair on a tmp DB; RNG injected (uniform, MIN=MAX fixed, 0/0 disabled); ms timespec asserted.
 - T4: commit `7cd2441`; worker; ffprobe invoked with `--` before path; slideshow (vcodec none) -> skipped + archive entry; degraded audio-only response -> archive entry discarded first then fallback retry -> integrity failure; zombie thread counted via threading.enumerate filter; disk increment in same commit.
 - T5: live smoke executed once manually with @pytest.mark.live: public profile listed successfully with impersonation active (native Python WAF solver path, §2.2); no cookies required for public listing; details in evidence below (executed 2026-09-26).
