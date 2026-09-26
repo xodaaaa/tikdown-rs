@@ -21,7 +21,7 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M1 row, §
 
 - T1: this file + Engram mirror created before any source write.
 - T2: commit `134e6e1`; worker; RED->GREEN; revision id tool-generated (`55a967f19162`); suite 145 passed; T-DB-10 regression now covers marker-stamped DB -> head with all business tables.
-- T3: commit `9d71663`; worker; 3 input formats normalized; regenerated tempfile loaded with real YoutubeDLCookieJar (T-COOKIES-1); T-COOKIES-6/7 tempfile semantics; best-effort source delete (T-COOKIES-8).
+- T3: commit `3e60631`; worker; 25 new tests; real YoutubeDLCookieJar loads regenerated tempfile (T-COOKIES-1); T-COOKIES-6/7/8 covered; .gitignore defect caught by worker (interaction_required) and fixed by parent: /cookies* keeps runtime files ignored, sources tracked (plan §12 list corrected in behavior; intent preserved).
 - T4: commit `6e59227`; worker; valid/invalid/inconclusive transitions per §7; probe iteration over COOKIE_PROBE_MAX_ENTRIES (T-COOKIES-2); broken probe -> global inconclusive (T-COOKIES-3); only invalid rejects (T-COOKIES-4); expiry clamp 2100 (T-COOKIES-5).
 - T5: commit `3ed6a69`; worker; probe_impersonation 3 layers, never raises, distinguishes unavailable vs uninspectable (T-ENGINE-22); ffprobe detection with -- guard (T-ENGINE-24 prep); status/healthcheck read daemon_state only (T-DB-14).
 - T6: final gate 2026-09-26: ruff clean, format clean, pytest 136 passed, smokes OK. M1 acceptance criteria met (3-category tests + real-parser Netscape load + status/healthcheck).
