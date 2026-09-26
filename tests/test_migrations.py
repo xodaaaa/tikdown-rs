@@ -3,6 +3,7 @@
 Trampas covered: T-DEPLOY-1, T-DEPLOY-3, T-DEPLOY-4, T-DB-10. Regla: §13.1.
 """
 
+import re
 import sqlite3
 import sys
 import threading
@@ -51,6 +52,37 @@ def table_names(data_dir: Path) -> set[str]:
     return {row[0] for row in query(data_dir, "SELECT name FROM sqlite_master WHERE type='table'")}
 
 
+def _revision_map() -> dict[str, str | None]:
+    """Map revision id -> down_revision, parsed from alembic/versions/*.py.
+
+    Dynamic on purpose: revision ids are TOOL-generated (T-DATA-7); tests never
+    hard-code a generated id.
+    """
+    versions_dir = locate_alembic_config().parent / "alembic" / "versions"
+    revisions: dict[str, str | None] = {}
+    for path in sorted(versions_dir.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        rev_match = re.search(r'^revision(?::\s*str)?\s*=\s*["\']([^"\']+)', source, re.MULTILINE)
+        down_match = re.search(r"^down_revision[^=]*=\s*(.+)$", source, re.MULTILINE)
+        assert rev_match is not None, f"no revision id parsed from {path}"
+        down_revision: str | None = None
+        if down_match is not None:
+            raw = down_match.group(1).strip()
+            if raw != "None":
+                down_revision = raw.strip("\"'")
+        revisions[rev_match.group(1)] = down_revision
+    return revisions
+
+
+def _head_revision() -> str:
+    """The one revision no other revision points at."""
+    revisions = _revision_map()
+    children = {down for down in revisions.values() if down is not None}
+    heads = [rev for rev in revisions if rev not in children]
+    assert len(heads) == 1, f"expected exactly one head, got {heads}"
+    return heads[0]
+
+
 def _acquire_exclusive_lock(lock_path: Path) -> IO[str]:
     """Hold the OS-level lock the way a second process would (T-DEPLOY-3)."""
     # Held across function return on purpose (the lock must outlive this call).
@@ -71,7 +103,7 @@ def test_fresh_db_migrates_and_inserts_nothing(tmp_path: Path) -> None:
     tables = table_names(tmp_path)
     assert "daemon_state" in tables
     assert "alembic_version" in tables
-    assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(MARKER_TABLE_REVISION,)]
+    assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(_head_revision(),)]
     # T-DB-6: the migration creates the table but NEVER inserts the singleton row.
     assert query(tmp_path, "SELECT COUNT(*) FROM daemon_state") == [(0,)]
 
@@ -89,7 +121,7 @@ def test_rerun_never_restamps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     run_migrations(tmp_path)
     run_migrations(tmp_path)
     assert stamp_calls == []
-    assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(MARKER_TABLE_REVISION,)]
+    assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(_head_revision(),)]
 
 
 def test_foreign_tables_db_gets_plain_upgrade(
@@ -139,7 +171,9 @@ def test_marker_table_without_version_stamps_marker_revision(
     monkeypatch.setattr(migrations_module.command, "stamp", stamp_spy)
     run_migrations(tmp_path)
     assert stamp_calls == [MARKER_TABLE_REVISION]
-    assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(MARKER_TABLE_REVISION,)]
+    # stamp(0001) + upgrade("head"): the version must land on the real head,
+    # never stay at the marker revision (T-DB-10 with TWO revisions in the chain).
+    assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(_head_revision(),)]
 
 
 def test_cross_process_lock_blocks_concurrent_migration(tmp_path: Path) -> None:
@@ -189,3 +223,45 @@ def test_locate_alembic_config_finds_repo_ini() -> None:
 
 def test_marker_revision_constant_matches_migration_id() -> None:
     assert MARKER_TABLE_REVISION == "0001_daemon_state"
+
+
+def test_business_revision_is_tool_generated_child_of_marker() -> None:
+    """T-DATA-7: a second revision exists, chained onto the marker revision.
+
+    Its id is whatever `alembic revision` generated; the test only asserts the
+    link, never a hand-invented id.
+    """
+    revisions = _revision_map()
+    business = [rev for rev, down in revisions.items() if down == MARKER_TABLE_REVISION]
+    assert len(business) == 1, f"expected one child of {MARKER_TABLE_REVISION}, got {business}"
+
+
+def test_two_revision_chain_migrates_marker_stamped_db(tmp_path: Path) -> None:
+    """T-DB-10 regression deferred from M0: a DB carrying ONLY the 0001 daemon_state
+    table + alembic_version stamped at 0001 must migrate cleanly to the new head,
+    creating every business table. A naive stamp("head") at marker-creation time
+    would leave this DB believing it is already at head and skip 0002 forever.
+    """
+    business_tables = {
+        "monitored_accounts",
+        "videos",
+        "cookies",
+        "backfill_slot",
+        "download_pacing_state",
+        "download_archive",
+    }
+    connection = sqlite3.connect(tmp_path / "tikdown-rs.db")
+    try:
+        connection.execute(MARKER_TABLE_DDL)
+        connection.execute("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+        connection.execute(
+            "INSERT INTO alembic_version (version_num) VALUES (?)", (MARKER_TABLE_REVISION,)
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    run_migrations(tmp_path)
+    tables = table_names(tmp_path)
+    assert business_tables <= tables
+    assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(_head_revision(),)]

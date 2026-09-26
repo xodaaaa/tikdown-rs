@@ -7,15 +7,30 @@ import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BeforeValidator, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from tikdown_rs.core.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
 _ALLOWED_LOG_FILE_WHEN = ("size", "midnight")
+
+
+def _split_csv(value: object) -> object:
+    """Comma-split a raw env string into a trimmed, non-empty list (B.2.6).
+
+    NO JSON parsing: pydantic-settings decodes complex fields as JSON before
+    validators unless NoDecode is used, which crashes on plain CSV values.
+    """
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return value
+
+
+CsvList = Annotated[list[str], NoDecode, BeforeValidator(_split_csv)]
 
 
 class Settings(BaseSettings):
@@ -53,8 +68,9 @@ class Settings(BaseSettings):
     ytdlp_proxy_url: str = ""
     ytdlp_extractor_args: str = ""
 
-    # Cookies
-    cookie_validation_url: str = ""
+    # Cookies: a LIST of 2-3 operator-verified probe profile URLs (7, DR-5:
+    # no default, no hardcoded third-party profile).
+    cookie_validation_url: CsvList = []
     cookie_probe_max_entries: int = Field(default=5, ge=1)
 
     # Network monitor

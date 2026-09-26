@@ -32,6 +32,7 @@ class DaemonState(Base):
     last_known_good_ytdlp_version: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_selfcheck_at: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_selfcheck_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    degraded_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 async def ensure_daemon_state_row(session: AsyncSession) -> DaemonState:

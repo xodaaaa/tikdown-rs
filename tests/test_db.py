@@ -178,5 +178,6 @@ def test_daemon_state_model_shapes_singleton_table() -> None:
         "last_known_good_ytdlp_version",
         "last_selfcheck_at",
         "last_selfcheck_ok",
+        "degraded_reason",
     }
     assert set(table.columns.keys()) == expected_columns

@@ -98,6 +98,17 @@ def test_unknown_env_var_warns_from_model_fields(
     assert "MONITOR_INTERVL_MINUTES" in caplog.text
 
 
+def test_cookie_validation_url_csv_split(monkeypatch: pytest.MonkeyPatch) -> None:
+    """COOKIE_VALIDATION_URL is a comma-split list, never JSON (B.2.6, 7)."""
+    monkeypatch.setenv("COOKIE_VALIDATION_URL", "url1,url2 ,url3")
+    assert Settings().cookie_validation_url == ["url1", "url2", "url3"]
+
+
+def test_cookie_validation_url_empty_is_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("COOKIE_VALIDATION_URL", raising=False)
+    assert Settings().cookie_validation_url == []
+
+
 def test_minimal_env_builds_valid_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("MONITOR_INTERVAL_MINUTES", "5")
