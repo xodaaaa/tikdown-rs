@@ -90,8 +90,12 @@ def test_version_flag_prints_name_and_version() -> None:
 
 
 def test_unimplemented_command_fails_loudly() -> None:
-    """M0 skeleton: invoking an unimplemented command exits 1 with a loud ERROR."""
-    result = runner.invoke(app, ["accounts", "list"])
+    """M0 skeleton: invoking an unimplemented command exits 1 with a loud ERROR.
+
+    `accounts list` became REAL in M3/WU1 (T2), so the loud-failure target moved
+    to a still-unimplemented 10.1 command (`videos last`).
+    """
+    result = runner.invoke(app, ["videos", "last"])
     assert result.exit_code == 1
     captured = _captured(result)
     assert "ERROR" in captured
