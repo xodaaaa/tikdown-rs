@@ -27,3 +27,4 @@ Source of truth: `specs/Plan de implementacion tikdown-rs.md` (§12.1 M2 row, §
 - T5: live smoke executed once manually with @pytest.mark.live: public profile listed successfully with impersonation active (native Python WAF solver path, §2.2); no cookies required for public listing; details in evidence below (executed 2026-09-26).
 - T6: final gate 2026-09-26: ruff clean, format clean, pytest 271 passed, live marker excluded from default suite (-m "not live"). M2 acceptance criteria met.
 - T4a: commit `3c9b498`; worker; archive + engine.download (343 passed); worker consulted locked yt-dlp source for the download API (requested_downloads/filepath); async archive methods (aiosqlite convention); remove() added for T-ENGINE-18 discard.
+- T4b: commit `06b447f`; worker; handle_download_result + persist_download_failure (357 passed); rename-before-commit and archive-remove-before-retry order asserted via spies.
