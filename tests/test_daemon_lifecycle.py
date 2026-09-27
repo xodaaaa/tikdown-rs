@@ -23,9 +23,15 @@ from sqlalchemy.exc import OperationalError
 import tikdown_rs.core.verify as verify_module
 import tikdown_rs.daemon.run as daemon_run
 from tikdown_rs.core.config import load_settings
-from tikdown_rs.core.daemon_state import read_status, set_stop_requested
-from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
+from tikdown_rs.core.daemon_state import read_status, set_stop_requested, write_heartbeat
+from tikdown_rs.core.db import (
+    create_db_engine,
+    make_session_factory,
+    retry_on_locked,
+    sqlite_url_for,
+)
 from tikdown_rs.core.migrations import run_migrations
+from tikdown_rs.core.notifications import InMemoryNotificationService
 from tikdown_rs.daemon.run import run_daemon_lifecycle
 from tikdown_rs.models import Base
 from tikdown_rs.models.daemon_state import DaemonState
@@ -446,6 +452,258 @@ async def _selfcheck_session_factory():
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     return engine, make_session_factory(engine)
+
+
+# --- M4 startup: components, reconciliations, probes, 7 jobs (5.1 steps 5-9) ---
+
+
+async def _seed_valid_cookie(data_dir: Path) -> None:
+    engine = create_db_engine(sqlite_url_for(data_dir))
+    try:
+        async with make_session_factory(engine)() as session:
+            from tikdown_rs.models import Cookie
+
+            session.add(Cookie(label="c", cookie_blob=b"netscape", validation_state="valid"))
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.timeout(30)
+async def test_startup_builds_components_and_registers_seven_jobs(tmp_path, monkeypatch) -> None:
+    """5.1 steps 5-9: components built, 7 jobs with coalesce/max_instances, monitor stopped."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    notifications = InMemoryNotificationService()
+
+    runtime = await daemon_run.start_daemon(
+        settings,
+        notifications=notifications,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        jobs = runtime.scheduler.get_jobs()
+        assert {job.id for job in jobs} == {
+            "heartbeat",
+            "disk-check",
+            "network-probe",
+            "backfill-collect",
+            "cookies-validate",
+            "profile-refresh",
+            "selfcheck",
+        }
+        assert all(job.coalesce for job in jobs)  # T-ASYNC-13
+        assert all(job.max_instances == 1 for job in jobs)  # T-ASYNC-13
+        assert runtime.components.engine is not None  # cookie -> working engine
+        row = await _read_row(tmp_path)
+        assert row is not None
+        assert not row.monitor_running  # 5.1 step 6: monitor starts stopped
+        assert row.degraded_reason is None  # all probes ok
+        assert "daemon.started" in [event.event for event in notifications.events]
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_startup_registers_expected_job_intervals(tmp_path, monkeypatch) -> None:
+    """5.3 table intervals: 10 s heartbeat, 900 s disk, 30 s network, 60/6 h/48 h/24 h."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        intervals = {
+            job.id: job.trigger.interval.total_seconds() for job in runtime.scheduler.get_jobs()
+        }
+        assert intervals["heartbeat"] == settings.heartbeat_interval_seconds
+        assert intervals["disk-check"] == 900
+        assert intervals["network-probe"] == settings.network_probe_interval_seconds
+        assert intervals["backfill-collect"] == 60
+        assert intervals["cookies-validate"] == 6 * 3600
+        assert intervals["profile-refresh"] == 48 * 3600
+        assert intervals["selfcheck"] == 24 * 3600
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_startup_reconciles_orphan_backfills_and_monitor_transitions(
+    tmp_path, monkeypatch
+) -> None:
+    """T-BACKFILL-16 + T-BACKFILL-6 at startup: orphan -> queued, pending
+    history->monitor transition replayed (monitor_running flips, T-BACKFILL-18)."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    engine = create_db_engine(sqlite_url_for(tmp_path))
+    try:
+        async with make_session_factory(engine)() as session:
+            from tikdown_rs.models import MonitoredAccount
+
+            session.add(MonitoredAccount(username="orphan", backfill_status="backfilling"))
+            session.add(
+                MonitoredAccount(
+                    username="done",
+                    monitor_after_backfill=True,
+                    backfill_status="completed",
+                )
+            )
+            await session.commit()
+    finally:
+        await engine.dispose()
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        engine = create_db_engine(sqlite_url_for(tmp_path))
+        try:
+            async with make_session_factory(engine)() as session:
+                from sqlalchemy import select
+
+                from tikdown_rs.models import MonitoredAccount
+
+                accounts = (await session.execute(select(MonitoredAccount))).scalars().all()
+                row = await read_status(session)
+        finally:
+            await engine.dispose()
+        by_name = {account.username: account for account in accounts}
+        assert by_name["orphan"].backfill_status == "queued"  # T-BACKFILL-6
+        assert by_name["done"].mode == "monitor"  # T-BACKFILL-16
+        assert by_name["done"].monitor_after_backfill == 0
+        assert row.monitor_running  # T-BACKFILL-18 side effect
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_startup_monitor_autostart_sets_monitor_running(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("MONITOR_AUTOSTART", "true")
+    await asyncio.to_thread(run_migrations, tmp_path)
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        row = await _read_row(tmp_path)
+        assert row.monitor_running
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_startup_without_cookies_degraded_but_alive(tmp_path, monkeypatch) -> None:
+    """No working cookie -> engine None + degraded reason, daemon STILL starts
+    (5.1 degraded semantics, 4.1): jobs registered, status served."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        assert runtime.components.engine is None
+        assert len(runtime.scheduler.get_jobs()) == 7
+        row = await _read_row(tmp_path)
+        assert row is not None
+        assert "cookies: none working" in (row.degraded_reason or "")
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_startup_probes_record_degraded_reason_ffmpeg_missing(tmp_path, monkeypatch) -> None:
+    """5.1 step 7: startup probes write degraded_reason WITHOUT selfcheck fields."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which({"ffmpeg"}),
+    )
+    try:
+        row = await _read_row(tmp_path)
+        assert "binaries: ffmpeg not found" in (row.degraded_reason or "")
+        assert row.last_selfcheck_at is None  # selfcheck fields untouched (5.1 vs 10.1)
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_daemon_stopped_emitted_before_drain(tmp_path, monkeypatch) -> None:
+    """T-ASYNC-6: daemon.stopped is emitted BEFORE the supervised-task drain."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    order: list[str] = []
+    real_drain = daemon_run.drain_supervised_tasks
+
+    async def spy_drain(timeout):
+        order.append("drain")
+        return await real_drain(timeout)
+
+    monkeypatch.setattr(daemon_run, "drain_supervised_tasks", spy_drain)
+    notifications = InMemoryNotificationService()
+
+    class _OrderingNotifications(InMemoryNotificationService):
+        def emit(self, event: str, payload: dict) -> None:
+            order.append(f"emit:{event}")
+            super().emit(event, payload)
+
+    notifications = _OrderingNotifications()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        notifications=notifications,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    await daemon_run.shutdown_daemon(runtime)
+    assert "emit:daemon.stopped" in order
+    assert order.index("emit:daemon.stopped") < order.index("drain")
+
+
+@pytest.mark.timeout(15)
+async def test_retry_on_locked_concurrent_writers_all_succeed(tmp_path) -> None:
+    """Load-sensitive regression (M2/M3 flake action): N=8 concurrent
+    daemon_state writers on the same fresh file DB all succeed within the
+    retry budget. Deterministic: bounded attempts, no sleep > 0.5 s, < 5 s."""
+    await asyncio.to_thread(run_migrations, tmp_path)
+    db_engine = create_db_engine(sqlite_url_for(tmp_path))
+    factory = make_session_factory(db_engine)
+
+    async def writer(index: int) -> None:
+        async def _write() -> None:
+            async with factory() as session:
+                await write_heartbeat(session, pid=index)
+
+        await retry_on_locked(_write)
+
+    started = time.monotonic()
+    await asyncio.wait_for(asyncio.gather(*(writer(index) for index in range(8))), timeout=5.0)
+    assert time.monotonic() - started < 5.0
+    async with factory() as session:
+        row = await read_status(session)
+    assert row.daemon_pid in range(8)
+    await db_engine.dispose()
 
 
 async def test_run_selfcheck_all_ok_updates_daemon_state(tmp_path, monkeypatch) -> None:

@@ -10,6 +10,7 @@ INJECTED, so this module never imports yt_dlp even transitively.
 
 import shutil
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -59,6 +60,40 @@ def _degraded_reason(
     if not data_dir_writable:
         return "data_dir: not writable"
     return None
+
+
+class StartupProbes(NamedTuple):
+    """5.1 step 7 startup probes: binaries + impersonation, NO selfcheck persistence.
+
+    ``impersonation_reason`` is None when impersonation is AVAILABLE; otherwise
+    it carries the probe cause ('curl_cffi-missing', ...).
+    """
+
+    ffmpeg_ok: bool
+    ffprobe_ok: bool
+    impersonation_reason: str | None
+
+
+def probe_startup(
+    impersonation_fn=None, ffmpeg_path_fn=None, ffprobe_path_fn=None
+) -> StartupProbes:
+    """Run the 5.1 step 7 capacity probes WITHOUT persisting anything.
+
+    The daemon composes this with the dedicated daemon_state mutator
+    (record_startup_probes): the degraded_reason write happens exactly once,
+    and selfcheck fields are never touched at startup. Injectable probe/path
+    callables follow the run_selfcheck T-DEPLOY-21 discipline; None resolves
+    to the core default AT CALL TIME.
+    """
+    impersonation_fn = impersonation_fn or verify.probe_impersonation
+    ffmpeg_path_fn = ffmpeg_path_fn or shutil.which
+    ffprobe_path_fn = ffprobe_path_fn or shutil.which
+    available, reason, _count = impersonation_fn()
+    return StartupProbes(
+        ffmpeg_ok=ffmpeg_path_fn("ffmpeg") is not None,  # T-DEPLOY-10
+        ffprobe_ok=ffprobe_path_fn("ffprobe") is not None,
+        impersonation_reason=None if available else reason,
+    )
 
 
 async def run_selfcheck(

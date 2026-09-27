@@ -3,7 +3,8 @@
 Trampas neutralizadas: T-CLI-5 (registered + --help smoke), T-CLI-1 (ASCII help),
 T-CLI-4 (run_or_exit error funneling), T-BACKFILL-12 (real cookies at THIS entry
 point, never a hardcoded empty list), T-BACKFILL-19 (--queue refuses a running
-backfill). Regla: 10.1, 10.2, 9.1, 9.3, 9.4, 9.6.
+backfill), 4.1 (a degraded daemon REJECTS `backfill run` before anything else,
+including the cookie gate). Regla: 10.1, 10.2, 9.1, 9.3, 9.4, 9.6.
 """
 
 import asyncio
@@ -19,6 +20,7 @@ from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_ur
 from tikdown_rs.core.download_engine import YtDlpEngine
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.core.pacing import DownloadPacer, DownloadSemaphore
+from tikdown_rs.models import DaemonState
 from tikdown_rs.services.accounts import get_account
 from tikdown_rs.services.backfill_ops import (
     backfill_status_view,
@@ -27,8 +29,22 @@ from tikdown_rs.services.backfill_ops import (
     retry_failed,
 )
 from tikdown_rs.services.cookies import get_working_cookie
+from tikdown_rs.services.monitor_state import degraded_error
 
 app = typer.Typer(help="History backfill queue commands.")
+
+
+async def _ensure_not_degraded(factory) -> None:
+    """4.1 gate: refuse the whole command while daemon_state is degraded.
+
+    Runs BEFORE anything else (before queue_backfill AND before the cookie
+    gate): a degraded daemon cannot download, so queueing would create work
+    nobody can execute. The error names the cause and the selfcheck fix path.
+    """
+    async with factory() as session:
+        state = await session.get(DaemonState, 1)
+    if state is not None and state.degraded_reason:
+        raise degraded_error(state.degraded_reason)
 
 
 @app.command()
@@ -50,6 +66,7 @@ def _run(user: str, queue: bool) -> None:
         engine = create_db_engine(sqlite_url_for(settings.data_dir))
         try:
             factory = make_session_factory(engine)
+            await _ensure_not_degraded(factory)  # 4.1: gate BEFORE cookies/queue
             await queue_backfill(factory, user, queue)
             if queue:
                 # The daemon's collect job picks it up (M4 wiring).

@@ -2,7 +2,10 @@
 
 Trampas neutralizadas: T-CLI-5 (registered + --help smoke), T-CLI-1 (ASCII help),
 T-CLI-6 (stop refuses when nobody is running; watcher honors the flag),
-T-ASYNC-3 (one asyncio.run per invocation). Regla: 10.1, 10.2, 11.2.
+T-ASYNC-3 (one asyncio.run per invocation), T-DB-14 (contention read from
+daemon_state, never the CLI process), T-ASYNC-14 (supervised tasks / zombie
+threads exposed honestly), 4.1 (healthcheck fails while degraded). Regla:
+10.1, 10.2, 11.2.
 """
 
 import asyncio
@@ -19,13 +22,12 @@ from tikdown_rs.core.daemon_state import read_status, request_daemon_stop
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.daemon.run import run_daemon_lifecycle
-from tikdown_rs.models import Cookie
+from tikdown_rs.models import Cookie, Video
 from tikdown_rs.services.selfcheck import run_selfcheck
 
-# ponytail: degraded-daemon GATING (4.1: reject `monitor start` / `backfill run`
-# when daemon_state.degraded_reason is set, with an actionable error) is wired in
-# later milestones when those commands become real; RECORDING the state now is
-# the M1 deliverable.
+# ponytail: the 4.1 degraded GATE for `monitor start` / `backfill run` lives
+# in services/monitor_state (degraded_error) and cli/backfill (_ensure_not_degraded);
+# this module only SHOWS the state (status/healthcheck).
 
 app = typer.Typer(help="Daemon lifecycle and supervision commands.")
 
@@ -76,24 +78,93 @@ def stop() -> None:
     run_or_exit(_stop)
 
 
-def _print_status(row, cookie_counts: dict[str, int]) -> None:
-    """10.1 status contents (M1 subset): plain ASCII key: value (T-CLI-1)."""
+_RECENT_ERROR_LIMIT = 5  # 10.1: 'ultimos errores', a bounded tail
+_ERROR_MESSAGE_MAX_CHARS = 120
+
+
+def _format_status_lines(
+    row,
+    cookie_counts: dict[str, int],
+    supervised_count: int | None = None,
+    zombie_count: int | None = None,
+    recent_error_lines: list[str] | None = None,
+) -> list[str]:
+    """10.1 status contents as plain ASCII key: value lines (T-CLI-1).
+
+    Honesty contract (T-ASYNC-14): supervised tasks and zombie yt-dlp threads
+    are IN-PROCESS counters of the daemon process. `daemon status` runs in a
+    separate CLI process whose registry is always empty and whose engine
+    object does not exist, so the defaults print 'n/a (in-process)' instead
+    of a fake 0. A caller that DOES hold the live objects (the daemon itself
+    or the M5 bot, which runs inside the daemon process) passes the real
+    counts and gets real numbers.
+
+    ponytail: persisting the counters would need new daemon_state columns
+    (forbidden here: no migrations); the M5 bot or a future column can
+    promote these to persisted values without changing the output format.
+    """
     age = _heartbeat_age_seconds(row.last_heartbeat_at)
     if age is None:
-        typer.echo("heartbeat_age_seconds: unknown")
+        lines = ["heartbeat_age_seconds: unknown"]
     else:
-        typer.echo(f"heartbeat_age_seconds: {age:.0f}")
-    typer.echo(f"monitor_running: {int(bool(row.monitor_running))}")
-    typer.echo(f"daemon_pid: {row.daemon_pid if row.daemon_pid is not None else 'none'}")
-    typer.echo(f"cookies_valid: {cookie_counts.get('valid', 0)}")
-    typer.echo(f"cookies_invalid: {cookie_counts.get('invalid', 0)}")
-    typer.echo(f"cookies_inconclusive: {cookie_counts.get('inconclusive', 0)}")
-    typer.echo(f"last_selfcheck_at: {row.last_selfcheck_at or 'none'}")
-    typer.echo(
+        lines = [f"heartbeat_age_seconds: {age:.0f}"]
+    lines.append(f"monitor_running: {int(bool(row.monitor_running))}")
+    lines.append(f"daemon_pid: {row.daemon_pid if row.daemon_pid is not None else 'none'}")
+    # T-DB-14: the contention window is read from daemon_state (persisted by
+    # the heartbeat), NEVER from this process (a CLI process always sees 0).
+    lines.append(f"db_busy_count_5min: {row.db_busy_count_5min}")
+    lines.append(
+        f"supervised_tasks: {supervised_count if supervised_count is not None else 'n/a (in-process)'}"
+    )
+    lines.append(
+        f"ytdlp_zombie_threads: {zombie_count if zombie_count is not None else 'n/a (in-process)'}"
+    )
+    lines.append(f"cookies_valid: {cookie_counts.get('valid', 0)}")
+    lines.append(f"cookies_invalid: {cookie_counts.get('invalid', 0)}")
+    lines.append(f"cookies_inconclusive: {cookie_counts.get('inconclusive', 0)}")
+    lines.append(f"last_selfcheck_at: {row.last_selfcheck_at or 'none'}")
+    lines.append(
         "last_selfcheck_ok: "
         + (str(int(row.last_selfcheck_ok)) if row.last_selfcheck_ok is not None else "unknown")
     )
-    typer.echo(f"degraded_reason: {row.degraded_reason or 'none'}")
+    lines.append(f"degraded_reason: {row.degraded_reason or 'none'}")
+    lines.extend(recent_error_lines if recent_error_lines is not None else ["recent_errors: none"])
+    return lines
+
+
+def _print_status(row, cookie_counts: dict[str, int], recent_error_lines: list[str]) -> None:
+    """Echo the formatted status lines (10.1)."""
+    for line in _format_status_lines(row, cookie_counts, recent_error_lines=recent_error_lines):
+        typer.echo(line)
+
+
+async def _recent_error_lines(session) -> list[str]:
+    """10.1: last failed videos derived from the `videos` table, NO new table.
+
+    A separate CLI process cannot reach the daemon's log stream, so the DB
+    trace is the honest shared source: error_category + truncated message.
+    """
+    rows = (
+        (
+            await session.execute(
+                select(Video)
+                .where(Video.status == "failed")
+                .order_by(Video.updated_at.desc())
+                .limit(_RECENT_ERROR_LIMIT)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not rows:
+        return ["recent_errors: none"]
+    lines = [f"recent_errors: {len(rows)}"]
+    for video in rows:
+        message = (video.error_message or "-")[:_ERROR_MESSAGE_MAX_CHARS]
+        lines.append(
+            f"recent_error: {video.tiktok_video_id} [{video.error_category or '-'}] {message}"
+        )
+    return lines
 
 
 def _status() -> None:
@@ -112,13 +183,14 @@ def _status() -> None:
                         )
                     ).all()
                 )
+                recent_error_lines = await _recent_error_lines(session)
         finally:
             await engine.dispose()
         if row is None:
             raise ConfigurationError(
                 "No daemon_state row found; run 'tikdown-rs daemon run' at least once."
             )
-        _print_status(row, cookie_counts)
+        _print_status(row, cookie_counts, recent_error_lines)
 
     asyncio.run(impl())
 
@@ -170,6 +242,13 @@ def _healthcheck() -> None:
         if age is None or age > threshold:
             raise ConfigurationError(
                 f"healthcheck failed: heartbeat stale (age {age or -1:.0f}s > {threshold}s)"
+            )
+        # 4.1/10.1: a degraded daemon cannot download at all -> unhealthy, with
+        # the cause named so the operator lands on the selfcheck fix path.
+        if row.degraded_reason:
+            raise ConfigurationError(
+                f"healthcheck failed: daemon degraded ({row.degraded_reason}); "
+                "run 'tikdown-rs daemon selfcheck' for details"
             )
         if valid_cookies < 1:
             raise ConfigurationError(

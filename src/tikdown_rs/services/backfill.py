@@ -239,6 +239,37 @@ async def transition_to_monitor_after_backfill(
         return True
 
 
+async def reconcile_pending_monitor_transitions(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> int:
+    """Defensive startup pass (9.5, T-BACKFILL-16): replay pending transitions.
+
+    The history->monitor UPDATE is written in the same commit as completion,
+    but a crash between them must never strand the flag: startup replays the
+    SAME idempotent transition (which also activates monitor_running,
+    T-BACKFILL-18). Returns the number of transitions that actually fired.
+    """
+    async with session_factory() as session:
+        ids = (
+            (
+                await session.execute(
+                    select(MonitoredAccount.id).where(
+                        MonitoredAccount.mode == "history",
+                        MonitoredAccount.monitor_after_backfill.is_(True),
+                        MonitoredAccount.backfill_status == "completed",
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    fired = 0
+    for account_id in ids:
+        if await transition_to_monitor_after_backfill(session_factory, account_id):
+            fired += 1
+    return fired
+
+
 async def reconcile_stale_backfills(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> int:
