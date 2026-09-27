@@ -57,6 +57,18 @@ Merge decision: del usuario.
   4. Seguir la transición hasta acknowledge-approved; el merge se hace después del cierre.
 - Regla vigente: nunca resubmeter bytes rechazados de `.git/gentle-ai/rejected-results/`.
 
+## Review nativo (RDD) — CERRADO approved
+
+- Intento 2 completado en la sesión nueva (pi relanzado con `GENTLE_PI_REVIEW_RELAY_PI_TIMEOUT_MS=3600000`).
+  - 1. Entorno verificado (`GENTLE_PI_REVIEW_RELAY_PI_TIMEOUT_MS=3600000`, RDD on).
+  - 2. Withdraw verbatim ejecutado → `{"withdrawn": true}` (slot `review-reliability` re-ofrecido).
+  - 3. STATUS fresco → acción `collect`, 1 binding nuevo para `review-reliability` (order 3, materialize).
+  - 4. Captura slot a slot: forecast (1 model run, `pi_host_relay`) → acknowledgement → **capturada y admitida**.
+  - 5. Cierre nativo: estado **approved** (4/4 lentes: risk, resilience, readability, reliability), store_revision `sha256:f5f623cf…`, 0 bloqueantes (todos los hallazgos `informational`: 1 WARNING de reliability en `backfill.py:508`, 1 WARNING en `ytdlp_engine.py:75-85`, resto SUGGESTION).
+  - 6. `acknowledge-approved` verbatim → authority `burned` (consumed_revision `sha256:f5f623cf…`).
+- Hallazgos informativos quedan registrados en `odd/tasks/review-hallazgos.md` (follow-ups, no reabren esta revisión).
+- Merge `fix/review-bloqueantes` → `master` aprobado por el usuario.
+
 ## Notas históricas — intento 1 (pausado, sin review)
 
 - Lineage `review-d6988ced83f87fbc` (tier high, 20 archivos, 749 líneas, presupuesto de corrección 200).
