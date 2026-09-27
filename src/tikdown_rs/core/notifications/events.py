@@ -107,13 +107,13 @@ EVENTS: dict[str, EventSpec] = {
         EVENT_MONITOR_STOPPED_NO_COOKIES,
         "Monitor stopped: no valid cookies left.",
         "Global auto-stop when the last valid cookie expires (5.8).",
-        deferred="M4",
+        deferred=None,
     ),
     EVENT_MONITOR_VIDEO_DISCOVERED: EventSpec(
         EVENT_MONITOR_VIDEO_DISCOVERED,
         "New video from @{username}: {title} ({url}).",
         "A monitored account published a new video.",
-        deferred="M4",
+        deferred=None,
     ),
     EVENT_DOWNLOAD_DOWNLOADED: EventSpec(
         EVENT_DOWNLOAD_DOWNLOADED,
@@ -159,13 +159,13 @@ EVENTS: dict[str, EventSpec] = {
         EVENT_COOKIE_VALIDATION_PROBE_FAILED,
         "Cookie validation probe failed for all {count} candidates.",
         "Every probe candidate failed; global 'inconclusive' (7, T-COOKIES-3).",
-        deferred="M4",
+        deferred=None,
     ),
     EVENT_COOKIE_VALIDATED: EventSpec(
         EVENT_COOKIE_VALIDATED,
         "Cookie for @{username} is {state}.",
         "A validation cycle reached a verdict for a cookie (7).",
-        deferred="M4",
+        deferred=None,
     ),
     EVENT_NETWORK_OFFLINE: EventSpec(
         EVENT_NETWORK_OFFLINE,
@@ -213,7 +213,7 @@ EVENTS: dict[str, EventSpec] = {
         EVENT_PROFILE_REFRESHED,
         "Profile counters refreshed for @{username}.",
         "The 48 h profile-refresh job ran for the account (5.3).",
-        deferred="M4",
+        deferred=None,
     ),
     EVENT_BOT_UNAUTHORIZED_ATTEMPT: EventSpec(
         EVENT_BOT_UNAUTHORIZED_ATTEMPT,
