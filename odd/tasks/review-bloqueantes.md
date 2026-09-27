@@ -29,6 +29,14 @@ Master base: d2bcb78. Cada fix = un commit revertible, tests de regresión prime
 
 Merge decision: del usuario.
 
+## Review nativo (RDD) — PAUSADO, candidata sin review
+
+- Lineage `review-d6988ced83f87fbc` (tier high, 20 archivos, 749 líneas, presupuesto de corrección 200).
+- Lentes: `review-risk` (orden 0) **capturada y admitida**; `review-resilience` (1), `review-readability` (2), `review-reliability` (3) **pendientes**.
+- Fallas del relay: grupo → `review-resilience` terminada (pi-failed); reintento slot a slot → payload de resilience rechazado por admisión (`evidence_path_out_of_scope`, citó `tikdown-rs.md:1901` en vez de `specs/Plan de implementacion tikdown-rs.md`; payload preservado en `.git/gentle-ai/rejected-results/review-d6988ced83f87fbc/`); segundo reintento → abortado por el caller.
+- **Decisión de esta sesión**: pausar y documentar; el usuario NO pidió abandonar el lineage, así que no se ejecutó ABANDON. La candidata sigue **sin review** — una sesión nueva con RDD activo re-inspeccionará y podrá reintentar el review completo (o el usuario puede decidir dejarla sin revisar).
+- Regla de continuación: nunca reusar bindings de esta sesión; STATUS fresco + slots exactos reofrecidos; nunca resubmeter los bytes rechazados.
+
 ## Notes
 
 - Cero dependencias/tablas/settings nuevas (§0.4 techo de complejidad).
