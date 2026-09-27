@@ -8,7 +8,7 @@ import asyncio
 
 import typer
 
-from tikdown_rs.cli.common import prepare_invocation, raise_unimplemented, run_or_exit
+from tikdown_rs.cli.common import prepare_invocation, run_or_exit
 from tikdown_rs.core import disk as disk_probe
 from tikdown_rs.core.config import load_settings
 from tikdown_rs.core.daemon_state import read_status, set_downloads_paused
@@ -16,6 +16,7 @@ from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_ur
 from tikdown_rs.core.notifications import render as render_message
 from tikdown_rs.core.notifications.events import EVENT_DISK_RESUMED
 from tikdown_rs.services.maintenance import create_backup
+from tikdown_rs.services.static_site import render_site, resolve_output_dir
 
 app = typer.Typer(help="System maintenance commands.")
 
@@ -91,4 +92,63 @@ def backup() -> None:
 @site_app.command()
 def render() -> None:
     """Regenerate the static dashboard site (writes files, never serves HTTP)."""
-    raise_unimplemented("system site render")
+    run_or_exit(_site_render)
+
+
+def _command_reference() -> dict:
+    """Introspect the typer tree into JSON-safe data (10.3 Column 4).
+
+    Lives HERE, not in services/: the 13.2 rule forbids services/* importing
+    cli/, so render_site receives the reference as a plain parameter.
+    Built at render time from the typer models tree (no click import: not a
+    direct dependency), so it matches the registered tree by construction.
+    """
+    from typer.models import CommandInfo, TyperInfo
+
+    from tikdown_rs.cli.main import app
+
+    def command_entry(info: CommandInfo) -> dict:
+        name = info.name or (info.callback.__name__ or "").replace("_", "-")
+        doc = (info.callback.__doc__ or "").strip()
+        return {"name": name, "help": (info.help or doc).strip()}
+
+    def typer_entry(info: TyperInfo) -> dict:
+        sub = info.typer_instance
+        name = info.name or sub.info.name or ""
+        entry: dict = {
+            "name": name,
+            "help": (info.help or sub.info.help or "").strip(),
+            "commands": [command_entry(cmd) for cmd in sub.registered_commands],
+        }
+        for nested in sub.registered_groups:
+            entry["commands"].append(typer_entry(nested))
+        entry["commands"].sort(key=lambda c: c["name"])
+        return entry
+
+    return {
+        "name": "tikdown-rs",
+        "help": (app.info.help or "").strip(),
+        "commands": sorted(
+            [typer_entry(group) for group in app.registered_groups],
+            key=lambda c: c["name"],
+        ),
+    }
+
+
+def _site_render() -> None:
+    async def impl() -> None:
+        settings = await prepare_invocation(load_settings())
+        engine = create_db_engine(sqlite_url_for(settings.data_dir))
+        try:
+            paths = await render_site(
+                make_session_factory(engine),
+                settings,
+                resolve_output_dir(settings),
+                command_reference=_command_reference(),
+            )
+        finally:
+            await engine.dispose()
+        for path in paths:
+            typer.echo(f"wrote: {path}")
+
+    asyncio.run(impl())

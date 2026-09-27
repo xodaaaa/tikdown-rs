@@ -110,6 +110,7 @@ from tikdown_rs.services.cookies import get_working_cookie
 from tikdown_rs.services.maintenance import refresh_all_profiles, validate_all_cookies
 from tikdown_rs.services.monitor import run_monitor_cycle_once, set_monitor_running
 from tikdown_rs.services.selfcheck import probe_startup, run_selfcheck
+from tikdown_rs.services.static_site import render_site, resolve_output_dir
 
 logger = logging.getLogger(__name__)
 
@@ -442,6 +443,20 @@ async def _selfcheck_job(components: DaemonComponents) -> None:
     logger.warning("job.selfcheck: failed (%s)", result.degraded_reason)
 
 
+async def _static_site_job(components: DaemonComponents) -> None:
+    """Optional 10.3 dashboard render (only registered when STATIC_SITE_ENABLED).
+
+    command_reference=None: the scheduler has no typer tree, so the rendered
+    docs column shows the service's placeholder (10.3 admission rule: never
+    import cli/ from the daemon).
+    """
+    out_dir = resolve_output_dir(components.settings)
+    paths = await render_site(
+        components.session_factory, components.settings, out_dir, command_reference=None
+    )
+    logger.info("job.static-site: wrote %d files to %s", len(paths), out_dir)
+
+
 # --- stop watcher (T-CLI-6) ---
 
 
@@ -531,6 +546,19 @@ def _build_scheduler(components: DaemonComponents) -> AsyncIOScheduler:
             args=(components,),
             id=job_id,
             max_instances=1,  # T-ASYNC-13: a slow job must never overlap itself
+            coalesce=True,
+        )
+    # 10.3: OPTIONAL 8th job, registered ONLY when STATIC_SITE_ENABLED=true
+    # (the same conditional-flag pattern as the bot above: absent by default,
+    # so the 7-job registration contract of 5.3 is unchanged).
+    if settings.static_site_enabled:
+        scheduler.add_job(
+            _static_site_job,
+            trigger="interval",
+            minutes=settings.static_site_interval_minutes,
+            args=(components,),
+            id="static-site",
+            max_instances=1,
             coalesce=True,
         )
         # NOTE: no immediate first beat. An immediate heartbeat racing loop
