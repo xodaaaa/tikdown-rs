@@ -1,5 +1,6 @@
 """Bot package: Telegram bot (plan section 6)."""
 
+from tikdown_rs.bot.dispatcher import TikDownBot
 from tikdown_rs.bot.pagination import (
     CALLBACK_TTL_SECONDS,
     LIST_CALLBACK_PREFIX,
@@ -26,6 +27,7 @@ __all__ = [
     "SecurityDecision",
     "SecurityGuard",
     "SecurityResult",
+    "TikDownBot",
     "build_list_keyboard",
     "clip",
     "display_username",
