@@ -496,6 +496,11 @@ async def run_backfill(
                         notify_on_download=account.notify_on_download,  # T-BACKFILL-14
                         on_event=on_event,  # T-BACKFILL-13: propagated EXPLICITLY
                         archive=archive,
+                        # B7 (§4.7/T-ENGINE-5): same heuristic as the monitor
+                        # path — a listing entry without video duration is an
+                        # expected slideshow (skipped + dedupe), NOT a
+                        # degraded response.
+                        expected_has_video=entry.get("duration") is not None,
                         **extra,
                     )
                 except Exception as exc:  # noqa: BLE001 - T-BACKFILL-11: ANY failure is per-video

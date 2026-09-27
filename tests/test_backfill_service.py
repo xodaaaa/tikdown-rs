@@ -294,6 +294,31 @@ async def test_gate_configuration_errors_still_raise(factory) -> None:
     assert account.backfill_status == "completed"  # untouched
 
 
+# --- B7 (JD-A-003/JD-B-005): backfill slideshows are SKIPPED, not integrity ---
+
+
+async def test_backfill_slideshow_is_skipped_not_integrity(factory) -> None:
+    """§4.7/T-ENGINE-5: the backfill MUST pass expected_has_video (like the
+    monitor does); without it every photo post took the degraded-response
+    path: archive entry discarded + failed/integrity, re-processed in a
+    forever loop by retry-failed."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+    slideshow = {**_entry("9", "20260109"), "duration": None}
+    engine = FakeEngine([slideshow])
+
+    def ffprobe_no_video(_path: Path) -> dict:
+        return {"streams": [], "format": {"duration": "3.5"}}
+
+    kwargs = {**make_kwargs(engine, FakePacer()), "ffprobe_fn": ffprobe_no_video}
+    status = await run_backfill(factory, account_id, **kwargs)
+
+    assert status == "completed"
+    async with factory() as session:
+        video = (await session.execute(text("SELECT status, error_category FROM videos"))).one()
+    assert tuple(video) == ("skipped", None)
+
+
 # --- Happy path: totals, done, cursor, events, slot released ---
 
 

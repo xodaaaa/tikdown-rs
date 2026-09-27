@@ -240,7 +240,6 @@ async def download_pendings(
     on_event=None,
     ffprobe_fn: Callable | None = None,
     sha256_fn: Callable | None = None,
-    retry_fn: Callable | None = None,
 ) -> dict:
     """Download the account's pending rows through the one truth point (3.3).
 
@@ -321,7 +320,6 @@ async def download_pendings(
                 notify_on_download=account.notify_on_download,
                 on_event=on_event,  # T-BACKFILL-13: propagated EXPLICITLY
                 archive=archive,
-                retry_fn=retry_fn,
                 **extra,
             )
             counts[result.outcome] += 1
@@ -349,7 +347,6 @@ async def run_monitor_cycle_once(
     max_entries: int = DEFAULT_MAX_ENTRIES,
     ffprobe_fn: Callable | None = None,
     sha256_fn: Callable | None = None,
-    retry_fn: Callable | None = None,
 ) -> dict:
     """One full monitor heartbeat cycle over every active account.
 
@@ -425,7 +422,6 @@ async def run_monitor_cycle_once(
                 on_event=on_event,
                 ffprobe_fn=ffprobe_fn,
                 sha256_fn=sha256_fn,
-                retry_fn=retry_fn,
             )
             for key in ("downloaded", "skipped", "failed"):
                 totals[key] += result.get(key, 0)
