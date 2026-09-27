@@ -20,7 +20,7 @@ dependencies = [
     "pydantic>=2.13",
     "pydantic-settings>=2.13",
     "httpx>=0.28.1",
-    "python-telegram-bot>=22.8",
+    "python-telegram-bot[rate-limiter]>=22.8",
 ]
 
 [project.scripts]
