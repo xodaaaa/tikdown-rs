@@ -58,8 +58,14 @@ Cada unidad = un commit revertible, tests primero. §0.4: mínimo diff, solo tab
       `total_disk_bytes` de la columna (T-DATA-10); CLI sin args (§10.1) con label "(approx)";
       bot `MSG_STATS_PENDING` eliminado, reply HTML escapado + clip; duplicación mínima de query
       con static_site (unificación futura fuera de superficie).
-- [ ] T8 — Gate M6: pytest verde + ruff + smoke del árbol CLI (§10.1, 1:1 con la tabla) +
-      README/troubleshooting §14.6.
+- [x] T8 — Gate M6: suite `758 passed, 1 skipped, 1 deselected` (verde serial ×6 consecutivas);
+      ruff check + format limpios; árbol CLI 1:1 con §10.1 — **cero stubs restantes**
+      (última: `accounts stats`, `f51a403`). README: secciones Operation + Troubleshooting
+      (§14.5/§14.6) en `d05e532`. Mejora M20 cerrada: `daemon status` imprime
+      `disk_free_percent` (línea en `format_status_lines`, d05e532).
+      **Flake de timing documentado**: `test_daemon_lifecycle` falla ~1/3 corridas SOLO bajo
+      contención (dos suites pytest en paralelo en la misma máquina — causa identificada en esta
+      sesión); en serial es estable. No es defecto del producto.
 - [ ] Pendiente usuario — Ronda en vivo contra TikTok real (datos desechables) + verificación
       empírica de recuperación de polling (M5 §6.5).
 
