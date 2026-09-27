@@ -1,4 +1,4 @@
-"""Telegram bot dispatcher: PTB wiring, authz funnel and read-only commands (§6.2, §6.3).
+"""Telegram bot dispatcher: PTB wiring, authz funnel and commands (§6.2, §6.3).
 
 Trampas neutralizadas (Apéndice A, plan section 6.3):
 
@@ -6,11 +6,13 @@ Trampas neutralizadas (Apéndice A, plan section 6.3):
   ``SecurityGuard``); this module constructs no engine/session/service -- the
   daemon owns them.
 - T-BOT-4: ``register_handlers`` is idempotent (a flag guards double
-  registration); every handler is a read-only, replay-safe operation.
+  registration); every handler is a replay-safe operation. Mutating commands are
+  IDEMPOTENT at the business layer: a re-`/add` surfaces the service's
+  ``ConfigurationError`` as a business-error reply (never a crash), and
+  /pause//resume//backfill report the resulting/current state.
 - T-BOT-8: the Application is built with ``AIORateLimiter(max_retries=3)``.
-- T-BOT-9: no username is interpolated in this module; all account names flow
-  through ``render_list_page`` (which escapes them), and stored usernames are
-  normalized without '@'.
+- T-BOT-9: no username is interpolated raw in this module: every dynamic name
+  goes through ``display_username`` + ``escape_html`` (templates carry the '@').
 - T-BOT-11/18: ``build_caller`` passes ``has_chat`` explicitly, so updates
   without ``effective_chat`` are rejected by the guard, never raising.
 - T-BOT-7: sends use ``parse_mode="HTML"`` with escaped dynamic content and
@@ -18,18 +20,45 @@ Trampas neutralizadas (Apéndice A, plan section 6.3):
   as plain text (narrow degradation, send site only).
 - T-BOT-5/6: callback validation and clipping live in pagination.py/security.py;
   this module only orchestrates them.
+- T-COOKIES-7: cookie uploads land in a ``tempfile.mkstemp`` file whose fd is
+  closed IMMEDIATELY, and the file is deleted in ``finally`` regardless of
+  outcome (the import service may delete it first; the unlink is idempotent).
 
-Command -> data path parity (functional, not textual):
-- /list    -> services.accounts.list_accounts (same as `accounts list` CLI)
-- /disk    -> core.daemon_state.read_status + core.disk.free_percent (same as `system disk`)
-- /status  -> core.daemon_state.read_status + cookie counts + failed-video tail (same queries as `daemon status`)
-- /stats   -> pending: the CLI stub errors too; stats data arrives with M6
-- /last    -> pending: the CLI stub errors too; no service callable exists yet
+Command -> data path parity (functional, not textual; the dispatcher ONLY
+orchestrates, every mutation routes through the same ``services/*`` callables
+the CLI uses):
+
+- /list      -> services.accounts.list_accounts (same as `accounts list` CLI)
+- /add       -> services.accounts.add_account (same as `accounts add`)
+- /backfill  -> services.backfill_ops.queue_backfill (same as `backfill run --queue`)
+- /pause     -> services.accounts.set_paused(True) (same as `accounts pause`)
+- /resume    -> services.accounts.set_paused(False) (same as `accounts resume`)
+- /remove    -> services.accounts.remove_account (same as `accounts remove`)
+- /cookies   -> instructions; upload -> services.cookies.add_cookie (same as
+  `cookies add`: detect/convert to canonical Netscape, persist, delete source)
+- /notify    -> out of base scope [F] §17.1: informative reply only
+- /monitor   -> pending: no service path exists yet (the CLI tree has no
+  `accounts monitor` command)
+- /check     -> pending: the real network probe lands with the real engine
+  (T-ENGINE-19); the CLI `accounts check` stub errors too
+- /disk      -> core.daemon_state.read_status + core.disk.free_percent (same as `system disk`)
+- /status    -> core.daemon_state.read_status + cookie counts + failed-video tail (same queries as `daemon status`)
+- /stats     -> pending: the CLI stub errors too; stats data arrives with M6
+- /last      -> pending: the CLI stub errors too; no service callable exists yet
+
+Cookie upload funnel (§6.3): authz double-layer FIRST (shared ``_handle_command``
+funnel, so the 2 s throttle applies to documents too), then the REMOTE metadata
+size gate (<= 10 MB, rejected BEFORE download), then the real post-download size
+check, then the service import; the uploaded file's message is deleted
+best-effort after a successful import (§7 privacy). Document uploads always get
+a reply; ``query.answer()`` does not apply to them.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import time
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -44,6 +73,8 @@ from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
+    MessageHandler,
+    filters,
 )
 
 from tikdown_rs.bot.pagination import (
@@ -57,13 +88,23 @@ from tikdown_rs.bot.security import (
     SecurityGuard,
     SecurityResult,
     clip,
+    display_username,
     escape_html,
 )
 from tikdown_rs.core import disk as disk_probe
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.daemon_state import read_status
+from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.models import Cookie, Video
-from tikdown_rs.services.accounts import list_accounts
+from tikdown_rs.services.accounts import (
+    add_account,
+    get_account,
+    list_accounts,
+    remove_account,
+    set_paused,
+)
+from tikdown_rs.services.backfill_ops import queue_backfill
+from tikdown_rs.services.cookies import add_cookie
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +117,27 @@ MSG_CALLBACK_EXPIRED = "expired"
 MSG_STATS_PENDING = "/stats todavía no está disponible: llega con el dashboard (M6)."
 MSG_LAST_PENDING = "/last todavía no está disponible."
 MSG_NO_DAEMON_STATE = "Sin estado del daemon: ejecuta 'tikdown-rs daemon run' al menos una vez."
+MSG_MONITOR_PENDING = (
+    "/monitor todavía no está disponible: no existe aún una ruta de servicio para cambiar el modo."
+)
+MSG_CHECK_PENDING = (
+    "/check todavía no está disponible: la sonda de red llega con el motor real (T-ENGINE-19)."
+)
+MSG_NOTIFY_OUT_OF_SCOPE = (
+    "Las notificaciones push de descargas están fuera del alcance base (§17.1): "
+    "el contrato de eventos ya existe para cablearlas en una épica futura."
+)
+MSG_COOKIE_INSTRUCTIONS = (
+    "Envíame el archivo de cookies como <b>documento</b> en este chat "
+    "(Netscape, JSON de exportación o cookie-string). Límite: 10 MB. "
+    "Se convierte a Netscape canónico, se guarda en el store y el mensaje se "
+    "elimina tras importar."
+)
+MSG_COOKIE_TOO_LARGE = "El archivo excede el límite de 10 MB."
+
+#: §6.3: cookie uploads are size-capped at 10 MB, checked by REMOTE metadata
+#: before download AND by real size after download.
+COOKIE_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 HELP_TEXT = (
     "<b>TikDown-rs</b>\n"
@@ -220,6 +282,38 @@ def to_inline_keyboard(rows: list[list[dict[str, str]]]) -> InlineKeyboardMarkup
     )
 
 
+def parse_username_arg(context: Any) -> str | None:
+    """First command argument, or None when absent (tolerant to ``context=None``)."""
+    args = getattr(context, "args", None) or []
+    if args and args[0].strip():
+        return args[0].strip()
+    return None
+
+
+def usage_for(command: str) -> str:
+    """One-line usage hint for a username-taking command."""
+    return f"Uso: /{command} @usuario"
+
+
+def cookie_metadata_oversize(file_size: int | None) -> bool:
+    """Remote-metadata gate: unknown size (None) passes; the REAL size repeats post-download."""
+    return file_size is not None and file_size > COOKIE_MAX_UPLOAD_BYTES
+
+
+def format_pause_message(username: str, target_paused: bool, already_in_state: bool) -> str:
+    """Resulting-state report for /pause //resume; '@' carried by the template (T-BOT-9)."""
+    name = display_username(username)
+    if target_paused:
+        return (
+            f"La cuenta @{name} ya estaba pausada."
+            if already_in_state
+            else f"Cuenta @{name} pausada."
+        )
+    return (
+        f"La cuenta @{name} ya estaba activa." if already_in_state else f"Cuenta @{name} reanudada."
+    )
+
+
 async def _send_degrading(send: Any, **kwargs: Any) -> None:
     """Send with parse_mode=HTML; degrade ONCE to plain text on parse-entity failure."""
     try:
@@ -260,7 +354,7 @@ def _denial_text(result: SecurityResult) -> str:
 
 
 class TikDownBot:
-    """PTB application owner: wiring, authz funnel and read-only commands."""
+    """PTB application owner: wiring, authz funnel and commands (T5a + T5b)."""
 
     def __init__(
         self,
@@ -287,7 +381,7 @@ class TikDownBot:
         )
 
     def register_handlers(self) -> None:
-        """Register the 7 commands + pagination callback, exactly once (T-BOT-4)."""
+        """Register commands + pagination callback + document upload, once (T-BOT-4)."""
         if self._handlers_registered:
             return
         app = self.application
@@ -298,6 +392,17 @@ class TikDownBot:
         app.add_handler(CommandHandler("disk", self.cmd_disk))
         app.add_handler(CommandHandler("status", self.cmd_status))
         app.add_handler(CommandHandler("last", self.cmd_last))
+        app.add_handler(CommandHandler("add", self.cmd_add))
+        app.add_handler(CommandHandler("monitor", self.cmd_monitor))
+        app.add_handler(CommandHandler("check", self.cmd_check))
+        app.add_handler(CommandHandler("backfill", self.cmd_backfill))
+        app.add_handler(CommandHandler("pause", self.cmd_pause))
+        app.add_handler(CommandHandler("resume", self.cmd_resume))
+        app.add_handler(CommandHandler("remove", self.cmd_remove))
+        app.add_handler(CommandHandler("cookies", self.cmd_cookies))
+        app.add_handler(CommandHandler("notify", self.cmd_notify))
+        # Cookie upload: PTB filters.Document.ALL (verified import path, PTB 22.8).
+        app.add_handler(MessageHandler(filters.Document.ALL, self.on_cookie_document))
         app.add_handler(CallbackQueryHandler(self.on_list_page, pattern=r"^listp:"))
         self._handlers_registered = True
 
@@ -315,13 +420,19 @@ class TikDownBot:
     # -- command funnel -------------------------------------------------------
 
     async def _handle_command(self, update: Any, work: Any) -> None:
-        """Authz + throttle funnel; unexpected errors never escape the guard."""
+        """Authz + throttle funnel; business errors reply, unexpected errors never escape."""
         try:
             result = self._guard.check(build_caller(update))
             if result.decision is SecurityDecision.ALLOWED:
                 await work()
             else:
                 await self._reply(update, _denial_text(result))
+        except ConfigurationError as exc:
+            # T-BOT-4 idempotency: business rejections (already exists, unknown
+            # account, wrong backfill state) are user-facing replies, not crashes.
+            logger.info("bot command business error: %s", exc)
+            with suppress(Exception):
+                await self._reply(update, f"Error: {escape_html(str(exc))}")
         except Exception:
             logger.exception("bot command failed")
             with suppress(Exception):
@@ -380,6 +491,112 @@ class TikDownBot:
             counts = await cookie_counts(session)
             errors = await recent_error_lines(session)
         await self._reply(update, format_status_message(row, counts, errors))
+
+    # -- mutating commands (T5b: funnel -> service -> escaped reply) ----------
+
+    async def cmd_add(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._do_add(update, context))
+
+    async def _do_add(self, update: Any, context: Any) -> None:
+        username = parse_username_arg(context)
+        if username is None:
+            await self._reply(update, usage_for("add"))
+            return
+        # Same service path as CLI `accounts add` (defaults: history, no then-monitor).
+        await add_account(self._session_factory, username, "history", False)
+        await self._reply(update, f"Cuenta añadida: @{escape_html(display_username(username))}")
+
+    async def cmd_monitor(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._reply(update, MSG_MONITOR_PENDING))
+
+    async def cmd_check(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._reply(update, MSG_CHECK_PENDING))
+
+    async def cmd_backfill(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._do_backfill(update, context))
+
+    async def _do_backfill(self, update: Any, context: Any) -> None:
+        username = parse_username_arg(context)
+        if username is None:
+            await self._reply(update, usage_for("backfill"))
+            return
+        # Same service path as CLI `backfill run --queue`: conditional queue
+        # ('queued' is an idempotent no-op; 'backfilling' is refused by the service).
+        await queue_backfill(self._session_factory, username, True)
+        name = escape_html(display_username(username))
+        await self._reply(update, f"Backfill en cola: @{name} (el daemon lo recolectará).")
+
+    async def cmd_pause(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._do_set_paused(update, context, True))
+
+    async def cmd_resume(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._do_set_paused(update, context, False))
+
+    async def _do_set_paused(self, update: Any, context: Any, paused: bool) -> None:
+        username = parse_username_arg(context)
+        if username is None:
+            await self._reply(update, usage_for("pause" if paused else "resume"))
+            return
+        # Same service path as CLI `accounts pause`/`resume`. set_paused is an
+        # idempotent conditional write; the account read (before the flip) only
+        # feeds the resulting-state report. Unknown accounts raise in the service.
+        account = await get_account(self._session_factory, username)
+        await set_paused(self._session_factory, username, paused)
+        already = account is not None and account.paused == paused
+        await self._reply(update, format_pause_message(username, paused, already))
+
+    async def cmd_remove(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._do_remove(update, context))
+
+    async def _do_remove(self, update: Any, context: Any) -> None:
+        username = parse_username_arg(context)
+        if username is None:
+            await self._reply(update, usage_for("remove"))
+            return
+        # Same service path as CLI `accounts remove` (blocks while videos exist).
+        await remove_account(self._session_factory, username)
+        await self._reply(update, f"Cuenta eliminada: @{escape_html(display_username(username))}")
+
+    async def cmd_notify(self, update: Any, context: Any) -> None:
+        # §17.1 [F]: push notifications are out of base scope; informative only.
+        await self._handle_command(update, lambda: self._reply(update, MSG_NOTIFY_OUT_OF_SCOPE))
+
+    async def cmd_cookies(self, update: Any, context: Any) -> None:
+        await self._handle_command(update, lambda: self._reply(update, MSG_COOKIE_INSTRUCTIONS))
+
+    async def on_cookie_document(self, update: Any, context: Any) -> None:
+        """Cookie upload funnel (§6.3): authz/throttle first, then size gates, then import."""
+        await self._handle_command(update, lambda: self._import_cookie_document(update))
+
+    async def _import_cookie_document(self, update: Any) -> None:
+        message = update.effective_message
+        document = message.document
+        # Metadata gate BEFORE download (§6.3): reject oversize without fetching.
+        if cookie_metadata_oversize(document.file_size):
+            await self._reply(update, MSG_COOKIE_TOO_LARGE)
+            return
+        file = await document.get_file()
+        # T-COOKIES-7: mkstemp + IMMEDIATE fd close; deletion in finally, always.
+        fd, path = tempfile.mkstemp(prefix="tikdown-cookies-", suffix=".txt")
+        os.close(fd)
+        try:
+            await file.download_to_drive(custom_path=path)
+            # Real post-download size check (the second §6.3 layer).
+            if os.path.getsize(path) > COOKIE_MAX_UPLOAD_BYTES:
+                await self._reply(update, MSG_COOKIE_TOO_LARGE)
+                return
+            # Same service path as CLI `cookies add`: detect/convert to canonical
+            # Netscape, persist; keep_source=False deletes the tempfile source.
+            cookie_id = await add_cookie(self._session_factory, path, None, False)
+        finally:
+            with suppress(OSError):
+                os.unlink(path)  # idempotent no-op when the import already deleted it
+        # §7 privacy: delete the uploaded file's message, best-effort.
+        with suppress(Exception):
+            await message.delete()
+        await self._reply(
+            update, f"Cookie importada: id={cookie_id} (estado inicial: inconclusive)."
+        )
 
     # -- pagination callback --------------------------------------------------
 
