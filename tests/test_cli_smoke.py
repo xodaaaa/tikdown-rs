@@ -89,19 +89,6 @@ def test_version_flag_prints_name_and_version() -> None:
     assert f"tikdown-rs {__version__}" in result.output
 
 
-def test_unimplemented_command_fails_loudly() -> None:
-    """M0 skeleton: invoking an unimplemented command exits 1 with a loud ERROR.
-
-    `accounts list` became REAL in M3/WU1 (T2), so the loud-failure target moved
-    to a still-unimplemented 10.1 command (`videos last`).
-    """
-    result = runner.invoke(app, ["videos", "last"])
-    assert result.exit_code == 1
-    captured = _captured(result)
-    assert "ERROR" in captured
-    assert "not implemented" in captured
-
-
 def test_run_or_exit_converts_configuration_error(capsys) -> None:
     """T-CLI-4: ConfigurationError -> 'ERROR <msg>' + exit 1, no traceback."""
     from tikdown_rs.cli.common import run_or_exit

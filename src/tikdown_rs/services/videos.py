@@ -26,7 +26,9 @@ CALLER's job to classify via ``persist_download_failure`` (T-DATA-3: the one
 """
 
 import asyncio
+import csv
 import hashlib
+import io
 import json
 import logging
 import os
@@ -36,7 +38,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.archive import DownloadArchive
@@ -48,12 +50,143 @@ from tikdown_rs.core.notifications import (
     EVENT_DOWNLOAD_SKIPPED,
 )
 from tikdown_rs.core.notifications.events import EVENT_DISK_PAUSED
-from tikdown_rs.models import Video
+from tikdown_rs.models import MonitoredAccount, Video
 
 logger = logging.getLogger("tikdown_rs.services.videos")
 
 _RETRY_SUFFIX_RE = re.compile(r"\.retry-\d+$")
 _MAX_ERROR_MESSAGE = 500
+
+# --- read-only listing/export (M6 T2/T3, 10.1/10.2) ---------------------------
+
+#: Default and ceiling for `videos last [N]` (bounded so a huge N cannot dump
+#: the whole archive through the CLI/bot reply path).
+DEFAULT_LAST_LIMIT = 10
+MAX_LAST_LIMIT = 100
+
+#: Shared row shape for recent_videos/export_videos: plain JSON-safe types.
+#: Ordering column: ``downloaded_at`` (ISO-8601 UTC text, lexicographically
+#: sortable), tie-broken by id DESC. The model has no ``uploaded_at``;
+#: ``upload_date`` is canonical YYYYMMDD text (T-ENGINE-25), not a timestamp.
+_ROW_FIELDS = (
+    "id",
+    "tiktok_video_id",
+    "username",
+    "status",
+    "title",
+    "description",
+    "upload_date",
+    "downloaded_at",
+    "file_size",
+    "local_path",
+    "error_category",
+    "error_message",
+)
+
+#: T-DEPLOY-16 formula-injection rule: a cell whose FIRST character is one of
+#: = + - @ TAB CR is prefixed with a single quote so spreadsheet apps render
+#: it as text instead of evaluating it as a formula.
+_CSV_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _normalize_username(username: str) -> str:
+    """Same normalization as accounts (3.1): strip '@', lowercase."""
+    return username.strip().lstrip("@").strip().lower()
+
+
+def _sanitize_csv_cell(value: str) -> str:
+    """T-DEPLOY-16: prefix dangerous leading chars with a single quote."""
+    if value.startswith(_CSV_FORMULA_PREFIXES):
+        return "'" + value
+    return value
+
+
+async def _video_rows(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    username: str | None = None,
+    limit: int | None = None,
+    exclude_pending: bool = False,
+) -> list[dict]:
+    """Read-only shared query behind recent_videos/export_videos (10.2 golden rule).
+
+    Plain dict rows, most-recent-first (see _ROW_FIELDS ordering note). A NULL
+    downloaded_at (never-downloaded terminal row) sorts last.
+    """
+    query = (
+        select(
+            Video.id,
+            Video.tiktok_video_id,
+            MonitoredAccount.username,
+            Video.status,
+            Video.title,
+            Video.description,
+            Video.upload_date,
+            Video.downloaded_at,
+            Video.file_size,
+            Video.local_path,
+            Video.error_category,
+            Video.error_message,
+        )
+        .outerjoin(MonitoredAccount, Video.account_id == MonitoredAccount.id)
+        .order_by(Video.downloaded_at.desc().nulls_last(), Video.id.desc())
+    )
+    if username is not None:
+        query = query.where(MonitoredAccount.username == _normalize_username(username))
+    if exclude_pending:
+        query = query.where(Video.status != "pending")
+    if limit is not None:
+        query = query.limit(limit)
+    async with session_factory() as session:
+        result = await session.execute(query)
+        return [dict(row._mapping) for row in result.all()]
+
+
+async def recent_videos(
+    session_factory: async_sessionmaker[AsyncSession],
+    limit: int = DEFAULT_LAST_LIMIT,
+    username: str | None = None,
+) -> list[dict]:
+    """The LAST N processed videos, most-recent-first (M6 T2, 10.1).
+
+    Pending (not yet processed) rows are excluded; a NULL downloaded_at sorts
+    last. ``limit`` is clamped to [1, MAX_LAST_LIMIT]. Plain JSON-safe rows.
+    """
+    clamped = min(max(int(limit), 1), MAX_LAST_LIMIT)
+    return await _video_rows(
+        session_factory, username=username, limit=clamped, exclude_pending=True
+    )
+
+
+async def export_videos(
+    session_factory: async_sessionmaker[AsyncSession],
+    fmt: str,
+    username: str | None = None,
+) -> str:
+    """Serialize the video archive for `videos export` (M6 T3, 10.1/10.2).
+
+    T-CLI-3 parity: the payload carries NO Rich markup and NO wrapping; the
+    caller prints it raw. JSON is a list of plain records; CSV uses the
+    stdlib ``csv`` module with T-DEPLOY-16 formula sanitization (see
+    _CSV_FORMULA_PREFIXES). Unknown formats raise ConfigurationError so the
+    CLI funnels them as ERROR + exit 1 (T-CLI-4).
+    """
+    if fmt not in ("json", "csv"):
+        raise ConfigurationError(f"invalid export format: {fmt} (expected json or csv)")
+    rows = await _video_rows(session_factory, username=username)
+    if fmt == "json":
+        return json.dumps(rows, indent=2)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(_ROW_FIELDS)
+    for row in rows:
+        writer.writerow(
+            [
+                _sanitize_csv_cell("" if row[field] is None else str(row[field]))
+                for field in _ROW_FIELDS
+            ]
+        )
+    return buffer.getvalue()
 
 
 @dataclass(frozen=True)

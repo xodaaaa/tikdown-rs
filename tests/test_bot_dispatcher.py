@@ -28,7 +28,6 @@ from tikdown_rs.bot.dispatcher import (
     MSG_COOKIE_INSTRUCTIONS,
     MSG_COOKIE_TOO_LARGE,
     MSG_INTERNAL_ERROR,
-    MSG_LAST_PENDING,
     MSG_MONITOR_PENDING,
     MSG_NO_DAEMON_STATE,
     MSG_NOTIFY_OUT_OF_SCOPE,
@@ -495,16 +494,77 @@ class TestCommands:
         assert "/list" in chat.sent[0]["text"]
         assert "/help" in chat.sent[1]["text"]
 
-    async def test_stats_and_last_report_pending(self, bot_factory):
-        clock, tick = make_clock()
-        bot, _ = bot_factory(guard=SecurityGuard(111, clock=tick))
+    async def test_stats_reports_pending(self, bot_factory):
+        bot, _ = bot_factory()
         chat = StubChat(id=111)
         update = StubUpdate(effective_chat=chat, effective_user=StubUser(id=222))
         await bot.cmd_stats(update, None)
-        clock["now"] += 3
-        await bot.cmd_last(update, None)
         assert MSG_STATS_PENDING in chat.sent[0]["text"]
-        assert MSG_LAST_PENDING in chat.sent[1]["text"]
+
+    async def test_last_replies_with_recent_videos(self, bot_factory, monkeypatch):
+        bot, factory = bot_factory()
+        rows = [
+            {
+                "id": 2,
+                "tiktok_video_id": "7300000000000000002",
+                "username": "acct",
+                "status": "downloaded",
+            },
+            {
+                "id": 1,
+                "tiktok_video_id": "7300000000000000001",
+                "username": None,
+                "status": "failed",
+            },
+        ]
+        seen = {}
+
+        async def fake_recent(session_factory):
+            seen["factory"] = session_factory
+            return rows
+
+        monkeypatch.setattr(dispatcher, "recent_videos", fake_recent)
+        chat = StubChat(id=111)
+        await bot.cmd_last(StubUpdate(effective_chat=chat), None)
+        sent = chat.sent[0]
+        assert seen["factory"] is factory
+        assert sent["parse_mode"] == "HTML"
+        assert "7300000000000000002" in sent["text"]
+        assert "@acct" in sent["text"]
+        assert "todavía no está disponible" not in sent["text"]
+
+    async def test_last_empty_archive_reply(self, bot_factory, monkeypatch):
+        bot, _ = bot_factory()
+
+        async def fake_recent(session_factory):
+            return []
+
+        monkeypatch.setattr(dispatcher, "recent_videos", fake_recent)
+        chat = StubChat(id=111)
+        await bot.cmd_last(StubUpdate(effective_chat=chat), None)
+        assert "No hay videos archivados" in chat.sent[0]["text"]
+
+    async def test_last_escapes_dynamic_values(self, bot_factory, monkeypatch):
+        bot, _ = bot_factory()
+        rows = [
+            {
+                "id": 1,
+                "tiktok_video_id": "<b>v</b>",
+                "username": "<i>u</i>",
+                "status": "downloaded",
+            }
+        ]
+
+        async def fake_recent(session_factory):
+            return rows
+
+        monkeypatch.setattr(dispatcher, "recent_videos", fake_recent)
+        chat = StubChat(id=111)
+        await bot.cmd_last(StubUpdate(effective_chat=chat), None)
+        text = chat.sent[0]["text"]
+        assert "&lt;i&gt;u&lt;/i&gt;" in text
+        assert "&lt;b&gt;v&lt;/b&gt;" in text
+        assert "<i>" not in text and "<b>v" not in text
 
     async def test_list_renders_with_keyboard(self, bot_factory, monkeypatch):
         bot, _ = bot_factory()

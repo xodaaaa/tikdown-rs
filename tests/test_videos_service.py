@@ -10,14 +10,17 @@ CHECK). The production caller (monitor/backfill jobs) is pending by plan order
 """
 
 import asyncio
+import csv
 import errno
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from typer.testing import CliRunner
 
 from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
@@ -438,3 +441,288 @@ async def test_enospc_local_failure_pauses_downloads_never_breaker_or_cookies(
     failed = [e for e in events.events if e["event"] == EVENT_DOWNLOAD_FAILED]
     assert len(paused) == 1  # exactly one pause alert per state change
     assert len(failed) == 1  # the terminal event still fires exactly once
+
+
+# --- M6 T2/T3: read-only listing + export (10.1, T-CLI-1/3, T-DEPLOY-16) ---
+
+from tikdown_rs.cli.main import app as cli_app
+from tikdown_rs.services.videos import export_videos, recent_videos
+
+cli_runner = CliRunner()
+
+
+async def seed_video(
+    factory: async_sessionmaker[AsyncSession],
+    account_id: int | None,
+    video_id: str,
+    *,
+    status: str = "downloaded",
+    **fields,
+) -> int:
+    async with factory() as session:
+        row = Video(tiktok_video_id=video_id, account_id=account_id, status=status, **fields)
+        session.add(row)
+        await session.commit()
+        return row.id
+
+
+async def seed_two_accounts(factory) -> tuple[int, int]:
+    async with factory() as session:
+        first = MonitoredAccount(username="acct", backfill_status="idle")
+        second = MonitoredAccount(username="other", backfill_status="idle")
+        session.add_all([first, second])
+        await session.commit()
+        return first.id, second.id
+
+
+DOWNLOAD_SPEC = {
+    "downloaded_at": "2026-02-01T10:00:00+00:00",
+    "local_path": "/data/videos/acct/1.mp4",
+    "file_size": 123,
+    "title": "title one",
+    "description": "desc one",
+}
+
+
+class TestRecentVideos:
+    async def test_orders_most_recent_first_by_downloaded_at(self, migrated_factory) -> None:
+        account_id = await add_account(migrated_factory)
+        await seed_video(
+            migrated_factory, account_id, "1", downloaded_at="2026-01-01T00:00:00+00:00"
+        )
+        await seed_video(
+            migrated_factory, account_id, "2", downloaded_at="2026-03-01T00:00:00+00:00"
+        )
+        await seed_video(
+            migrated_factory, account_id, "3", downloaded_at="2026-02-01T00:00:00+00:00"
+        )
+
+        rows = await recent_videos(migrated_factory)
+
+        assert [r["tiktok_video_id"] for r in rows] == ["2", "3", "1"]
+
+    async def test_pending_rows_are_excluded_and_null_downloaded_at_sorts_last(
+        self, migrated_factory
+    ) -> None:
+        account_id = await add_account(migrated_factory)
+        await seed_video(migrated_factory, account_id, "pend", status="pending")
+        await seed_video(migrated_factory, account_id, "fail", status="failed")
+        await seed_video(migrated_factory, account_id, "ok")
+
+        rows = await recent_videos(migrated_factory)
+
+        assert [r["tiktok_video_id"] for r in rows] == ["ok", "fail"]
+
+    async def test_limit_clamped_to_bounded_range(self, migrated_factory) -> None:
+        account_id = await add_account(migrated_factory)
+        for i in range(105):
+            await seed_video(migrated_factory, account_id, f"v{i}")
+
+        assert len(await recent_videos(migrated_factory)) == 10  # default
+        assert len(await recent_videos(migrated_factory, limit=2)) == 2
+        assert len(await recent_videos(migrated_factory, limit=0)) == 1  # clamped up
+        assert len(await recent_videos(migrated_factory, limit=5000)) == 100  # clamped down
+
+    async def test_username_filter_is_normalized(self, migrated_factory) -> None:
+        first, second = await seed_two_accounts(migrated_factory)
+        await seed_video(migrated_factory, first, "1")
+        await seed_video(migrated_factory, second, "2")
+
+        rows = await recent_videos(migrated_factory, username="@Acct")
+
+        assert [r["tiktok_video_id"] for r in rows] == ["1"]
+
+    async def test_empty_archive_returns_empty_list(self, migrated_factory) -> None:
+        assert await recent_videos(migrated_factory) == []
+
+    async def test_rows_are_plain_json_safe_dicts(self, migrated_factory) -> None:
+        account_id = await add_account(migrated_factory)
+        await seed_video(migrated_factory, account_id, "1", **DOWNLOAD_SPEC)
+
+        rows = await recent_videos(migrated_factory)
+        assert rows == json.loads(json.dumps(rows))
+        row = rows[0]
+        assert row["username"] == "acct"
+        assert row["status"] == "downloaded"
+        assert row["file_size"] == 123
+        assert row["error_category"] is None
+
+
+class TestExportVideos:
+    async def test_json_round_trips_plain_types(self, migrated_factory) -> None:
+        account_id = await add_account(migrated_factory)
+        await seed_video(migrated_factory, account_id, "1", **DOWNLOAD_SPEC)
+
+        payload = await export_videos(migrated_factory, "json")
+        rows = json.loads(payload)
+
+        assert isinstance(rows, list) and len(rows) == 1
+        assert rows[0]["tiktok_video_id"] == "1"
+        assert rows[0]["file_size"] == 123
+
+    async def test_csv_header_and_comma_quoting(self, migrated_factory) -> None:
+        account_id = await add_account(migrated_factory)
+        await seed_video(
+            migrated_factory,
+            account_id,
+            "1",
+            description="a,b",
+        )
+
+        payload = await export_videos(migrated_factory, "csv")
+        parsed = list(csv.reader(io.StringIO(payload)))
+
+        assert parsed[0][0] == "id"
+        assert "tiktok_video_id" in parsed[0]
+        assert "description" in parsed[0]
+        assert parsed[1][parsed[0].index("description")] == "a,b"
+        assert parsed[1][parsed[0].index("username")] == "acct"
+
+    @pytest.mark.parametrize("danger", ["=", "+", "-", "@", "\t", "\r"])
+    async def test_csv_formula_sanitization_prefixes_dangerous_leading_chars(
+        self, migrated_factory, danger: str
+    ) -> None:
+        account_id = await add_account(migrated_factory)
+        await seed_video(migrated_factory, account_id, "1", title=f"{danger}calc()")
+
+        payload = await export_videos(migrated_factory, "csv")
+        parsed = list(csv.reader(io.StringIO(payload)))
+        cell = parsed[1][parsed[0].index("title")]
+
+        assert cell == f"'{danger}calc()"
+
+    async def test_csv_innocent_text_is_not_touched(self, migrated_factory) -> None:
+        account_id = await add_account(migrated_factory)
+        await seed_video(migrated_factory, account_id, "1", title="plain title")
+
+        payload = await export_videos(migrated_factory, "csv")
+        parsed = list(csv.reader(io.StringIO(payload)))
+
+        assert parsed[1][parsed[0].index("title")] == "plain title"
+
+    async def test_username_filter(self, migrated_factory) -> None:
+        first, second = await seed_two_accounts(migrated_factory)
+        await seed_video(migrated_factory, first, "1")
+        await seed_video(migrated_factory, second, "2")
+
+        rows = json.loads(await export_videos(migrated_factory, "json", username="acct"))
+
+        assert [r["tiktok_video_id"] for r in rows] == ["1"]
+
+    async def test_unknown_format_is_configuration_error(self, migrated_factory) -> None:
+        with pytest.raises(ConfigurationError):
+            await export_videos(migrated_factory, "xml")
+
+
+# --- CLI (tmp DATA_DIR + migrated DB, per invocation) ---
+
+
+def _seed_cli_db(tmp_path: Path, specs: list[dict]) -> None:
+    """Migrate tmp DATA_DIR and insert account + video rows synchronously."""
+    run_migrations(tmp_path)
+
+    async def seed() -> None:
+        engine = create_db_engine(sqlite_url_for(tmp_path))
+        factory = make_session_factory(engine)
+        try:
+            async with factory() as session:
+                account = MonitoredAccount(username="acct", backfill_status="idle")
+                session.add(account)
+                await session.flush()
+                for spec in specs:
+                    session.add(Video(account_id=account.id, **spec))
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed())
+
+
+def _downloaded_spec(video_id: str, **overrides) -> dict:
+    spec = {
+        "tiktok_video_id": video_id,
+        "status": "downloaded",
+        "downloaded_at": "2026-02-01T10:00:00+00:00",
+        "file_size": 10,
+    }
+    spec.update(overrides)
+    return spec
+
+
+def test_cli_videos_last_lists_recent_videos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_cli_db(
+        tmp_path,
+        [_downloaded_spec("7300000000000000001"), _downloaded_spec("7300000000000000002")],
+    )
+
+    result = cli_runner.invoke(cli_app, ["videos", "last"])
+    assert result.exit_code == 0, result.output
+    assert "7300000000000000001" in result.output
+    assert "7300000000000000002" in result.output
+    assert "downloaded" in result.output
+
+
+def test_cli_videos_last_respects_n_argument(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_cli_db(tmp_path, [_downloaded_spec("1"), _downloaded_spec("2")])
+
+    result = cli_runner.invoke(cli_app, ["videos", "last", "1"])
+    assert result.exit_code == 0, result.output
+    assert result.output.count("video=") == 1
+
+
+def test_cli_videos_last_empty_archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run_migrations(tmp_path)
+
+    result = cli_runner.invoke(cli_app, ["videos", "last"])
+    assert result.exit_code == 0, result.output
+    assert "no videos" in result.output
+
+
+def test_cli_videos_export_json_payload_is_raw(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_cli_db(tmp_path, [_downloaded_spec("7300000000000000001")])
+
+    result = cli_runner.invoke(cli_app, ["videos", "export"])
+    assert result.exit_code == 0, result.output
+    rows = json.loads(result.output)
+    assert rows[0]["tiktok_video_id"] == "7300000000000000001"
+
+
+def test_cli_videos_export_csv_no_markup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_cli_db(tmp_path, [_downloaded_spec("1", title="=SUM(A1)")])
+
+    result = cli_runner.invoke(cli_app, ["videos", "export", "--format", "csv"])
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0].startswith("id,")  # raw header row first
+    assert "'=SUM(A1)" in result.output  # T-DEPLOY-16 sanitization
+    assert "[bold]" not in result.output  # T-CLI-3: no Rich markup, no wrap
+
+
+def test_cli_videos_export_unknown_format_exits_1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run_migrations(tmp_path)
+
+    result = cli_runner.invoke(cli_app, ["videos", "export", "--format", "xml"])
+    assert result.exit_code == 1
+    assert "ERROR" in result.output
+
+
+def test_cli_videos_integrity_still_loud_stub(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    result = cli_runner.invoke(cli_app, ["videos", "integrity"])
+    assert result.exit_code == 1
+    assert "not implemented" in result.output

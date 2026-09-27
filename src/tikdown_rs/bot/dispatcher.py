@@ -44,7 +44,7 @@ the CLI uses):
 - /disk      -> core.daemon_state.read_status + core.disk.free_percent (same as `system disk`)
 - /status    -> core.daemon_state.read_status + cookie counts + failed-video tail (same queries as `daemon status`)
 - /stats     -> pending: the CLI stub errors too; stats data arrives with M6
-- /last      -> pending: the CLI stub errors too; no service callable exists yet
+- /last      -> services.videos.recent_videos (same as `videos last` CLI)
 
 Cookie upload funnel (§6.3): authz double-layer FIRST (shared ``_handle_command``
 funnel, so the 2 s throttle applies to documents too), then the REMOTE metadata
@@ -103,6 +103,7 @@ from tikdown_rs.services.accounts import (
 from tikdown_rs.services.backfill_ops import queue_backfill
 from tikdown_rs.services.cookies import add_cookie
 from tikdown_rs.services.status import DaemonStatus, gather_status
+from tikdown_rs.services.videos import recent_videos
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,6 @@ MSG_THROTTLED = "Espera 2 segundos entre comandos."
 MSG_INTERNAL_ERROR = "Error interno: inténtalo de nuevo más tarde."
 MSG_CALLBACK_EXPIRED = "expired"
 MSG_STATS_PENDING = "/stats todavía no está disponible: llega con el dashboard (M6)."
-MSG_LAST_PENDING = "/last todavía no está disponible."
 MSG_NO_DAEMON_STATE = "Sin estado del daemon: ejecuta 'tikdown-rs daemon run' al menos una vez."
 MSG_MONITOR_PENDING = (
     "/monitor todavía no está disponible: no existe aún una ruta de servicio para cambiar el modo."
@@ -144,7 +144,7 @@ HELP_TEXT = (
     "/stats — estadísticas (próximamente)\n"
     "/disk — espacio en disco y pausa por watermark\n"
     "/status — estado del daemon\n"
-    "/last — últimos videos archivados (próximamente)\n"
+    "/last — últimos videos archivados\n"
     "/help — esta ayuda"
 )
 
@@ -400,7 +400,21 @@ class TikDownBot:
         await self._handle_command(update, lambda: self._reply(update, MSG_STATS_PENDING))
 
     async def cmd_last(self, update: Any, context: Any) -> None:
-        await self._handle_command(update, lambda: self._reply(update, MSG_LAST_PENDING))
+        await self._handle_command(update, lambda: self._send_last(update))
+
+    async def _send_last(self, update: Any) -> None:
+        # Same service path as CLI `videos last` (default N, bot reply clips anyway).
+        rows = await recent_videos(self._session_factory)
+        if not rows:
+            await self._reply(update, "No hay videos archivados todavía.")
+            return
+        lines = ["Últimos videos archivados:"]
+        for row in rows:
+            owner = f"@{escape_html(display_username(row['username']))}" if row["username"] else "-"
+            lines.append(
+                f"#{row['id']} {escape_html(row['tiktok_video_id'])} {owner} {row['status']}"
+            )
+        await self._reply(update, "\n".join(lines))
 
     async def cmd_list(self, update: Any, context: Any) -> None:
         await self._handle_command(update, lambda: self._send_list(update))
