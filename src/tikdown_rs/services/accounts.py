@@ -1,6 +1,6 @@
-"""Monitored account services: add, list, pause/resume, notify, remove, get.
+"""Monitored account services: add, list, pause/resume, notify, remove, get, stats.
 
-Trampas neutralizadas: T-BACKFILL-1, T-BACKFILL-9. Regla: 3.1, 10.1.
+Trampas neutralizadas: T-BACKFILL-1, T-BACKFILL-9, T-DATA-10. Regla: 3.1, 10.1.
 
 Services are pure: no cli/, daemon/ or yt_dlp imports here. T-BACKFILL-1:
 ``last_check_at`` is NEVER initialized to now -- a never-checked account must
@@ -9,6 +9,7 @@ T-BACKFILL-9: ``backfill_status`` starts 'idle', a value present in the CHECK
 from the first schema.
 """
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
@@ -177,3 +178,72 @@ async def remove_account(
             )
         await session.delete(row)
         await session.commit()
+
+
+@dataclass(frozen=True)
+class AccountStat:
+    """Per-account read-only aggregate (§10.1 `accounts stats`, §10.3 Column 2).
+
+    Plain JSON-safe types so any frontend (CLI, bot, dashboard) can serialize
+    it. T-DATA-10: ``total_disk_bytes`` is READ from the column, never
+    recomputed from the filesystem; it approximates consumed network traffic
+    (excludes failed retries and feed-listing traffic) and callers label it
+    as an approximation.
+    """
+
+    username: str
+    mode: str
+    paused: bool
+    needs_review: bool
+    videos_downloaded: int
+    videos_failed: int
+    videos_pending: int
+    total_disk_bytes: int
+    backfill_status: str
+    backfill_done: int
+    backfill_total: int
+
+
+async def account_stats(
+    session_factory: async_sessionmaker[AsyncSession],
+    username: str | None = None,
+) -> list[AccountStat]:
+    """Read-only per-account aggregates; all accounts, or one when named.
+
+    §10.1 `accounts stats` takes no arguments, so the whole-library call is
+    the primary path; the optional ``username`` exists for parity with the
+    other account services. T-DATA-10: no filesystem access, no recompute.
+    """
+    async with session_factory() as session:
+        query = select(MonitoredAccount).order_by(MonitoredAccount.username)
+        if username is not None:
+            query = query.where(MonitoredAccount.username == _normalize(username))
+        accounts = (await session.execute(query)).scalars().all()
+        if not accounts:
+            return []
+        status_counts = {
+            (account_id, status): count
+            for account_id, status, count in (
+                await session.execute(
+                    select(Video.account_id, Video.status, func.count())
+                    .where(Video.account_id.in_([account.id for account in accounts]))
+                    .group_by(Video.account_id, Video.status)
+                )
+            ).all()
+        }
+    return [
+        AccountStat(
+            username=account.username,
+            mode=account.mode,
+            paused=bool(account.paused),
+            needs_review=bool(account.needs_review),
+            videos_downloaded=status_counts.get((account.id, "downloaded"), 0),
+            videos_failed=status_counts.get((account.id, "failed"), 0),
+            videos_pending=status_counts.get((account.id, "pending"), 0),
+            total_disk_bytes=account.total_disk_bytes,
+            backfill_status=account.backfill_status,
+            backfill_done=account.backfill_done,
+            backfill_total=account.backfill_total,
+        )
+        for account in accounts
+    ]

@@ -2,8 +2,8 @@
 
 Trampas neutralizadas: T-CLI-5 (registered + --help smoke), T-CLI-1 (ASCII help),
 T-CLI-4 (run_or_exit error funneling), T-BACKFILL-1. Regla: 10.1, 10.2.
-Deletion verb is `remove`, never `delete`. `check` and `stats` stay loud stubs:
-check needs the engine listing round, stats comes with the M6 dashboard data.
+Deletion verb is `remove`, never `delete`. `check` stays a loud stub: it needs
+the engine listing round (T-ENGINE-19); `stats` serves the M6 per-account data.
 """
 
 import asyncio
@@ -14,6 +14,7 @@ from tikdown_rs.cli.common import prepare_invocation, raise_unimplemented, run_o
 from tikdown_rs.core.config import load_settings
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.services.accounts import (
+    account_stats,
     add_account,
     list_accounts,
     remove_account,
@@ -172,6 +173,34 @@ def check(user: str = typer.Argument(..., help="Account handle, e.g. @user.")) -
 
 
 @app.command()
-def stats(user: str = typer.Argument(..., help="Account handle, e.g. @user.")) -> None:
-    """Show per-account download statistics."""
-    raise_unimplemented("accounts stats")
+def stats() -> None:
+    """Show whole-library per-account statistics (no arguments, §10.1)."""
+    run_or_exit(_stats)
+
+
+def _stats() -> None:
+    async def impl() -> None:
+        settings = await prepare_invocation(load_settings())
+        engine = create_db_engine(sqlite_url_for(settings.data_dir))
+        try:
+            rows = await account_stats(make_session_factory(engine))
+        finally:
+            await engine.dispose()
+        if not rows:
+            typer.echo("no accounts")
+            return
+        modes: dict[str, int] = {}
+        for row in rows:
+            modes[row.mode] = modes.get(row.mode, 0) + 1
+        by_mode = " ".join(f"{mode}={count}" for mode, count in sorted(modes.items()))
+        typer.echo(f"accounts: {len(rows)} ({by_mode})")
+        for row in rows:  # T-CLI-1: plain ASCII; T-DATA-10: bytes read, labeled approx.
+            typer.echo(
+                f"user={row.username} mode={row.mode} paused={int(row.paused)} "
+                f"review={int(row.needs_review)} downloaded={row.videos_downloaded} "
+                f"failed={row.videos_failed} pending={row.videos_pending} "
+                f"disk_bytes={row.total_disk_bytes} (approx) "
+                f"backfill={row.backfill_status} {row.backfill_done}/{row.backfill_total}"
+            )
+
+    asyncio.run(impl())

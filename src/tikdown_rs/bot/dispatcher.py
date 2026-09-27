@@ -43,7 +43,7 @@ the CLI uses):
   (T-ENGINE-19); the CLI `accounts check` stub errors too
 - /disk      -> core.daemon_state.read_status + core.disk.free_percent (same as `system disk`)
 - /status    -> core.daemon_state.read_status + cookie counts + failed-video tail (same queries as `daemon status`)
-- /stats     -> pending: the CLI stub errors too; stats data arrives with M6
+- /stats     -> services.accounts.account_stats (same aggregates as `accounts stats`)
 - /last      -> services.videos.recent_videos (same as `videos last` CLI)
 
 Cookie upload funnel (§6.3): authz double-layer FIRST (shared ``_handle_command``
@@ -94,6 +94,8 @@ from tikdown_rs.core.config import Settings
 from tikdown_rs.core.daemon_state import read_status
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.services.accounts import (
+    AccountStat,
+    account_stats,
     add_account,
     get_account,
     list_accounts,
@@ -113,7 +115,6 @@ MSG_UNAUTHORIZED = "No autorizado."
 MSG_THROTTLED = "Espera 2 segundos entre comandos."
 MSG_INTERNAL_ERROR = "Error interno: inténtalo de nuevo más tarde."
 MSG_CALLBACK_EXPIRED = "expired"
-MSG_STATS_PENDING = "/stats todavía no está disponible: llega con el dashboard (M6)."
 MSG_NO_DAEMON_STATE = "Sin estado del daemon: ejecuta 'tikdown-rs daemon run' al menos una vez."
 MSG_MONITOR_PENDING = (
     "/monitor todavía no está disponible: no existe aún una ruta de servicio para cambiar el modo."
@@ -219,6 +220,31 @@ def format_status_message(status: DaemonStatus) -> str:
         f"{status.cookie_counts.get('inconclusive', 0)} inconclusas"
     )
     lines.extend(escape_html(line) for line in (status.recent_errors or ["Sin errores recientes."]))
+    return "\n".join(lines)
+
+
+def format_stats_message(stats: list[AccountStat]) -> str:
+    """`accounts stats` parity (§10.1): aggregate top-line + per-account lines.
+
+    Spanish user-facing format (§6.3); usernames are escaped (T-BOT-9).
+    T-DATA-10: the byte total is read from the column and labeled as an
+    approximation (§10.3 Column 2). Empty library gets an informative reply.
+    """
+    if not stats:
+        return "Todavía no hay cuentas monitoreadas: añade una con /add."
+    modes: dict[str, int] = {}
+    for stat in stats:
+        modes[stat.mode] = modes.get(stat.mode, 0) + 1
+    by_mode = ", ".join(f"{mode}: {count}" for mode, count in sorted(modes.items()))
+    lines = [f"Estadísticas: {len(stats)} cuentas ({by_mode})."]
+    for stat in stats:
+        name = escape_html(display_username(stat.username))
+        lines.append(
+            f"@{name}: {stat.videos_downloaded} descargados, "
+            f"{stat.videos_failed} fallidos, {stat.videos_pending} pendientes, "
+            f"{stat.total_disk_bytes} bytes en disco (aproximación), "
+            f"backfill {stat.backfill_done}/{stat.backfill_total}"
+        )
     return "\n".join(lines)
 
 
@@ -397,10 +423,15 @@ class TikDownBot:
         await self._handle_command(update, lambda: self._reply(update, HELP_TEXT))
 
     async def cmd_stats(self, update: Any, context: Any) -> None:
-        await self._handle_command(update, lambda: self._reply(update, MSG_STATS_PENDING))
+        await self._handle_command(update, lambda: self._send_stats(update))
 
     async def cmd_last(self, update: Any, context: Any) -> None:
         await self._handle_command(update, lambda: self._send_last(update))
+
+    async def _send_stats(self, update: Any) -> None:
+        # Same service path as CLI `accounts stats` (read-only, T-DATA-10).
+        stats = await account_stats(self._session_factory)
+        await self._reply(update, format_stats_message(stats))
 
     async def _send_last(self, update: Any) -> None:
         # Same service path as CLI `videos last` (default N, bot reply clips anyway).

@@ -4,6 +4,8 @@ Trampas neutralizadas: T-BACKFILL-1 (last_check_at stays NULL), T-BACKFILL-9
 (backfill_status starts 'idle'), T-CLI-4. Regla: 3.1, 10.1, 10.2.
 """
 
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.core.migrations import run_migrations
 from tikdown_rs.models import MonitoredAccount, Video
 from tikdown_rs.services.accounts import (
+    account_stats,
     add_account,
     get_account,
     list_accounts,
@@ -230,3 +233,117 @@ def test_cli_accounts_check_still_loud_stub(
     assert result.exit_code == 1
     assert "ERROR" in result.output
     assert "not implemented" in result.output
+
+
+# --- account_stats (M6 T7: read-only aggregates, T-DATA-10) ---
+
+
+async def _seed_video(factory, account_id: int, tiktok_id: str, status: str) -> None:
+    now = "2026-01-01T00:00:00+00:00"
+    async with factory() as session:
+        session.add(
+            Video(
+                tiktok_video_id=tiktok_id,
+                account_id=account_id,
+                status=status,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await session.commit()
+
+
+async def test_account_stats_counts_by_status(migrated_factory) -> None:
+    account_id = await add_account(migrated_factory, "@counter")
+    for i, status in enumerate(("downloaded", "downloaded", "failed", "pending")):
+        await _seed_video(migrated_factory, account_id, f"730000000000000000{i}", status)
+    (stat,) = await account_stats(migrated_factory)
+    assert stat.videos_downloaded == 2
+    assert stat.videos_failed == 1
+    assert stat.videos_pending == 1
+
+
+async def test_account_stats_flags_and_bytes_from_column(migrated_factory) -> None:
+    account_id = await add_account(migrated_factory, "@flags")
+    await set_paused(migrated_factory, "flags", True)
+    async with migrated_factory() as session:
+        row = await session.get(MonitoredAccount, account_id)
+        assert row is not None
+        row.needs_review = True
+        row.total_disk_bytes = 123456  # T-DATA-10: read from the column, exact
+        row.backfill_status = "completed"
+        row.backfill_done = 7
+        row.backfill_total = 10
+        await session.commit()
+    (stat,) = await account_stats(migrated_factory)
+    assert stat.paused is True
+    assert stat.needs_review is True
+    assert stat.total_disk_bytes == 123456
+    assert (stat.backfill_status, stat.backfill_done, stat.backfill_total) == (
+        "completed",
+        7,
+        10,
+    )
+
+
+async def test_account_stats_username_filter_normalizes(migrated_factory) -> None:
+    await add_account(migrated_factory, "@alpha")
+    await add_account(migrated_factory, "@beta")
+    stats = await account_stats(migrated_factory, "@ALPHA")
+    assert [s.username for s in stats] == ["alpha"]
+    assert await account_stats(migrated_factory, "ghost") == []
+
+
+async def test_account_stats_empty_db_returns_empty(migrated_factory) -> None:
+    assert await account_stats(migrated_factory) == []
+    assert await account_stats(migrated_factory, None) == []
+
+
+async def test_account_stats_json_round_trip(migrated_factory) -> None:
+    account_id = await add_account(migrated_factory, "@jsonable")
+    await _seed_video(migrated_factory, account_id, "7300000000000000001", "downloaded")
+    stats = await account_stats(migrated_factory)
+    payload = json.loads(json.dumps([asdict(s) for s in stats]))
+    assert payload[0]["username"] == "jsonable"
+    assert payload[0]["mode"] == "history"
+    assert payload[0]["videos_downloaded"] == 1
+    assert payload[0]["total_disk_bytes"] == 0
+    assert payload[0]["paused"] is False
+
+
+# --- CLI `accounts stats` (M6 T7: no args per 10.1, ASCII per T-CLI-1) ---
+
+
+def test_cli_accounts_stats_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    assert runner.invoke(app, ["accounts", "add", "@user1"]).exit_code == 0
+    assert runner.invoke(app, ["accounts", "add", "@user2", "--mode", "monitor"]).exit_code == 0
+    result = runner.invoke(app, ["accounts", "stats"])
+    assert result.exit_code == 0, result.output
+    assert "accounts: 2" in result.output
+    assert "history=1" in result.output
+    assert "monitor=1" in result.output
+    assert "user=user1" in result.output
+    assert "downloaded=0" in result.output
+    assert "approx" in result.output  # T-DATA-10: bytes are labeled as an approximation
+
+
+def test_cli_accounts_stats_ascii_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    assert runner.invoke(app, ["accounts", "add", "@ascii"]).exit_code == 0
+    result = runner.invoke(app, ["accounts", "stats"])
+    assert result.exit_code == 0, result.output
+    assert result.output.isascii()
+
+
+def test_cli_accounts_stats_empty_library(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    result = runner.invoke(app, ["accounts", "stats"])
+    assert result.exit_code == 0, result.output
+    assert "no accounts" in result.output
+
+
+def test_cli_accounts_stats_takes_no_args(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # 10.1: `accounts stats` has no arguments (whole-library stats).
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    assert runner.invoke(app, ["accounts", "stats", "@user1"]).exit_code != 0

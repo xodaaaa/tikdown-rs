@@ -31,7 +31,6 @@ from tikdown_rs.bot.dispatcher import (
     MSG_MONITOR_PENDING,
     MSG_NO_DAEMON_STATE,
     MSG_NOTIFY_OUT_OF_SCOPE,
-    MSG_STATS_PENDING,
     MSG_THROTTLED,
     MSG_UNAUTHORIZED,
     TikDownBot,
@@ -49,6 +48,7 @@ from tikdown_rs.bot.dispatcher import (
 from tikdown_rs.bot.security import SecurityGuard
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.errors import ConfigurationError
+from tikdown_rs.services.accounts import AccountStat
 from tikdown_rs.services.status import DaemonStatus
 
 # --- stubs and fixtures ------------------------------------------------------
@@ -494,12 +494,81 @@ class TestCommands:
         assert "/list" in chat.sent[0]["text"]
         assert "/help" in chat.sent[1]["text"]
 
-    async def test_stats_reports_pending(self, bot_factory):
-        bot, _ = bot_factory()
+    async def test_stats_replies_with_per_account_stats(self, bot_factory, monkeypatch):
+        bot, factory = bot_factory()
+        stats = [
+            AccountStat(
+                username="acct",
+                mode="history",
+                paused=False,
+                needs_review=False,
+                videos_downloaded=3,
+                videos_failed=1,
+                videos_pending=2,
+                total_disk_bytes=4096,
+                backfill_status="completed",
+                backfill_done=7,
+                backfill_total=10,
+            )
+        ]
+        seen = {}
+
+        async def fake_stats(session_factory):
+            seen["factory"] = session_factory
+            return stats
+
+        monkeypatch.setattr(dispatcher, "account_stats", fake_stats)
         chat = StubChat(id=111)
-        update = StubUpdate(effective_chat=chat, effective_user=StubUser(id=222))
-        await bot.cmd_stats(update, None)
-        assert MSG_STATS_PENDING in chat.sent[0]["text"]
+        await bot.cmd_stats(StubUpdate(effective_chat=chat), None)
+        sent = chat.sent[0]
+        assert seen["factory"] is factory
+        assert sent["parse_mode"] == "HTML"
+        assert "@acct" in sent["text"]
+        assert "4096" in sent["text"]  # bytes read from the column (T-DATA-10)
+        assert "backfill" in sent["text"]
+        assert "todavía no está disponible" not in sent["text"]
+
+    async def test_stats_empty_reply_is_informative(self, bot_factory, monkeypatch):
+        bot, _ = bot_factory()
+
+        async def fake_stats(session_factory):
+            return []
+
+        monkeypatch.setattr(dispatcher, "account_stats", fake_stats)
+        chat = StubChat(id=111)
+        await bot.cmd_stats(StubUpdate(effective_chat=chat), None)
+        assert "cuentas" in chat.sent[0]["text"]
+
+    async def test_stats_escapes_dynamic_values(self, bot_factory, monkeypatch):
+        bot, _ = bot_factory()
+        stats = [
+            AccountStat(
+                username="<i>u</i>",
+                mode="history",
+                paused=False,
+                needs_review=False,
+                videos_downloaded=0,
+                videos_failed=0,
+                videos_pending=0,
+                total_disk_bytes=0,
+                backfill_status="idle",
+                backfill_done=0,
+                backfill_total=0,
+            )
+        ]
+
+        async def fake_stats(session_factory):
+            return stats
+
+        monkeypatch.setattr(dispatcher, "account_stats", fake_stats)
+        chat = StubChat(id=111)
+        await bot.cmd_stats(StubUpdate(effective_chat=chat), None)
+        text = chat.sent[0]["text"]
+        assert "&lt;i&gt;u&lt;/i&gt;" in text
+        assert "<i>" not in text
+
+    def test_stats_pending_message_is_gone(self):
+        assert not hasattr(dispatcher, "MSG_STATS_PENDING")
 
     async def test_last_replies_with_recent_videos(self, bot_factory, monkeypatch):
         bot, factory = bot_factory()
