@@ -225,6 +225,7 @@ class TestFormatStatusLines:
             last_selfcheck_at="2025-01-01T10:00:00+00:00",
             last_selfcheck_ok=False,
             degraded_reason="impersonation: x",
+            disk_free_percent=12.34,
             recent_errors=["recent_errors: 1", "recent_error: v1 [transient] boom"],
         )
         assert format_status_lines(status) == [
@@ -240,6 +241,7 @@ class TestFormatStatusLines:
             "last_selfcheck_at: 2025-01-01T10:00:00+00:00",
             "last_selfcheck_ok: 0",
             "degraded_reason: impersonation: x",
+            "disk_free_percent: 12.3",
             "recent_errors: 1",
             "recent_error: v1 [transient] boom",
         ]

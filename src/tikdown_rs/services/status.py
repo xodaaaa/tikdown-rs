@@ -222,5 +222,12 @@ def format_status_lines(status: DaemonStatus) -> list[str]:
         )
     )
     lines.append(f"degraded_reason: {status.degraded_reason or 'none'}")
+    # 10.1 lists disk among the status fields (review finding M20): gathered
+    # only when the caller passed data_dir; None prints 'unknown'.
+    lines.append(
+        f"disk_free_percent: {status.disk_free_percent:.1f}"
+        if status.disk_free_percent is not None
+        else "disk_free_percent: unknown"
+    )
     lines.extend(status.recent_errors or ["recent_errors: none"])
     return lines
