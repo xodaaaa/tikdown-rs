@@ -5,6 +5,7 @@ Queries always take the caller's active session, never the sessionmaker (T-DB-3)
 writes that may hit an absent singleton row use native SQLite upserts (T-DB-12).
 """
 
+import logging
 import os
 from datetime import UTC, datetime
 
@@ -13,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.models.daemon_state import DaemonState
+
+logger = logging.getLogger("tikdown_rs.core.daemon_state")
 
 _ROW_ID = 1
 
@@ -52,11 +55,15 @@ async def read_stop_requested(session: AsyncSession) -> bool:
     return bool(row.stop_requested) if row is not None else False
 
 
-async def write_heartbeat(session: AsyncSession, pid: int | None = None) -> None:
-    """Persist last_heartbeat_at (and daemon_pid bookkeeping), committing (T-DB-13)."""
+async def write_heartbeat(
+    session: AsyncSession, pid: int | None = None, db_busy_count: int | None = None
+) -> None:
+    """Persist last_heartbeat_at (+ pid, + 5.6 contention window), committing (T-DB-13)."""
     values: dict[str, object] = {"last_heartbeat_at": _utcnow_iso()}
     if pid is not None:
         values["daemon_pid"] = pid
+    if db_busy_count is not None:
+        values["db_busy_count_5min"] = db_busy_count
     await session.execute(_upsert(values))
     await session.commit()
 
@@ -106,9 +113,54 @@ async def record_selfcheck(session: AsyncSession, ok: bool, degraded_reason: str
     await session.commit()
 
 
+async def record_startup_probes(
+    session: AsyncSession,
+    *,
+    ffmpeg_ok: bool,
+    ffprobe_ok: bool,
+    impersonation_reason: str | None = None,
+    cookies_ok: bool = True,
+) -> None:
+    """Persist startup-probe degraded_reason ONLY (5.1 step 7): NULL or joined cause.
+
+    The selfcheck fields (last_selfcheck_at/ok) are NOT touched here: only the
+    periodic selfcheck job writes them -- startup degradation and periodic
+    selfcheck are different producers (T-DB-13 discipline).
+    """
+    causes: list[str] = []
+    missing = [name for name, ok in (("ffmpeg", ffmpeg_ok), ("ffprobe", ffprobe_ok)) if not ok]
+    if missing:
+        causes.append(f"binaries: {' and '.join(missing)} not found")
+    if impersonation_reason is not None:
+        causes.append(f"impersonation: {impersonation_reason}")
+    if not cookies_ok:
+        causes.append("cookies: none working")
+    await session.execute(_upsert({"degraded_reason": "; ".join(causes) or None}))
+    await session.commit()
+
+
+async def record_last_known_good_ytdlp(session: AsyncSession, version: str) -> None:
+    """Persist the last yt-dlp version that PASSED selfcheck (2.1, T-ENGINE-28)."""
+    await session.execute(_upsert({"last_known_good_ytdlp_version": version}))
+    await session.commit()
+
+
 async def read_status(session: AsyncSession) -> DaemonState | None:
     """Read the singleton row for daemon status/healthcheck (None when never started)."""
     return await session.get(DaemonState, _ROW_ID)
+
+
+async def set_downloads_paused(session: AsyncSession, paused: bool, reason: str = "disk") -> None:
+    """Set downloads_paused, committing immediately (T-DB-13, 8.2).
+
+    T-ENGINE-27: the reason ('disk' watermark/ENOSPC or 'manual' resume) is
+    logged for the operator; the singleton schema carries no reason column,
+    so it is not persisted. The disk path is currently the ONLY writer of
+    this flag, which is what makes the 8.2 auto-resume unambiguous.
+    """
+    await session.execute(_upsert({"downloads_paused": paused}))
+    await session.commit()
+    logger.info("downloads_paused=%s (reason=%s)", int(paused), reason)
 
 
 async def request_daemon_stop(session: AsyncSession) -> None:
