@@ -12,7 +12,6 @@ Application, no token use, no network (§13.1).
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import ClassVar, Self
 
@@ -42,7 +41,6 @@ from tikdown_rs.bot.dispatcher import (
     format_disk_message,
     format_pause_message,
     format_status_message,
-    heartbeat_age_seconds,
     parse_allowed_user_ids,
     parse_chat_id,
     parse_username_arg,
@@ -52,6 +50,7 @@ from tikdown_rs.bot.dispatcher import (
 from tikdown_rs.bot.security import SecurityGuard
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.errors import ConfigurationError
+from tikdown_rs.services.status import DaemonStatus
 
 # --- stubs and fixtures ------------------------------------------------------
 
@@ -276,61 +275,45 @@ class TestFormatDiskMessage:
         assert "no" in format_disk_message(90.0, 10, False)
 
 
-class TestHeartbeatAge:
-    def test_none_when_missing(self):
-        assert heartbeat_age_seconds(None, datetime.now(UTC)) is None
-
-    def test_age_seconds(self):
-        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        assert heartbeat_age_seconds("2025-01-01T11:59:30+00:00", now) == 30.0
-
-    def test_naive_timestamp_treated_as_utc(self):
-        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        assert heartbeat_age_seconds("2025-01-01T11:59:00", now) == 60.0
-
-
 class TestFormatStatusMessage:
-    def make_row(self, **overrides):
-        row = SimpleNamespace(
-            last_heartbeat_at="2025-01-01T11:59:50+00:00",
-            monitor_running=True,
-            degraded_reason=None,
-        )
-        for key, value in overrides.items():
-            setattr(row, key, value)
-        return row
+    """The bot wrapper over services.status.gather_status output (M6 T1).
+
+    The heartbeat-age edge cases moved to tests/test_status_service.py with
+    the service function; only the bot's HTML formatting is asserted here.
+    """
+
+    def make_status(self, **overrides) -> DaemonStatus:
+        values = {
+            "heartbeat_age_seconds": 10.0,
+            "monitor_running": True,
+            "daemon_pid": 4321,
+            "db_busy_count_5min": 0,
+            "supervised_tasks": None,
+            "ytdlp_zombie_threads": None,
+            "cookie_counts": {"valid": 2, "invalid": 1, "inconclusive": 0},
+            "last_selfcheck_at": None,
+            "last_selfcheck_ok": None,
+            "degraded_reason": None,
+            "recent_errors": ["recent_errors: 1"],
+        }
+        values.update(overrides)
+        return DaemonStatus(**values)
 
     def test_lines(self):
-        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        text = format_status_message(
-            self.make_row(),
-            {"valid": 2, "invalid": 1, "inconclusive": 0},
-            ["Errores recientes: 1"],
-            now=now,
-        )
+        text = format_status_message(self.make_status())
         assert "10s" in text
         assert "activo" in text
         assert "2" in text and "1" in text
-        assert "Errores recientes: 1" in text
+        assert "recent_errors: 1" in text
 
     def test_unknown_heartbeat_and_no_errors(self):
-        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-        text = format_status_message(
-            self.make_row(last_heartbeat_at=None),
-            {},
-            [],
-            now=now,
-        )
+        text = format_status_message(self.make_status(heartbeat_age_seconds=None, recent_errors=[]))
         assert "desconocido" in text
         assert "Sin errores recientes" in text
 
     def test_degraded_reason_is_escaped(self):
-        now = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
         text = format_status_message(
-            self.make_row(degraded_reason="<b>oops & co</b>"),
-            {},
-            [],
-            now=now,
+            self.make_status(degraded_reason="<b>oops & co</b>", recent_errors=[])
         )
         assert "&lt;b&gt;oops &amp; co&lt;/b&gt;" in text
         assert "<b>oops" not in text
@@ -582,27 +565,27 @@ class TestCommands:
     async def test_status(self, bot_factory, monkeypatch):
         bot, _ = bot_factory()
 
-        async def fake_read_status(session):
-            return SimpleNamespace(
-                last_heartbeat_at="2025-01-01T11:59:50+00:00",
+        async def fake_gather_status(session):
+            return DaemonStatus(
+                heartbeat_age_seconds=10.0,
                 monitor_running=False,
+                daemon_pid=None,
+                db_busy_count_5min=0,
+                supervised_tasks=None,
+                ytdlp_zombie_threads=None,
+                cookie_counts={"valid": 1},
+                last_selfcheck_at=None,
+                last_selfcheck_ok=None,
                 degraded_reason=None,
+                recent_errors=["recent_errors: 1"],
             )
 
-        async def fake_cookie_counts(session):
-            return {"valid": 1}
-
-        async def fake_recent(session):
-            return ["Errores recientes: 1"]
-
-        monkeypatch.setattr(dispatcher, "read_status", fake_read_status)
-        monkeypatch.setattr(dispatcher, "cookie_counts", fake_cookie_counts)
-        monkeypatch.setattr(dispatcher, "recent_error_lines", fake_recent)
+        monkeypatch.setattr(dispatcher, "gather_status", fake_gather_status)
         chat = StubChat(id=111)
         await bot.cmd_status(StubUpdate(effective_chat=chat), None)
         text = chat.sent[0]["text"]
         assert "Latido" in text
-        assert "Errores recientes: 1" in text
+        assert "recent_errors: 1" in text
 
 
 # --- callback: listp: pagination ---------------------------------------------

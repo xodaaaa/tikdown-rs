@@ -61,11 +61,9 @@ import os
 import tempfile
 import time
 from contextlib import suppress
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
-from sqlalchemy import func, select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -95,7 +93,6 @@ from tikdown_rs.core import disk as disk_probe
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.daemon_state import read_status
 from tikdown_rs.core.errors import ConfigurationError
-from tikdown_rs.models import Cookie, Video
 from tikdown_rs.services.accounts import (
     add_account,
     get_account,
@@ -105,6 +102,7 @@ from tikdown_rs.services.accounts import (
 )
 from tikdown_rs.services.backfill_ops import queue_backfill
 from tikdown_rs.services.cookies import add_cookie
+from tikdown_rs.services.status import DaemonStatus, gather_status
 
 logger = logging.getLogger(__name__)
 
@@ -150,9 +148,6 @@ HELP_TEXT = (
     "/help — esta ayuda"
 )
 
-RECENT_ERROR_LIMIT = 5
-ERROR_MESSAGE_MAX_CHARS = 120
-
 
 # --- pure helpers ------------------------------------------------------------
 
@@ -193,16 +188,6 @@ def parse_allowed_user_ids(raw: str | None) -> tuple[int, ...] | None:
     return tuple(ids) or None
 
 
-def heartbeat_age_seconds(last_heartbeat_at: str | None, now: datetime) -> float | None:
-    """Seconds since the last heartbeat, or None when unknown (mirrors `daemon status`)."""
-    if not last_heartbeat_at:
-        return None
-    last = datetime.fromisoformat(last_heartbeat_at)
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=UTC)
-    return (now - last).total_seconds()
-
-
 def format_disk_message(
     free_percent: float, warning_threshold_percent: int, downloads_paused: bool
 ) -> str:
@@ -215,61 +200,26 @@ def format_disk_message(
     )
 
 
-def format_status_message(
-    row: Any,
-    cookie_counts: dict[str, int],
-    recent_error_lines: list[str],
-    now: datetime | None = None,
-) -> str:
-    """`daemon status` parity: heartbeat, monitor, degradation, cookies, errors."""
-    now = now or datetime.now(UTC)
-    age = heartbeat_age_seconds(row.last_heartbeat_at, now)
+def format_status_message(status: DaemonStatus) -> str:
+    """`daemon status` parity: heartbeat, monitor, degradation, cookies, errors.
+
+    Thin HTML wrapper over services.status.gather_status output: the shared
+    ASCII error lines are escaped as a whole here; the rest of the wording is
+    the bot's Spanish user-facing format (§6.3).
+    """
+    age = status.heartbeat_age_seconds
     lines = [f"Latido: {'desconocido' if age is None else f'{age:.0f}s'}"]
-    lines.append(f"Monitor: {'activo' if row.monitor_running else 'detenido'}")
-    lines.append(f"Degradado: {escape_html(row.degraded_reason) if row.degraded_reason else 'no'}")
+    lines.append(f"Monitor: {'activo' if status.monitor_running else 'detenido'}")
     lines.append(
-        f"Cookies: {cookie_counts.get('valid', 0)} válidas, "
-        f"{cookie_counts.get('invalid', 0)} inválidas, "
-        f"{cookie_counts.get('inconclusive', 0)} inconclusas"
+        f"Degradado: {escape_html(status.degraded_reason) if status.degraded_reason else 'no'}"
     )
-    lines.extend(recent_error_lines or ["Sin errores recientes."])
+    lines.append(
+        f"Cookies: {status.cookie_counts.get('valid', 0)} válidas, "
+        f"{status.cookie_counts.get('invalid', 0)} inválidas, "
+        f"{status.cookie_counts.get('inconclusive', 0)} inconclusas"
+    )
+    lines.extend(escape_html(line) for line in (status.recent_errors or ["Sin errores recientes."]))
     return "\n".join(lines)
-
-
-async def recent_error_lines(session: Any) -> list[str]:
-    """Failed-video tail from the ``videos`` table (same source as `daemon status`)."""
-    rows = (
-        (
-            await session.execute(
-                select(Video)
-                .where(Video.status == "failed")
-                .order_by(Video.updated_at.desc())
-                .limit(RECENT_ERROR_LIMIT)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not rows:
-        return []
-    lines = [f"Errores recientes: {len(rows)}"]
-    for video in rows:
-        message = (video.error_message or "-")[:ERROR_MESSAGE_MAX_CHARS]
-        lines.append(
-            f"• {video.tiktok_video_id} "
-            f"[{escape_html(video.error_category or '-')}] {escape_html(message)}"
-        )
-    return lines
-
-
-async def cookie_counts(session: Any) -> dict[str, int]:
-    """Cookie validation_state counts (same group-by as `daemon status`)."""
-    rows = (
-        await session.execute(
-            select(Cookie.validation_state, func.count()).group_by(Cookie.validation_state)
-        )
-    ).all()
-    return dict(rows)
 
 
 def to_inline_keyboard(rows: list[list[dict[str, str]]]) -> InlineKeyboardMarkup:
@@ -484,13 +434,11 @@ class TikDownBot:
 
     async def _send_status(self, update: Any) -> None:
         async with self._session_factory() as session:
-            row = await read_status(session)
-            if row is None:
-                await self._reply(update, MSG_NO_DAEMON_STATE)
-                return
-            counts = await cookie_counts(session)
-            errors = await recent_error_lines(session)
-        await self._reply(update, format_status_message(row, counts, errors))
+            status = await gather_status(session)
+        if status is None:
+            await self._reply(update, MSG_NO_DAEMON_STATE)
+            return
+        await self._reply(update, format_status_message(status))
 
     # -- mutating commands (T5b: funnel -> service -> escaped reply) ----------
 
