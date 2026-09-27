@@ -256,6 +256,32 @@ async def test_slot_busy_is_configuration_error(factory) -> None:
     assert await slot_owner(factory) == "someone-else"  # never stolen
 
 
+# --- B5 (JD-A-002): a non-cancel crash must NOT wedge the account ---
+
+
+async def test_unexpected_listing_error_unwedges_to_queued(factory) -> None:
+    """T-BACKFILL-6 (§9.1): run_backfill only handled CancelledError, so a
+    transient listing failure (or any non-cancel exception) left the account
+    in 'backfilling' with no producer able to pick it up until a manual
+    restart. Any other exception now unwedges to 'queued' (no identifiable
+    cause) and releases the slot."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+
+    class ExplodingListEngine(FakeEngine):
+        def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
+            self.list_calls += 1
+            raise RuntimeError("keeps sending the same page")
+
+    engine = ExplodingListEngine([])
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "failed"
+    account = await get_account(factory, account_id)
+    assert account.backfill_status == "queued"
+    assert await slot_owner(factory) is None  # slot released in the finally
+
+
 # --- Happy path: totals, done, cursor, events, slot released ---
 
 

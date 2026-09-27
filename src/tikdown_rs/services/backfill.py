@@ -573,6 +573,25 @@ async def run_backfill(
             )
         return status
 
+    except Exception:
+        # B5 (JD-A-002): a non-cancel crash (transient listing failure, locked
+        # DB, IntegrityError) used to leave the account in 'backfilling' with
+        # no producer able to pick it up until a manual restart (collect only
+        # takes queued/paused; reconcile only runs at startup). T-BACKFILL-6:
+        # no identifiable cause -> 'queued', the state is unwedged.
+        logger.exception("backfill of account %s crashed; unwedging to queued", account_id)
+        async with session_factory() as session:
+            await session.execute(
+                text(
+                    "UPDATE monitored_accounts SET backfill_status = 'queued',"
+                    " updated_at = :now"
+                    " WHERE id = :id AND backfill_status = 'backfilling'"
+                ),
+                {"now": _utcnow_iso(), "id": account_id},
+            )
+            await session.commit()
+        return "failed"
+
     finally:
         async with session_factory() as session:
             await release_backfill_slot(session, slot_owner)
