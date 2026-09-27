@@ -13,8 +13,21 @@ Master base: d2bcb78. Cada fix = un commit revertible, tests de regresión prime
 - [x] B5 — `except Exception` en run_backfill → `queued` (§9.1/T-BACKFILL-6). Commits `2caef2a` + `95e4fb0` (gates re-raise).
 - [x] B8 — collect hace `paused→queued` con causa resuelta y salta `needs_review` (§9.1). Commit `cbfdd59` (flake único de timing en 1 corrida; suite estable ×4).
 - [x] B7 — `expected_has_video` en backfill + retirar `retry_fn` (embudo del motor ya implementa §4.7) + fila en Apéndice C (DR-18). Commit `d0b0bad`.
-- [ ] B1 — `to_thread` en los 4 call sites de listado (T-ASYNC-8). Commit `<sha>`.
-- [ ] Gate final: ruff check + format + pytest completo en verde, merge decision del usuario.
+- [x] B1 — `to_thread` en los 4 call sites de listado (T-ASYNC-8). Commit `539d7e0`.
+- [x] Gate final: ruff check + format + pytest en verde — 530 passed, 1 deselected (live).
+
+## Commits (rama fix/review-bloqueantes, base master d2bcb78)
+
+1. `a21bc23` B4 NETWORK_PROBE_URL vacío
+2. `c893cd9` B6 cursor '<' estricto
+3. `279abc6` B2 extract_flat real
+4. `4a912bf` B3 MONITOR_INTERVAL_MINUTES cableado
+5. `2caef2a` + `95e4fb0` B5 unwedge backfilling + gates re-raise
+6. `cbfdd59` B8 collect reanuda paused
+7. `d0b0bad` B7 slideshows skipped + retry_fn retirado (DR-18)
+8. `539d7e0` B1 to_thread en listados
+
+Merge decision: del usuario.
 
 ## Notes
 
