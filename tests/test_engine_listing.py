@@ -248,3 +248,53 @@ def test_validate_cookie_all_candidates_without_video_is_inconclusive() -> None:
         )
         == "inconclusive"
     )
+
+
+class TestHandleNormalizationLiveRound:
+    """Live-round regression (M6, Apéndice A row): `accounts add` stores the
+    profile URL verbatim; every engine consumer passes `account.username`
+    straight into list_videos/extract_profile. A full URL fed into the
+    f-string produced `https://www.tiktok.com/@https://www.tiktok.com/@user`,
+    which TikTok redirects to /foryou — a SILENT empty listing (backfill
+    completed total=0 on an account with 5 videos).
+    """
+
+    def test_list_videos_accepts_full_profile_url(
+        self, engine: YtDlpEngine, captured: list
+    ) -> None:
+        engine.list_videos("https://www.tiktok.com/@rosary657")
+        assert captured_url(captured) == "https://www.tiktok.com/@rosary657"
+
+    def test_list_videos_accepts_url_with_query_and_trailing_slash(
+        self, engine: YtDlpEngine, captured: list
+    ) -> None:
+        engine.list_videos("https://www.tiktok.com/@rosary657?lang=en/")
+        assert captured_url(captured) == "https://www.tiktok.com/@rosary657"
+
+    def test_list_videos_accepts_at_handle(self, engine: YtDlpEngine, captured: list) -> None:
+        engine.list_videos("@rosary657")
+        assert captured_url(captured) == "https://www.tiktok.com/@rosary657"
+
+    def test_list_videos_accepts_bare_handle(self, engine: YtDlpEngine, captured: list) -> None:
+        engine.list_videos("rosary657")
+        assert captured_url(captured) == "https://www.tiktok.com/@rosary657"
+
+    def test_canonical_video_urls_use_normalized_handle(
+        self, engine: YtDlpEngine, captured: list
+    ) -> None:
+        videos = engine.list_videos("https://www.tiktok.com/@rosary657")
+        assert videos and all(
+            v["url"] == f"https://www.tiktok.com/@rosary657/video/{v['id']}" for v in videos
+        )
+
+    def test_extract_profile_accepts_full_profile_url(
+        self, engine: YtDlpEngine, captured: list
+    ) -> None:
+        profile = engine.extract_profile("https://www.tiktok.com/@rosary657")
+        assert captured_url(captured) == "https://www.tiktok.com/@rosary657"
+        assert profile["username"] == "rosary657"
+
+    @pytest.mark.parametrize("bad", ["https://www.tiktok.com", "   "])
+    def test_unparseable_handle_raises(self, engine: YtDlpEngine, bad: str) -> None:
+        with pytest.raises(ValueError, match="handle"):
+            engine.list_videos(bad)

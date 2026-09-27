@@ -27,6 +27,7 @@ import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yt_dlp
 
@@ -88,6 +89,31 @@ def upload_date_from_timestamp(value: object) -> str:
 def canonical_video_url(username: str, video_id: str) -> str:
     """Canonical TikTok page URL (4.6, T-ENGINE-14)."""
     return f"https://www.tiktok.com/@{username}/video/{video_id}"
+
+
+def normalize_handle(value: str) -> str:
+    """Accept @user, user, or a TikTok profile URL; return the bare handle.
+
+    Live-round regression (Apéndice A, M6): `accounts add` stores the profile
+    URL verbatim and every engine consumer passes `account.username` here. A
+    full URL fed into the profile f-string produced
+    `https://www.tiktok.com/@https://www.tiktok.com/@user`, which TikTok
+    redirects to /foryou — with ignoreerrors=True that came back as a silent
+    EMPTY listing (backfill completed total=0 on an account with videos).
+    Normalizing here covers all three callers (backfill, monitor, profile
+    refresh) through the shared engine functions.
+    """
+    candidate = value.strip()
+    if candidate.startswith(("http://", "https://")):
+        handle = next(
+            (segment for segment in urlparse(candidate).path.split("/") if segment.startswith("@")),
+            "",
+        )
+        candidate = handle or candidate
+    handle = candidate.lstrip("@").strip("/").strip()
+    if not handle or "/" in handle or ":" in handle:
+        raise ValueError(f"unparseable TikTok handle: {value!r}")
+    return handle
 
 
 class YtDlpEngine:
@@ -219,7 +245,7 @@ class YtDlpEngine:
 
     def extract_profile(self, username: str) -> ProfileData:
         """Profile refresh info from the first flat page (4.6)."""
-        username = username.lstrip("@")
+        username = normalize_handle(username)
         info = self._extract(
             f"https://www.tiktok.com/@{username}", self._flat_options(max_entries=1)
         )
@@ -232,7 +258,7 @@ class YtDlpEngine:
 
     def list_videos(self, username: str, max_entries: int | None = None) -> list[VideoData]:
         """Normalized feed listing (4.6 rules; see module docstring)."""
-        username = username.lstrip("@")
+        username = normalize_handle(username)
         info = self._extract(f"https://www.tiktok.com/@{username}", self._flat_options(max_entries))
         videos: list[VideoData] = []
         for entry in (info or {}).get("entries") or []:
