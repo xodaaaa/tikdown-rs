@@ -28,8 +28,11 @@ M4 startup order (STRICT, 5.1):
    transition replay (T-BACKFILL-16) + reconcile_stale_backfills (T-BACKFILL-6).
 7. startup capacity probes: impersonation + ffmpeg/ffprobe (T-DEPLOY-10),
    persisted ONLY as degraded_reason via the dedicated mutator.
-8. ponytail: Telegram bot lands in M5 HERE (6.1): build the app with injected
-   dependencies, start polling as a supervised task BEFORE the scheduler.
+8. Telegram bot (6.1): built with INJECTED dependencies (T-BOT-3: the daemon's
+   own session_factory, ONE engine), started with the strict
+   initialize/start/start_polling sequence (T-BOT-1, never run_polling) and
+   supervised (6.5) BEFORE the scheduler. An enhancement, not a critical
+   path: a bot failure at startup only logs -- the daemon continues without it.
 9. ALL 7 jobs of 5.3 registered (max_instances=1 + coalesce=True, T-ASYNC-13);
    every job leaves a consultable trace (T-DATA-2) and every flag a job reads
    is RE-READ per execution, never cached at registration (T-ASYNC-16).
@@ -37,8 +40,9 @@ M4 startup order (STRICT, 5.1):
 
 Shutdown (5.2): stop_event by signal or watcher (poll <= 0.5 s); scheduler
 shutdown stops the *scheduling* (T-ASYNC-9); daemon.stopped emitted BEFORE the
-drain (T-ASYNC-6); bounded drain (10 s) of supervised tasks; daemon_state
-cleanup; engine dispose.
+drain (T-ASYNC-6); bounded drain (10 s) of supervised tasks (this cancels the
+bot supervision loop); bot stopped with the strict T-BOT-1 sequence;
+daemon_state cleanup; engine dispose.
 """
 
 import asyncio
@@ -56,6 +60,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from tikdown_rs.bot.dispatcher import TikDownBot
+from tikdown_rs.bot.supervision import PollingSupervisor, start_bot_polling, stop_bot_polling
 from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.daemon_state import (
@@ -182,6 +188,8 @@ class DaemonComponents:
     last_monitor_cycle_started_at: float | None = None
     # 5.6 dedupe-per-edge: the last count seen by the heartbeat.
     last_contention_count: int = 0
+    # M5 (6.1): the TikDownBot when TELEGRAM_BOT_TOKEN is set; None otherwise.
+    bot: object | None = None
 
 
 @dataclass
@@ -619,9 +627,18 @@ async def start_daemon(
         await retry_on_locked(
             lambda: _record_probes(session_factory, probes, cookies_ok=engine is not None)
         )
-        # (8) ponytail: Telegram bot insertion point is M5 (6.1): build the app
-        # with injected dependencies here, start polling as a supervised task,
-        # BEFORE the scheduler registers the jobs below.
+        # (8) Telegram bot (6.1): started BEFORE the scheduler (5.1 order).
+        # STRICTLY an enhancement: any failure here only logs -- the daemon
+        # continues WITHOUT it (the bot is last-before-scheduler for a reason).
+        # T-BOT-3: the bot gets the daemon's OWN session_factory injected, so
+        # there is exactly ONE engine (built in step 5, disposed by
+        # shutdown_daemon); the bot never creates or disposes an engine itself.
+        if settings.telegram_bot_token:
+            try:
+                components.bot = await _start_bot(components)
+                logger.info("daemon.bot: polling started (supervised)")
+            except Exception:
+                logger.exception("daemon.bot: startup failed; daemon continues WITHOUT bot")
         # (9) ALL 7 jobs of 5.3 (T-ASYNC-13, T-DATA-2).
         # Deterministic liveness signal FIRST: one heartbeat written directly
         # in startup, before any scheduler job exists. Tests and healthcheck
@@ -647,6 +664,25 @@ async def start_daemon(
         raise
 
 
+async def _start_bot(components: DaemonComponents) -> TikDownBot:
+    """Build and start the bot (6.1): injected deps, strict sequence, supervised loop.
+
+    T-BOT-1: initialize -> start -> updater.start_polling(25); NEVER
+    run_polling on the daemon's live loop. The §6.5 supervision loop runs as a
+    supervised task (5.5) so shutdown drains it together with the bot stop.
+    """
+    bot = TikDownBot(components.settings, components.session_factory)
+    bot.register_handlers()
+    await start_bot_polling(bot.application)
+    supervisor = PollingSupervisor(
+        bot.application,
+        interval=components.settings.polling_healthcheck_interval,
+        max_failures=components.settings.polling_healthcheck_max_failures,
+    )
+    create_supervised_task(supervisor.run(), name="bot-polling-supervision")
+    return bot
+
+
 async def shutdown_daemon(runtime: DaemonRuntime) -> None:
     """5.2 shutdown order: scheduling off, daemon.stopped BEFORE the drain."""
     runtime.scheduler.shutdown(wait=False)
@@ -654,6 +690,9 @@ async def shutdown_daemon(runtime: DaemonRuntime) -> None:
     # the drain cancels work in flight.
     runtime.components.notifications.emit(EVENT_DAEMON_STOPPED, {"reason": "shutdown"})
     await drain_supervised_tasks(SHUTDOWN_DRAIN_SECONDS)
+    if runtime.components.bot is not None:
+        # T-BOT-1: strict stop sequence, per-stage tolerant (6.1).
+        await stop_bot_polling(runtime.components.bot.application)
     # ponytail: scheduler-job tasks are NOT in the supervised registry and a
     # task wedged in aiosqlite's shielded terminate ignores cancellation, so
     # a catch-all cancel/wait here is worse than useless (it also cancels the
