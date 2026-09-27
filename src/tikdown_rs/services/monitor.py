@@ -313,6 +313,11 @@ async def download_pendings(
                 path,
                 row.tiktok_video_id,
                 account.id,
+                # T-ENGINE-5 (4.7): a listing entry without duration is a
+                # photo post; a file without a video stream is then the
+                # EXPECTED slideshow -> skipped + dedupe add, never the
+                # degraded-response fallback path.
+                expected_has_video=row.duration is not None,
                 notify_on_download=account.notify_on_download,
                 on_event=on_event,  # T-BACKFILL-13: propagated EXPLICITLY
                 archive=archive,
