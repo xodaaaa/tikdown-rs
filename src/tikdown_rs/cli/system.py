@@ -15,6 +15,7 @@ from tikdown_rs.core.daemon_state import read_status, set_downloads_paused
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.notifications import render as render_message
 from tikdown_rs.core.notifications.events import EVENT_DISK_RESUMED
+from tikdown_rs.services.maintenance import create_backup
 
 app = typer.Typer(help="System maintenance commands.")
 
@@ -67,10 +68,24 @@ def disk(
     run_or_exit(_disk, resume)
 
 
+def _backup() -> None:
+    async def impl() -> None:
+        settings = await prepare_invocation(load_settings())
+        engine = create_db_engine(sqlite_url_for(settings.data_dir))
+        try:
+            snapshot, deleted = await create_backup(make_session_factory(engine), settings)
+        finally:
+            await engine.dispose()
+        typer.echo(f"backup: {snapshot}")
+        typer.echo(f"retention: {deleted} old snapshot(s) removed")
+
+    asyncio.run(impl())
+
+
 @app.command()
 def backup() -> None:
-    """Create a data backup."""
-    raise_unimplemented("system backup")
+    """Create a data backup snapshot with retention (14.5)."""
+    run_or_exit(_backup)
 
 
 @site_app.command()

@@ -20,10 +20,13 @@ the probe arrive INJECTED and the event channel is SYNC (T-BACKFILL-15).
 
 import asyncio
 import logging
+import os
 import random
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.notifications.events import (
@@ -160,3 +163,72 @@ async def refresh_all_profiles(
         refreshed += 1
         _emit_event(on_event, EVENT_PROFILE_REFRESHED, account_id=account_id, username=username)
     return refreshed
+
+
+# --- create_backup (14.5: VACUUM INTO snapshot + retention, 15.2 rule 2) ---
+
+#: 14.5 snapshot name: one file per invocation, UTC-second resolution.
+_SNAPSHOT_RE = re.compile(r"^tikdown-rs-\d{8}T\d{6}Z\.db$")
+
+
+def _apply_retention(directory: Path, retain: int) -> int:
+    """Delete the oldest snapshots beyond ``retain``; return how many.
+
+    ONLY files matching the snapshot naming pattern are candidates -- an
+    operator's unrelated files in <DATA_DIR>/backups are never touched.
+    ``retain == 0`` deletes every snapshot (the field is ge=0 by design).
+    """
+    snapshots = sorted(p for p in directory.iterdir() if _SNAPSHOT_RE.match(p.name))
+    victims = snapshots if retain == 0 else snapshots[:-retain]
+    for path in victims:
+        path.unlink()
+    return len(victims)
+
+
+async def create_backup(
+    session_factory: async_sessionmaker[AsyncSession],
+    settings,
+    *,
+    now_fn=None,
+) -> tuple[Path, int]:
+    """Snapshot the live database with SQLite ``VACUUM INTO`` (14.5).
+
+    Why VACUUM INTO and never a file copy: the database runs in WAL mode
+    (db.py PRAGMA_STATEMENTS); copying ``tikdown-rs.db`` while ``-wal`` still
+    holds committed frames yields an inconsistent or corrupt copy. VACUUM INTO
+    is the ONLINE backup for a live WAL database: it reads a consistent
+    committed snapshot through the connection (busy_timeout applies) while
+    writers keep running, and produces one self-contained compacted file. It
+    therefore works with the daemon running AND from the CLI while stopped.
+
+    The database contains unencrypted cookies, so the snapshot is a SECRET
+    (15.2 rule 2): it gets ``chmod 0600``, best-effort -- on Windows chmod
+    only toggles the read-only flag, so a PermissionError is logged and
+    swallowed instead of failing an otherwise complete backup.
+
+    Same-second invocations collide on the timestamped name and VACUUM INTO
+    refuses an existing target file, so the stale file is unlinked first:
+    deterministic overwrite, one snapshot per second.
+
+    Retention keeps the newest ``settings.system_backup_retain_count`` files
+    matching the snapshot pattern; nothing else in the directory is deleted.
+    Returns ``(snapshot_path, deleted_count)``. The snapshot is NOT opened or
+    verified beyond being written -- restore-time validation is
+    ``daemon selfcheck`` (14.5).
+    """
+    now = (now_fn if now_fn is not None else lambda: datetime.now(UTC))()
+    directory = settings.data_dir / "backups"
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / f"tikdown-rs-{now:%Y%m%dT%H%M%S}Z.db"
+    target.unlink(missing_ok=True)  # same-second collision: overwrite
+    async with session_factory() as session:  # short session (T-DB-15)
+        # VACUUM cannot run inside a transaction: AUTOCOMMIT from the start
+        # (before autobegin) keeps the implicit BEGIN out of the way.
+        connection = await session.connection(execution_options={"isolation_level": "AUTOCOMMIT"})
+        await connection.execute(text("VACUUM INTO :path"), {"path": str(target)})
+    try:
+        os.chmod(target, 0o600)  # 15.2 rule 2; best-effort on Windows
+    except PermissionError:
+        logger.info("backup chmod 0600 skipped (not permitted): %s", target)
+    deleted = _apply_retention(directory, settings.system_backup_retain_count)
+    return target, deleted

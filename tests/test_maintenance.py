@@ -11,15 +11,25 @@ event recorder. No network, no yt-dlp.
 """
 
 import asyncio
+import re
+import sqlite3
+import stat
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tikdown_rs.core.config import Settings
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.migrations import run_migrations
 from tikdown_rs.models import Cookie, MonitoredAccount
-from tikdown_rs.services.maintenance import refresh_all_profiles, validate_all_cookies
+from tikdown_rs.services.maintenance import (
+    create_backup,
+    refresh_all_profiles,
+    validate_all_cookies,
+)
 
 
 class Recorder:
@@ -234,6 +244,111 @@ async def test_refresh_all_profiles_isolates_failing_account(factory) -> None:
     row = await get_account(factory, good)
     assert row.follower_count == 7
     assert row.profile_last_refreshed is not None
+
+
+# --- create_backup (14.5: VACUUM INTO snapshot + retention, 15.2 rule 2) ---
+
+SNAPSHOT_RE = re.compile(r"^tikdown-rs-\d{8}T\d{6}Z\.db$")
+
+
+def _seed_backups(backups: Path, stamps: list[str]) -> None:
+    """Fake OLDER snapshots with the exact naming pattern (newest last)."""
+    backups.mkdir(parents=True, exist_ok=True)
+    for stamp in stamps:
+        (backups / f"tikdown-rs-{stamp}Z.db").write_bytes(b"old snapshot bytes")
+
+
+async def test_create_backup_snapshot_is_valid_sqlite(factory, tmp_path: Path) -> None:
+    """14.5: the snapshot is a readable SQLite DB and the seeded row round-trips."""
+    settings = Settings(data_dir=tmp_path, system_backup_retain_count=7)
+    cookie_id = await add_cookie(factory, "secret", b"cookie netscape")
+
+    snapshot, deleted = await create_backup(factory, settings)
+
+    assert SNAPSHOT_RE.match(snapshot.name)
+    assert snapshot.exists() and snapshot.stat().st_size > 0
+    assert deleted == 0
+    con = sqlite3.connect(snapshot)
+    try:
+        assert con.execute("select count(*) from sqlite_master").fetchone()[0] > 0
+        row = con.execute(
+            "select label, cookie_blob from cookies where id = ?", (cookie_id,)
+        ).fetchone()
+    finally:
+        con.close()
+    assert row == ("secret", b"cookie netscape")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows chmod only toggles read-only")
+async def test_create_backup_file_mode_is_0600(factory, tmp_path: Path) -> None:
+    """15.2 rule 2 / §14.5: cookies are stored unencrypted; the snapshot is a secret."""
+    snapshot, _ = await create_backup(
+        factory, Settings(data_dir=tmp_path, system_backup_retain_count=7)
+    )
+    assert stat.S_IMODE(snapshot.stat().st_mode) == 0o600
+
+
+async def test_create_backup_retention_keeps_newest(factory, tmp_path: Path) -> None:
+    """14.5: only the SYSTEM_BACKUP_RETAIN_COUNT newest snapshots survive."""
+    settings = Settings(data_dir=tmp_path, system_backup_retain_count=2)
+    _seed_backups(tmp_path / "backups", ["20240101T000000", "20240102T000000", "20240103T000000"])
+
+    snapshot, deleted = await create_backup(factory, settings)
+
+    assert deleted == 2
+    assert sorted(p.name for p in (tmp_path / "backups").iterdir()) == sorted(
+        [snapshot.name, "tikdown-rs-20240103T000000Z.db"]
+    )
+
+
+async def test_create_backup_retention_never_deletes_unrelated_files(
+    factory, tmp_path: Path
+) -> None:
+    """Retention only touches files matching the snapshot naming pattern."""
+    settings = Settings(data_dir=tmp_path, system_backup_retain_count=1)
+    backups = tmp_path / "backups"
+    _seed_backups(backups, ["20240101T000000", "20240102T000000"])
+    (backups / "operator-notes.txt").write_text("keep me")
+    (backups / "tikdown-rs-old.db.bak").write_bytes(b"suffix breaks the pattern")
+
+    _, deleted = await create_backup(factory, settings)
+
+    assert deleted == 2
+    assert (backups / "operator-notes.txt").exists()
+    assert (backups / "tikdown-rs-old.db.bak").exists()
+
+
+async def test_create_backup_same_second_overwrites_deterministically(
+    factory, tmp_path: Path
+) -> None:
+    """Two invocations in the same second: the newer VACUUM INTO overwrites
+    deterministically (unlink-then-vacuum), leaving exactly one snapshot."""
+    settings = Settings(data_dir=tmp_path, system_backup_retain_count=7)
+    fixed = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    first, _ = await create_backup(factory, settings, now_fn=lambda: fixed)
+    (tmp_path / "backups" / first.name).write_bytes(b"stale partial content")
+    second, _ = await create_backup(factory, settings, now_fn=lambda: fixed)
+
+    assert first == second
+    assert second.stat().st_size > 0  # real snapshot replaced the stale bytes
+    assert sorted(p.name for p in (tmp_path / "backups").iterdir()) == [second.name]
+
+
+def test_cli_backup_creates_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """10.1/14.5: `system backup` exits 0, prints the snapshot path + retention."""
+    from typer.testing import CliRunner
+
+    from tikdown_rs.cli.main import app
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    result = CliRunner().invoke(app, ["system", "backup"])
+
+    assert result.exit_code == 0, result.output
+    snapshots = list((tmp_path / "backups").glob("tikdown-rs-*.db"))
+    assert len(snapshots) == 1
+    assert str(snapshots[0]) in result.output
+    assert "retention" in result.output
 
 
 # --- B1 (T-ASYNC-8): blocking extract_profile must run OFF the loop thread ---
