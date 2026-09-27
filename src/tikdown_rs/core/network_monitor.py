@@ -19,6 +19,11 @@ code path does not exist.
 The probe hits a NEUTRAL endpoint (``settings.network_probe_url``, never
 TikTok): any HTTP response below 500 means the network is up; connection
 errors and timeouts are failures.
+
+B4 (JD-A-005): an EMPTY ``network_probe_url`` degrades to 'network assumed
+available' with one warning -- §0.2.3 lists the fail-fast critical config
+(cookies, impersonación, DATA_DIR) and the probe URL is not in it; probing
+'' would fail twice and self-classify a healthy deployment offline forever.
 """
 
 import asyncio
@@ -70,6 +75,11 @@ class NetworkMonitor:
         self._on_event = on_event
         self._jitter_fn = jitter_fn
         self._probe_url = settings.network_probe_url
+        if not self._probe_url:
+            # B4: one warning, then 'assumed available' -- never probe ''. (§8.1)
+            logger.warning(
+                "network_probe_url is empty: no reachability probing, network is ASSUMED available"
+            )
         self._probe_timeout = settings.network_probe_timeout_seconds
         self._threshold = settings.network_offline_threshold_consecutive_failures
         self._consecutive_failures = 0
@@ -87,6 +97,9 @@ class NetworkMonitor:
 
     async def probe_once(self) -> bool:
         """One probe; updates the state machine. Returns the reachable verdict."""
+        if not self._probe_url:
+            # B4: no URL configured -> nothing to probe, network assumed up.
+            return True
         reachable = bool(await self._probe_fn(self._probe_url, self._probe_timeout))
         if reachable:
             if self._offline:

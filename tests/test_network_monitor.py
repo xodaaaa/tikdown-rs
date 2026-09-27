@@ -70,6 +70,30 @@ def make_monitor(results: list[bool], clock: FakeClock | None = None, **kwargs):
     return monitor, calls, clock
 
 
+# --- B4 fix (JD-A-005): empty NETWORK_PROBE_URL must NOT self-classify offline ---
+
+
+async def test_empty_probe_url_assumes_online_and_never_probes() -> None:
+    """§8.1 + §0.2.3: the probe URL is NOT in the fail-fast critical list, so an
+    empty default degrades to 'network assumed available' with a warning, never
+    to a permanent false offline (two httpx failures on '')."""
+    settings = Settings(network_probe_url="")
+    boom = False
+
+    async def exploding_probe(url: str, timeout_seconds: int) -> bool:
+        nonlocal boom
+        boom = True
+        return False
+
+    monitor = NetworkMonitor(settings, asyncio.Event(), probe_fn=exploding_probe)
+    monitor.network_available.set()  # T-ENGINE-7: caller creates it pre-set
+    assert await monitor.probe_once() is True
+    assert boom is False  # no probe call: an empty URL must never be probed
+    assert monitor.is_online
+    assert monitor.network_available.is_set()
+    assert monitor.offline_since is None
+
+
 # --- T-ENGINE-7: injected event, pre-set by the caller ---
 
 
