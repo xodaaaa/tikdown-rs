@@ -288,7 +288,7 @@ async def test_happy_path_persists_totals_done_cursor_and_releases_slot(
     # catalog, M4 WU1); only the per-video download events do.
     assert [e["status"] for e in events.events if "status" in e] == ["downloaded"] * 3
     assert next(e["event"] for e in events.events) == "backfill.started"
-    assert list(e["event"] for e in events.events)[-1] == "backfill.completed"
+    assert [e["event"] for e in events.events][-1] == "backfill.completed"
 
     account = await get_account(factory, account_id)
     assert order[0] == "total_update"  # spy fired

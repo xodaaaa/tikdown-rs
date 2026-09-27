@@ -10,6 +10,7 @@ CHECK). The production caller (monitor/backfill jobs) is pending by plan order
 """
 
 import asyncio
+import errno
 import hashlib
 import json
 import os
@@ -22,7 +23,8 @@ from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.errors import ConfigurationError, DownloadTimeoutError
 from tikdown_rs.core.migrations import run_migrations
-from tikdown_rs.models import MonitoredAccount, Video
+from tikdown_rs.core.notifications.events import EVENT_DISK_PAUSED, EVENT_DOWNLOAD_FAILED
+from tikdown_rs.models import DaemonState, MonitoredAccount, Video
 from tikdown_rs.services.videos import (
     HandleResult,
     handle_download_result,
@@ -494,3 +496,37 @@ async def test_unknown_video_row_id_is_configuration_error(migrated_factory) -> 
         )
     with pytest.raises(ConfigurationError):
         await persist_download_failure(migrated_factory, 999999, Exception("boom"))
+
+
+# --- T-ENGINE-27: ENOSPC is a LOCAL actionable failure (8.2) ---
+
+
+async def test_enospc_local_failure_pauses_downloads_never_breaker_or_cookies(
+    migrated_factory,
+) -> None:
+    """A 'local' (disk-full) failure pauses downloads and emits disk.paused;
+    it never counts for the circuit breaker nor touches cookies (T-ENGINE-27).
+    Per the M2 CHECK mapping, 'local' is not a storable category: the video row
+    keeps error_category NULL with the message preserved."""
+    account_id = await add_account(migrated_factory)
+    row_id = await add_pending_video(migrated_factory, account_id, "enospc")
+    events = Recorder()
+    exc = OSError(errno.ENOSPC, "No space left on device")
+
+    result = await persist_download_failure(
+        migrated_factory, row_id, exc, base_retry_count=2, on_event=events
+    )
+
+    assert (result.outcome, result.error_category) == ("failed", None)
+    async with migrated_factory() as session:
+        video = await session.get(Video, row_id)
+        state = await session.get(DaemonState, 1)
+    assert video.status == "failed"
+    assert video.error_category is None
+    assert "No space left" in video.error_message
+    assert video.retry_count == 2  # a network/disk failure consumes NO retries
+    assert state.downloads_paused is True
+    paused = [e for e in events.events if e["event"] == EVENT_DISK_PAUSED]
+    failed = [e for e in events.events if e["event"] == EVENT_DOWNLOAD_FAILED]
+    assert len(paused) == 1  # exactly one pause alert per state change
+    assert len(failed) == 1  # the terminal event still fires exactly once

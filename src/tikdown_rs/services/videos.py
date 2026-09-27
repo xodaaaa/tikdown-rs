@@ -37,12 +37,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.archive import DownloadArchive
+from tikdown_rs.core.daemon_state import set_downloads_paused
 from tikdown_rs.core.errors import ConfigurationError, classify_error
 from tikdown_rs.core.notifications import (
     EVENT_DOWNLOAD_DOWNLOADED,
     EVENT_DOWNLOAD_FAILED,
     EVENT_DOWNLOAD_SKIPPED,
 )
+from tikdown_rs.core.notifications.events import EVENT_DISK_PAUSED
 from tikdown_rs.models import Video
 
 logger = logging.getLogger("tikdown_rs.services.videos")
@@ -350,6 +352,7 @@ async def persist_download_failure(
     video_row_id: int,
     exc: BaseException,
     base_retry_count: int = 0,
+    on_event=None,
 ) -> HandleResult:
     """Persist a download that RAISED, classified by THE classifier (4.4, T-DATA-3).
 
@@ -357,10 +360,14 @@ async def persist_download_failure(
     this module ever swallows an exception into a bare WARNING.
 
     'definitive'/'transient' persist directly. The classifier's 'local'
-    (disk-full: the job loop pauses downloads) and 'info' (empty account)
-    categories have no CHECK value, so the video is still persisted as failed
-    with the message kept and error_category NULL -- information is preserved,
-    the CHECK is respected.
+    (disk-full, T-ENGINE-27) and 'info' (empty account) categories have no
+    CHECK value, so the video is still persisted as failed with the message
+    kept and error_category NULL -- information is preserved, the CHECK is
+    respected. The 'local' arm additionally takes the 8.2 actionable action:
+    downloads_paused=1 + one disk.paused event; it NEVER counts for the
+    circuit breaker nor touches cookies (T-ENGINE-27).
+
+    ``on_event`` is the SYNC channel (T-BACKFILL-15), optional.
     """
     async with session_factory() as session:
         if await session.get(Video, video_row_id) is None:
@@ -375,6 +382,13 @@ async def persist_download_failure(
             category,
             exc,
         )
+        if category == "local":
+            # T-ENGINE-27 (8.2): ENOSPC is LOCAL and actionable. Set after the
+            # terminal persistence; never the breaker, never cookies.
+            async with session_factory() as session:
+                await set_downloads_paused(session, True, reason="disk")
+            if on_event is not None:
+                on_event({"event": EVENT_DISK_PAUSED})
         category = None
     message = str(exc) or repr(exc)
     return await _persist_terminal(
@@ -384,7 +398,7 @@ async def persist_download_failure(
         error_category=category,
         error_message=message,
         retry_count=base_retry_count,
-        on_event=None,
+        on_event=on_event,
         video_id=None,
         account_id=None,
         notify_on_download=False,
