@@ -719,10 +719,16 @@ def test_cli_videos_export_unknown_format_exits_1(
     assert "ERROR" in result.output
 
 
-def test_cli_videos_integrity_still_loud_stub(
+def test_cli_videos_integrity_is_real_not_stub(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """M6 T4: integrity is implemented (read-only diagnostic, §14.5).
+    Detailed service/CLI coverage lives in tests/test_integrity_service.py;
+    this pins that the command no longer raises_unimplemented."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run_migrations(tmp_path)
+
     result = cli_runner.invoke(cli_app, ["videos", "integrity"])
-    assert result.exit_code == 1
-    assert "not implemented" in result.output
+    assert result.exit_code == 0, result.output
+    assert "not implemented" not in result.output
+    assert "checked=0" in result.output

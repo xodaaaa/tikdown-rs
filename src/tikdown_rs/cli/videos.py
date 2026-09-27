@@ -11,9 +11,10 @@ import asyncio
 
 import typer
 
-from tikdown_rs.cli.common import prepare_invocation, raise_unimplemented, run_or_exit
+from tikdown_rs.cli.common import prepare_invocation, run_or_exit
 from tikdown_rs.core.config import load_settings
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
+from tikdown_rs.services.integrity import check_integrity
 from tikdown_rs.services.videos import DEFAULT_LAST_LIMIT, export_videos, recent_videos
 
 app = typer.Typer(help="Video archive queries and exports.")
@@ -86,5 +87,35 @@ def integrity(
         help="Restrict the check to one account handle.",
     ),
 ) -> None:
-    """Check archive integrity for one account or the whole archive."""
-    raise_unimplemented("videos integrity")
+    """Check archive integrity for one account or the whole archive (§14.5)."""
+    run_or_exit(_integrity, username)
+
+
+def _integrity(username: str | None) -> None:
+    async def impl() -> None:
+        settings = await prepare_invocation(load_settings())
+        engine = create_db_engine(sqlite_url_for(settings.data_dir))
+        try:
+            report = await check_integrity(make_session_factory(engine), username=username)
+        finally:
+            await engine.dispose()
+        # §14.5 diagnostic: size + SHA-256 + ffprobe. A missing ffprobe only
+        # SKIPS the container check (WARNING), and flagged rows never change
+        # the exit code — failures are reported, not raised.
+        typer.echo(
+            f"integrity: checked={report.total_checked} ok={report.ok} "
+            f"missing={report.missing} container_failed={report.container_failed} "
+            f"ffprobe_skipped={report.ffprobe_skipped}"
+        )
+        if report.ffprobe_skipped:
+            typer.echo(
+                "WARNING: ffprobe not found; container checks skipped "
+                "(size and SHA-256 still reported)"
+            )
+        for row in report.rows:  # T-CLI-1: plain ASCII lines, one per non-ok row
+            if row.missing:
+                typer.echo(f"MISSING id={row.tiktok_video_id} path={row.local_path}")
+            elif row.container_ok is False:
+                typer.echo(f"CONTAINER_FAILED id={row.tiktok_video_id} path={row.local_path}")
+
+    asyncio.run(impl())
