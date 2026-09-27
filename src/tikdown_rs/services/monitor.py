@@ -157,7 +157,13 @@ async def discover_new_videos(
             return 0
 
     try:
-        entries = [e for e in engine.list_videos(username, max_entries) if e.get("id")]
+        # B1 (T-ASYNC-8): the listing is a blocking yt-dlp call (network +
+        # sleep_interval_requests pagination) — never run it on the loop.
+        entries = [
+            e
+            for e in await asyncio.to_thread(engine.list_videos, username, max_entries)
+            if e.get("id")
+        ]
     except Exception as exc:  # noqa: BLE001 - classified by THE classifier (T-DATA-3)
         category = classify_error(exc)
         if category == "info":

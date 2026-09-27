@@ -9,6 +9,7 @@ point that needs cookies, never in this layer: the probe is INJECTED as
 ``probe_fn`` (T-DATA-3: classification via core.errors.classify_error only).
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
@@ -130,7 +131,9 @@ async def validate_cookie(
             # composing probe_profile + entries_have_video is the CALLER's job
             # (composition root) so this service never imports yt_dlp even
             # transitively (§4.8 layering intent, stricter than the arch test).
-            has_video = probe_fn(blob, url, max_entries)
+            # B1 (T-ASYNC-8): probe_fn composes blocking yt-dlp extraction —
+            # never run it on the loop thread.
+            has_video = await asyncio.to_thread(probe_fn, blob, url, max_entries)
         except Exception as exc:  # noqa: BLE001 - any failure is classified (7)
             if classify_error(exc) == "definitive":
                 verdict = "invalid"  # auth confirmed against a verified probe

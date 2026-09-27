@@ -139,7 +139,8 @@ async def refresh_all_profiles(
     refreshed = 0
     for account_id, username in targets:
         try:
-            profile = engine.extract_profile(username)
+            # B1 (T-ASYNC-8): blocking yt-dlp extraction — never on the loop.
+            profile = await asyncio.to_thread(engine.extract_profile, username)
         except Exception as exc:  # noqa: BLE001 - isolation: skip and continue
             logger.warning(
                 "profile.refresh skipped for %s (%s): %s",

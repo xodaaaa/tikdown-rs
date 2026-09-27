@@ -421,7 +421,12 @@ async def run_backfill(
 
         # Listing INSIDE the try (T-BACKFILL-6): a CancelledError during the
         # listing must unwedge the state exactly like one mid-download.
-        entries = [e for e in engine.list_videos(username, max_entries) if e.get("id")]
+        # B1 (T-ASYNC-8): the listing is a blocking yt-dlp call — never on the loop.
+        entries = [
+            e
+            for e in await asyncio.to_thread(engine.list_videos, username, max_entries)
+            if e.get("id")
+        ]
         # T-BACKFILL-5: the total is computed and persisted AFTER the real
         # listing, never from a still-None variable.
         if not await _persist_total(session_factory, account_id, len(entries)):

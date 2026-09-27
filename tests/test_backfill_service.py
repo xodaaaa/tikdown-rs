@@ -826,3 +826,31 @@ async def test_two_concurrent_runs_only_one_wins(factory) -> None:
     gate.set()
     assert await asyncio.wait_for(task1, timeout=10.0) == "completed"
     assert await slot_owner(factory) is None
+
+
+# --- B1 (T-ASYNC-8): blocking listing must run OFF the event loop thread ---
+
+
+def _assert_off_loop() -> None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    raise AssertionError("blocking yt-dlp listing ran on the event loop thread")
+
+
+async def test_backfill_listing_runs_off_the_loop_thread(factory) -> None:
+    """T-ASYNC-8/§1.1.3 (B1/JD-A-001): the call site must offload the blocking
+    yt-dlp listing to a worker thread. If it ran on the loop, the off-loop
+    assertion raises and B5 unwedges to 'failed' instead of 'completed'."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+
+    class OffLoopListEngine(FakeEngine):
+        def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
+            _assert_off_loop()
+            return self.entries
+
+    engine = OffLoopListEngine([_entry("1", "20260101")])
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+    assert status == "completed"

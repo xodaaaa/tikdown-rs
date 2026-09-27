@@ -234,3 +234,31 @@ async def test_refresh_all_profiles_isolates_failing_account(factory) -> None:
     row = await get_account(factory, good)
     assert row.follower_count == 7
     assert row.profile_last_refreshed is not None
+
+
+# --- B1 (T-ASYNC-8): blocking extract_profile must run OFF the loop thread ---
+
+
+async def test_profile_refresh_runs_off_the_loop_thread(factory) -> None:
+    """T-ASYNC-8/§1.1.3 (B1/JD-A-001): refresh must offload the blocking
+    yt-dlp extraction; on-loop, the off-loop assertion raises and the account
+    is skipped (refreshed stays 0)."""
+    import asyncio as _asyncio
+
+    await add_account(factory, "alice", mode="monitor")
+
+    def _assert_off_loop() -> None:
+        try:
+            _asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        raise AssertionError("blocking yt-dlp extraction ran on the event loop thread")
+
+    class OffLoopProfileEngine(FakeProfileEngine):
+        def extract_profile(self, username: str) -> dict:
+            _assert_off_loop()
+            return self.profiles[username]
+
+    engine = OffLoopProfileEngine({"alice": {"username": "alice", "followers": 7}})
+    refreshed = await refresh_all_profiles(factory, engine=engine)
+    assert refreshed == 1

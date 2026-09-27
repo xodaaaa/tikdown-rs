@@ -496,3 +496,30 @@ async def test_cycle_without_cookies_stops_before_any_account(factory) -> None:
     assert counts["stopped"] is True
     assert engine.list_calls == 0
     assert recorder.names() == ["monitor.stopped_no_cookies"]
+
+
+# --- B1 (T-ASYNC-8): blocking listing must run OFF the event loop thread ---
+
+
+async def test_monitor_listing_runs_off_the_loop_thread(factory) -> None:
+    """T-ASYNC-8/§1.1.3 (B1/JD-A-001): discover must offload the blocking
+    yt-dlp listing to a worker thread; on-loop, the off-loop assertion raises,
+    the account is skipped and discovery counts 0."""
+    await add_valid_cookie(factory)
+    await add_monitor_account(factory)
+
+    def _assert_off_loop() -> None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        raise AssertionError("blocking yt-dlp listing ran on the event loop thread")
+
+    class OffLoopListEngine(FakeEngine):
+        def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
+            _assert_off_loop()
+            return self.entries
+
+    engine = OffLoopListEngine([_entry("111")])
+    discovered = await discover_new_videos(factory, "acct", engine=engine)
+    assert discovered == 1
