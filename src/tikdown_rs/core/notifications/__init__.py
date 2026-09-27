@@ -28,8 +28,6 @@ from .service import (
 
 __all__ = [
     "EVENTS",
-    "EventSpec",
-    "EmittedEvent",
     "EVENT_BACKFILL_CANCELLED",
     "EVENT_BACKFILL_COMPLETED",
     "EVENT_BACKFILL_NO_COOKIES",
@@ -38,6 +36,8 @@ __all__ = [
     "EVENT_DOWNLOAD_DOWNLOADED",
     "EVENT_DOWNLOAD_FAILED",
     "EVENT_DOWNLOAD_SKIPPED",
+    "EmittedEvent",
+    "EventSpec",
     "InMemoryNotificationService",
     "NoopNotificationService",
     "NotificationService",

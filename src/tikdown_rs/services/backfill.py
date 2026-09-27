@@ -374,7 +374,9 @@ async def run_backfill(
         # T-BACKFILL-5: the total is computed and persisted AFTER the real
         # listing, never from a still-None variable.
         if not await _persist_total(session_factory, account_id, len(entries)):
-            _emit_event(on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username)
+            _emit_event(
+                on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
+            )
             return "cancelled"
 
         # T-BACKFILL-2: the SKIP comparison uses the SNAPSHOT taken before the
