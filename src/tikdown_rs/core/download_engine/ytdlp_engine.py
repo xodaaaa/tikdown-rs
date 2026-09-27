@@ -36,7 +36,7 @@ from tikdown_rs.core.config import Settings
 from tikdown_rs.core.cookie_parser import write_canonical_netscape_tempfile
 from tikdown_rs.core.download_engine.protocol import ProbeFn, ProfileData, VideoData
 from tikdown_rs.core.errors import ConfigurationError, DownloadTimeoutError, classify_error
-from tikdown_rs.core.paths import outtmpl_for
+from tikdown_rs.core.paths import outtmpl_for, videos_root
 from tikdown_rs.core.verify import entries_have_video, probe_profile
 
 logger = logging.getLogger("tikdown_rs.core.download_engine")
@@ -199,25 +199,40 @@ class YtDlpEngine:
                 if archive is not None:
                     await archive.remove(video_id)
                 continue
-            return self._resolve_downloaded_path(info)
+            return self._resolve_downloaded_path(info, video_id)
         raise AssertionError("unreachable: the format chain is never empty")
 
-    @staticmethod
-    def _resolve_downloaded_path(info: dict | None) -> Path:
+    def _resolve_downloaded_path(self, info: dict | None, video_id: str) -> Path:
         """Final file Path from yt-dlp's documented return value.
 
         ``extract_info(url, download=True)`` returns the info dict; for a real
         download it carries ``requested_downloads`` whose entries hold
         ``filepath`` updated to the FINAL path by MoveFilesAfterDownloadPP
         (locked source: yt_dlp/YoutubeDL.py process_video_result). An empty
-        ``requested_downloads`` means nothing was downloaded (e.g. the video is
-        already in the archive, T-ENGINE-18 context): that outcome is surfaced
-        to the caller, never silently swallowed and never a format fallback.
+        ``requested_downloads`` means yt-dlp SKIPPED the download (the video
+        is already in the archive, or — T-ENGINE-32 — the final file already
+        exists on disk, e.g. retry-failed of rows whose file survived).
+
+        On the skip case the file is ADOPTED by glob-by-id (the mechanism the
+        troubleshooting table documents), so a retry converges instead of
+        churning. A ``.part`` file is an incomplete download: never adopted.
+        With neither a returned path nor a file on disk, the outcome is
+        surfaced to the caller, never silently swallowed.
         """
         for entry in (info or {}).get("requested_downloads") or []:
             filepath = entry.get("filepath")
             if filepath:
                 return Path(filepath)
+        candidates = [
+            path
+            for path in sorted(videos_root(self._settings.data_dir).rglob(f"{video_id}.*"))
+            if path.is_file() and not path.name.endswith(".part")
+        ]
+        if candidates:
+            logger.info(
+                "download adopt: %s already on disk, adopting %s", video_id, candidates[0]
+            )
+            return candidates[0]
         raise RuntimeError(
             "yt-dlp returned no downloaded file (requested_downloads empty): "
             "the video may already be in the download archive (T-ENGINE-18)"

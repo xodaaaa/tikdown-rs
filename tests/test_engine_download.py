@@ -245,3 +245,88 @@ async def test_timeout_raises_download_timeout_error_and_counts_zombie(
 
     assert engine.zombie_threads == 1  # T-ASYNC-14/15: counted for daemon status
     assert formats_seen == [DEFAULT_FORMAT]  # a timeout is NOT a format fallback
+
+
+# --- T-ENGINE-32 (live round M6): adopt existing file on yt-dlp skip ---
+
+
+class SkipYoutubeDL:
+    """yt-dlp double that SKIPS: an existing final file yields an EMPTY
+    requested_downloads ('has already been downloaded' path)."""
+
+    def __init__(self, options: dict, captured: list) -> None:
+        captured.append(dict(options))
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def extract_info(self, url: str, download: bool = True, **kwargs: object) -> dict:
+        return {}
+
+
+def patch_skip_ydl(monkeypatch: pytest.MonkeyPatch, captured: list) -> None:
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", lambda options: SkipYoutubeDL(options, captured))
+
+
+async def test_download_adopts_existing_file_when_ytdlp_skips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """retry-failed of a row whose file survived on disk must CONVERGE: yt-dlp
+    skips (file exists), the engine adopts it by glob-by-id instead of failing
+    (live round: 17 files on disk, every row churned failed/integrity)."""
+    engine = make_engine(tmp_path)
+    existing = tmp_path / "videos" / "user" / "123.mp4"
+    existing.parent.mkdir(parents=True)
+    existing.write_bytes(b"real video bytes")
+    captured: list = []
+    patch_skip_ydl(monkeypatch, captured)
+
+    result = await engine.download(CANONICAL, "123", "user")
+
+    assert result == existing
+
+
+async def test_download_adopt_prefers_final_over_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = make_engine(tmp_path)
+    final = tmp_path / "videos" / "user" / "123.mp4"
+    retry = tmp_path / "videos" / "user" / "123.retry-1.mp4"
+    final.parent.mkdir(parents=True)
+    final.write_bytes(b"final")
+    retry.write_bytes(b"retry")
+    captured: list = []
+    patch_skip_ydl(monkeypatch, captured)
+
+    result = await engine.download(CANONICAL, "123", "user")
+
+    assert result == final
+
+
+async def test_download_skip_without_file_still_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = make_engine(tmp_path)
+    captured: list = []
+    patch_skip_ydl(monkeypatch, captured)
+
+    with pytest.raises(RuntimeError, match="requested_downloads"):
+        await engine.download(CANONICAL, "123", "user")
+
+
+async def test_download_adopt_never_takes_part_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A .part file is an INCOMPLETE download: never adopted."""
+    engine = make_engine(tmp_path)
+    part = tmp_path / "videos" / "user" / "123.mp4.part"
+    part.parent.mkdir(parents=True)
+    part.write_bytes(b"partial")
+    captured: list = []
+    patch_skip_ydl(monkeypatch, captured)
+
+    with pytest.raises(RuntimeError, match="requested_downloads"):
+        await engine.download(CANONICAL, "123", "user")
