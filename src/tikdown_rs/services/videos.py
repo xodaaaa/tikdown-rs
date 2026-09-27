@@ -38,6 +38,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.errors import ConfigurationError, classify_error
+from tikdown_rs.core.notifications import (
+    EVENT_DOWNLOAD_DOWNLOADED,
+    EVENT_DOWNLOAD_FAILED,
+    EVENT_DOWNLOAD_SKIPPED,
+)
 from tikdown_rs.models import Video
 
 logger = logging.getLogger("tikdown_rs.services.videos")
@@ -146,13 +151,16 @@ def _emit(on_event, outcome: str, **fields) -> None:
 
     Called exactly once per terminal outcome, on every path (T-BACKFILL-13:
     callers propagate on_event explicitly into every launched coroutine).
-
-    ponytail: event name strings are provisional until the events catalog +
-    parity test land in M4/M5; only the payload shape is pinned here.
+    Event names come from the catalog (6.2, T-DATA-9): no ad-hoc literals.
     """
     if on_event is None:
         return
-    on_event({"event": f"download.{outcome}", **fields})
+    _OUTCOME_EVENT = {
+        "downloaded": EVENT_DOWNLOAD_DOWNLOADED,
+        "skipped": EVENT_DOWNLOAD_SKIPPED,
+        "failed": EVENT_DOWNLOAD_FAILED,
+    }
+    on_event({"event": _OUTCOME_EVENT[outcome], **fields})
 
 
 def _truncate(message: str) -> str:

@@ -28,6 +28,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.errors import AUTH_MARKERS, ConfigurationError, classify_error
+from tikdown_rs.core.notifications import (
+    EVENT_BACKFILL_CANCELLED,
+    EVENT_BACKFILL_COMPLETED,
+    EVENT_BACKFILL_NO_COOKIES,
+    EVENT_BACKFILL_PAUSED,
+    EVENT_BACKFILL_STARTED,
+)
 from tikdown_rs.models import (
     DaemonState,
     MonitoredAccount,
@@ -46,6 +53,16 @@ _TERMINAL_VIDEO_STATUSES = ("downloaded", "skipped", "failed")
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _emit_event(on_event, event: str, **fields) -> None:
+    """Fire the SYNC channel with a catalog event name (6.2, T-BACKFILL-15).
+
+    A None channel (CLI foreground without notifications) stays silent.
+    """
+    if on_event is None:
+        return
+    on_event({"event": event, **fields})
 
 
 class BackfillBreaker:
@@ -320,6 +337,7 @@ async def run_backfill(
     """
     # Gate 1 (9.1, T-BACKFILL-12): real cookies, never a silent default.
     if await get_working_cookie(session_factory) is None:
+        _emit_event(on_event, EVENT_BACKFILL_NO_COOKIES, account_id=account_id)
         raise ConfigurationError("backfill.no_cookies: no working cookie")
 
     # Gate 2 (9.1, T-BACKFILL-20): cross-process CAS slot BEFORE the state
@@ -332,6 +350,8 @@ async def run_backfill(
     if not won:
         raise ConfigurationError("backfill.slot_busy: the backfill slot is held by another run")
 
+    # Set by the try block; a CancelledError before that must still emit.
+    username: str | None = None
     try:
         # Gate 3: only the queueing operation puts an account in 'queued'.
         async with session_factory() as session:
@@ -346,6 +366,7 @@ async def run_backfill(
         username = account.username
 
         await _mark_backfilling(session_factory, account_id)
+        _emit_event(on_event, EVENT_BACKFILL_STARTED, account_id=account_id, username=username)
 
         # Listing INSIDE the try (T-BACKFILL-6): a CancelledError during the
         # listing must unwedge the state exactly like one mid-download.
@@ -353,6 +374,7 @@ async def run_backfill(
         # T-BACKFILL-5: the total is computed and persisted AFTER the real
         # listing, never from a still-None variable.
         if not await _persist_total(session_factory, account_id, len(entries)):
+            _emit_event(on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username)
             return "cancelled"
 
         # T-BACKFILL-2: the SKIP comparison uses the SNAPSHOT taken before the
@@ -371,6 +393,9 @@ async def run_backfill(
             if account.backfill_status == "cancelled":
                 # T-BACKFILL-8: early return, NO completed event, NO
                 # --then-monitor transition.
+                _emit_event(
+                    on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
+                )
                 return "cancelled"
 
             upload_date = entry.get("upload_date") or ""
@@ -441,6 +466,9 @@ async def run_backfill(
                 moving_cursor = upload_date
             done += 1
             if not await _persist_progress(session_factory, account_id, moving_cursor, done):
+                _emit_event(
+                    on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
+                )
                 return "cancelled"  # T-BACKFILL-7: a concurrent cancel won
 
         async with session_factory() as session:
@@ -454,7 +482,18 @@ async def run_backfill(
             )
             await session.commit()
         if finished.rowcount == 0:
+            _emit_event(
+                on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
+            )
             return "cancelled"  # T-BACKFILL-8: cancel won; no transition
+        _emit_event(
+            on_event,
+            EVENT_BACKFILL_COMPLETED,
+            account_id=account_id,
+            username=username,
+            done=done,
+            total=len(entries),
+        )
         # 9.5: idempotent same-commit transition (safe to double-call).
         await transition_to_monitor_after_backfill(session_factory, account_id)
         return "completed"
@@ -484,6 +523,14 @@ async def run_backfill(
                 },
             )
             await session.commit()
+        if status == "paused":
+            _emit_event(
+                on_event,
+                EVENT_BACKFILL_PAUSED,
+                account_id=account_id,
+                username=username,
+                reason=cause,
+            )
         return status
 
     finally:
