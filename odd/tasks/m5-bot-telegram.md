@@ -29,9 +29,13 @@ ni `yt_dlp`; el bot no importa `cli/` (test de arquitectura).
             OK). PTB API verificada en runtime (22.8). Desviación: `TELEGRAM_CHAT_ID` no parseable →
             sentinel `-1` (deny-all, default seguro) — confirmar con el usuario.
       - [x] T5b — Mutadores + upload: commit `7c74ea4` (35 tests nuevos; suite 653 passed ×2,
-            ruff clean). `/monitor` y `/check` responden pending: el CLI es stub explícito
-            (accounts.py: "check needs the engine listing round") y no existe verbo `monitor` en
-            el CLI — paridad funcional OK. Upload: rechazo por metadato ANTES de descargar,
+            ruff clean). Corrección de mapeo del writer (verificada contra el código): `/pause` y
+            `/resume` → `services.accounts.set_paused` (vía única, CLI `accounts pause/resume` —
+            el texto original decía "CLI backfill pause/resume", inexistente). `/monitor` y
+            `/check` responden pending (patrón `MSG_*_PENDING`): `cli/accounts.py:171` tiene
+            `check` como `raise_unimplemented` (T-ENGINE-19 defiere la sonda real), no existe
+            verbo `monitor` en el CLI, y el bot no recibe engine (T-BOT-3) — paridad funcional OK.
+            Upload: rechazo por metadato ANTES de descargar,
             tamaño real post-descarga, mkstemp + fd close inmediato + unlink en finally
             (idempotente), authz/throttle aplican a uploads, deleteMessage best-effort.
 - [x] T6 — Integración daemon §6.1/§5.1(paso 8): commit `d648475`. Bot en el punto marcado
