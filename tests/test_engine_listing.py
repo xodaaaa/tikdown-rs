@@ -91,8 +91,11 @@ def captured_url(calls: list) -> str:
 def test_flat_playlist_and_ignoreerrors_always_on(engine: YtDlpEngine, captured: list) -> None:
     engine.list_videos("user")
     options = captured_options(captured)
-    # T-ENGINE-12: flat_playlist=True ALWAYS, list URLs, never resolve each video.
-    assert options["flat_playlist"] is True
+    # T-ENGINE-12 (B2): extract_flat='in_playlist' ALWAYS — list URLs, never
+    # resolve each video. 'flat_playlist' is a no-op key in yt-dlp (verified
+    # against the pinned nightly: only 'extract_flat' is ever read).
+    assert options["extract_flat"] == "in_playlist"
+    assert "flat_playlist" not in options
     # T-ENGINE-13 companion: ignoreerrors=True so failed entries become None.
     assert options["ignoreerrors"] is True
 
@@ -175,6 +178,21 @@ def test_upload_date_normalized_to_yyyymmdd(
     assert videos[0]["upload_date"] == expected
 
 
+def test_flat_entry_timestamp_becomes_upload_date(
+    engine: YtDlpEngine, monkeypatch: pytest.MonkeyPatch, captured: list
+) -> None:
+    """B2: a flat entry (extract_flat) carries 'timestamp' (createTime epoch,
+    UTC) and NO 'upload_date' — the fallback converts it to the canonical
+    YYYYMMDD (T-ENGINE-25) so the backfill cursor keeps its granularity."""
+    from datetime import UTC, datetime
+
+    day = datetime(2026, 9, 5, tzinfo=UTC)
+    variant_info = {"entries": [{**ENTRY, "upload_date": None, "timestamp": int(day.timestamp())}]}
+    patch_ydl(monkeypatch, captured, variant_info)
+    videos = engine.list_videos("user")
+    assert videos[0]["upload_date"] == "20260905"
+
+
 def test_extract_profile_uses_flat_first_page(
     engine: YtDlpEngine, monkeypatch: pytest.MonkeyPatch, captured: list
 ) -> None:
@@ -186,7 +204,7 @@ def test_extract_profile_uses_flat_first_page(
     patch_ydl(monkeypatch, captured, profile_info)
     profile = engine.extract_profile("user")
     options = captured_options(captured)
-    assert options["flat_playlist"] is True  # same flat listing rules, first page
+    assert options["extract_flat"] == "in_playlist"  # same flat listing rules, first page
     assert options["playlistend"] == 1
     assert profile["username"] == "user"
     assert profile["followers"] == 4242

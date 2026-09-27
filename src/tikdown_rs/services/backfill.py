@@ -325,10 +325,30 @@ async def collect_queued_backfills(
     usernames: list[str] = []
     for row in rows:
         if row.backfill_status == "paused":
-            if row.backfill_pause_reason == "disk" and not disk_pause_resolved:
+            if row.needs_review:
+                # B8/§9.6: a breaker pause waits for MANUAL review -- never
+                # collected, never churned into a not_queued warning loop.
                 continue
-            if row.backfill_pause_reason == "network" and not network_online_fn():
+            cause_resolved = (row.backfill_pause_reason != "disk" or disk_pause_resolved) and (
+                row.backfill_pause_reason != "network" or network_online_fn()
+            )
+            if not cause_resolved:
                 continue
+            # B8/§9.1: flip paused -> queued IN the collect pass (CAS), or
+            # run_backfill's Gate 2 would reject every launch with not_queued
+            # and a resolved pause would loop a warning every beat forever.
+            async with session_factory() as session:
+                result = await session.execute(
+                    text(
+                        "UPDATE monitored_accounts SET backfill_status = 'queued',"
+                        " backfill_pause_reason = NULL, updated_at = :now"
+                        " WHERE id = :id AND backfill_status = 'paused'"
+                    ),
+                    {"now": _utcnow_iso(), "id": row.id},
+                )
+                await session.commit()
+            if result.rowcount == 0:
+                continue  # a concurrent cancel/queue change won the race
         async with session_factory() as session:
             won = await acquire_backfill_slot(session, "collect")
         if not won:
@@ -401,7 +421,12 @@ async def run_backfill(
 
         # Listing INSIDE the try (T-BACKFILL-6): a CancelledError during the
         # listing must unwedge the state exactly like one mid-download.
-        entries = [e for e in engine.list_videos(username, max_entries) if e.get("id")]
+        # B1 (T-ASYNC-8): the listing is a blocking yt-dlp call — never on the loop.
+        entries = [
+            e
+            for e in await asyncio.to_thread(engine.list_videos, username, max_entries)
+            if e.get("id")
+        ]
         # T-BACKFILL-5: the total is computed and persisted AFTER the real
         # listing, never from a still-None variable.
         if not await _persist_total(session_factory, account_id, len(entries)):
@@ -435,16 +460,22 @@ async def run_backfill(
             # T-BACKFILL-2: the boundary uses the SNAPSHOT taken before the
             # loop, never the moving cursor (using the moving one stopped the
             # run after the first video: the next listed entry is always
-            # older). Strictly newer entries are processed; an entry equal to
-            # the cursor is already processed, and everything after it in the
-            # newest-first listing is older, so the loop BREAKS here.
-            if upload_date and scope_cursor and upload_date <= scope_cursor:
+            # older). §9.2 mandates a STRICTLY '<' comparison, never '=='
+            # (B6/JD-B-006): the entry equal to the cursor is re-processed --
+            # terminal rows skip the download below, and a retry-failed row
+            # reset to 'pending' is reachable again (JD-A-006). The loop
+            # breaks only at strictly older entries.
+            if upload_date and scope_cursor and upload_date < scope_cursor:
                 break
 
             row_id, existing_status = await _get_or_create_pending_video(
                 session_factory, account_id, entry
             )
-            if existing_status not in _TERMINAL_VIDEO_STATUSES:
+            # 9.3 (B6): done counts videos reaching a terminal state IN THIS
+            # RUN; re-walked terminal rows on a resume download nothing and
+            # must not inflate backfill_done.
+            new_transition = existing_status not in _TERMINAL_VIDEO_STATUSES
+            if new_transition:
                 try:
                     await pacer.acquire()  # 4.5: the one cross-process gate
                     async with semaphore:
@@ -470,6 +501,11 @@ async def run_backfill(
                         notify_on_download=account.notify_on_download,  # T-BACKFILL-14
                         on_event=on_event,  # T-BACKFILL-13: propagated EXPLICITLY
                         archive=archive,
+                        # B7 (§4.7/T-ENGINE-5): same heuristic as the monitor
+                        # path — a listing entry without video duration is an
+                        # expected slideshow (skipped + dedupe), NOT a
+                        # degraded response.
+                        expected_has_video=entry.get("duration") is not None,
                         **extra,
                     )
                 except Exception as exc:  # noqa: BLE001 - T-BACKFILL-11: ANY failure is per-video
@@ -497,7 +533,8 @@ async def run_backfill(
             # value; never the initial snapshot, never NULL-by-overwrite).
             if upload_date:
                 moving_cursor = upload_date
-            done += 1
+            if new_transition:
+                done += 1
             if not await _persist_progress(session_factory, account_id, moving_cursor, done):
                 _emit_event(
                     on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
@@ -565,6 +602,31 @@ async def run_backfill(
                 reason=cause,
             )
         return status
+
+    except ConfigurationError:
+        # Gate rejections (no_cookies/not_queued/slot_busy) are fail-fast
+        # business errors raised BEFORE 'backfilling' is ever set: re-raise
+        # untouched, never unwedge (there is nothing to unwedge).
+        raise
+
+    except Exception:
+        # B5 (JD-A-002): a non-cancel crash (transient listing failure, locked
+        # DB, IntegrityError) used to leave the account in 'backfilling' with
+        # no producer able to pick it up until a manual restart (collect only
+        # takes queued/paused; reconcile only runs at startup). T-BACKFILL-6:
+        # no identifiable cause -> 'queued', the state is unwedged.
+        logger.exception("backfill of account %s crashed; unwedging to queued", account_id)
+        async with session_factory() as session:
+            await session.execute(
+                text(
+                    "UPDATE monitored_accounts SET backfill_status = 'queued',"
+                    " updated_at = :now"
+                    " WHERE id = :id AND backfill_status = 'backfilling'"
+                ),
+                {"now": _utcnow_iso(), "id": account_id},
+            )
+            await session.commit()
+        return "failed"
 
     finally:
         async with session_factory() as session:

@@ -360,3 +360,26 @@ def test_cli_test_without_probe_urls_fails_with_actionable_error(
     assert "ERROR" in result.output
     assert "COOKIE_VALIDATION_URL" in result.output
     assert "probe" in result.output.lower()
+
+
+# --- B1 (T-ASYNC-8): the blocking probe must run OFF the loop thread ---
+
+
+async def test_cookie_probe_runs_off_the_loop_thread(migrated_factory) -> None:
+    """T-ASYNC-8/§1.1.3 (B1/JD-A-001): validate_cookie must offload the
+    blocking probe composition (yt-dlp extraction) to a worker thread;
+    on-loop, the off-loop assertion raises and the verdict degrades to
+    inconclusive instead of valid."""
+    import asyncio as _asyncio
+
+    cookie_id = await _insert_cookie(migrated_factory)
+
+    def probe_fn(blob, url, max_entries):
+        try:
+            _asyncio.get_running_loop()
+        except RuntimeError:
+            return True
+        raise AssertionError("blocking probe ran on the event loop thread")
+
+    verdict = await validate_cookie(migrated_factory, cookie_id, ["u1"], probe_fn, 5)
+    assert verdict == "valid"

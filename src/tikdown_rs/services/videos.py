@@ -13,13 +13,16 @@ Steps (4.7): (1) file exists and size > 0, (2) SHA-256 via ``to_thread``
 
 A file without a video stream has TWO distinct causes (T-ENGINE-5): an
 expected slideshow (``expected_has_video=False`` -> skipped + dedupe add) or
-a degraded response (real failure -> discard the archive entry FIRST,
-T-ENGINE-18, then ONE fallback retry; if it persists, integrity failed).
+a degraded response (real failure -> archive entry discarded, T-ENGINE-18;
+persists as integrity failed). The §4.7 fallback retry lives INSIDE
+``engine.download`` (DEFAULT_FORMAT -> FALLBACK_FORMAT funnel, archive entry
+discarded before the fallback): a caller-side retry with the same formats
+adds nothing, so the former ``retry_fn`` hook is retired (DR-18).
 
 Layering (4.8): this module imports nothing from cli/, daemon/ or yt_dlp;
-ffprobe/SHA/retry arrive as injected callables. The retry_fn exceptions
-propagate: classifying engine download failures is the CALLER's job via
-``persist_download_failure`` (T-DATA-3: the one 4.4 classifier, no parallels).
+ffprobe/SHA arrive as injected callables. Engine download exceptions are the
+CALLER's job to classify via ``persist_download_failure`` (T-DATA-3: the one
+4.4 classifier, no parallels).
 """
 
 import asyncio
@@ -51,9 +54,6 @@ logger = logging.getLogger("tikdown_rs.services.videos")
 
 _RETRY_SUFFIX_RE = re.compile(r"\.retry-\d+$")
 _MAX_ERROR_MESSAGE = 500
-#: The fallback retry budget (4.7): ONE degraded-response retry, and only when
-#: the download itself was the first attempt (``base_retry_count < 1``).
-_MAX_FALLBACK_RETRIES = 1
 
 
 @dataclass(frozen=True)
@@ -243,16 +243,15 @@ async def handle_download_result(
     on_event=None,
     ffprobe_fn=_ffprobe_file,
     sha256_fn=_sha256_file,
-    retry_fn=None,
     archive: DownloadArchive | None = None,
 ) -> HandleResult:
     """Single truth point for terminal video state after a download (4.7).
 
-    ``retry_fn(video_id, retry_index=N) -> Path`` is awaited; it wraps the
-    engine's fallback download and MUST NOT be called for an expected
-    slideshow (T-ENGINE-5). ``on_event`` is a SYNC callable fired once per
-    terminal outcome (T-BACKFILL-15). ``retry_fn`` exceptions propagate: the
-    caller classifies engine failures via ``persist_download_failure``.
+    ``on_event`` is a SYNC callable fired once per terminal outcome
+    (T-BACKFILL-15). The §4.7 degraded-response fallback retry lives INSIDE
+    ``engine.download`` (DR-18); there is deliberately no caller-side
+    ``retry_fn``. Engine download exceptions are classified by the CALLER via
+    ``persist_download_failure``.
 
     The video row must already exist (created by discovery with
     status='pending', 3.3/T-DATA-1); an unknown id is a ConfigurationError.
@@ -263,20 +262,16 @@ async def handle_download_result(
 
     path = Path(downloaded_path)
     verified = await _verify_integrity(path, sha256_fn, ffprobe_fn)
-    attempts = 0
 
     if verified is not None and not verified[1] and expected_has_video:
-        # Degraded response (T-ENGINE-5, real failure): discard the archive
-        # entry FIRST (T-ENGINE-18: otherwise yt-dlp answers 'already
-        # downloaded'), then ONE fallback retry within budget.
+        # Degraded response (T-ENGINE-5 cause 2, real failure): the engine
+        # funnel already exhausted DEFAULT_FORMAT and FALLBACK_FORMAT with the
+        # archive entry discarded before the fallback (T-ENGINE-18). Discard
+        # the archive entry so retry-failed can re-download, then persist
+        # failed/integrity below (DR-18: no caller-side retry hook).
         if archive is not None:
             await archive.remove(video_id)
-        if retry_fn is not None and base_retry_count < _MAX_FALLBACK_RETRIES:
-            path = Path(await retry_fn(video_id, retry_index=base_retry_count + 1))
-            verified = await _verify_integrity(path, sha256_fn, ffprobe_fn)
-            attempts = 1
-        else:
-            verified = None
+        verified = None
 
     if verified is not None and verified[1]:
         # Integrity OK: rename .retry-N to the FINAL outtmpl path BEFORE
@@ -295,7 +290,7 @@ async def handle_download_result(
             status="downloaded",
             error_category=None,
             error_message=None,
-            retry_count=base_retry_count + attempts,
+            retry_count=base_retry_count,
             on_event=on_event,
             video_id=video_id,
             account_id=account_id,
@@ -331,15 +326,13 @@ async def handle_download_result(
         reason = "downloaded file is missing or empty"
     else:
         reason = "no video stream in downloaded file"
-        if attempts:
-            reason += " (fallback retry did not restore it)"
     return await _persist_terminal(
         session_factory,
         video_row_id,
         status="failed",
         error_category="integrity",
         error_message=reason,
-        retry_count=base_retry_count + attempts,
+        retry_count=base_retry_count,
         on_event=on_event,
         video_id=video_id,
         account_id=account_id,

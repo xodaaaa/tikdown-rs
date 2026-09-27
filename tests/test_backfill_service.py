@@ -23,7 +23,7 @@ import tikdown_rs.services.backfill as backfill_module
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.core.migrations import run_migrations
-from tikdown_rs.models import Cookie, MonitoredAccount
+from tikdown_rs.models import Cookie, MonitoredAccount, Video
 from tikdown_rs.services.backfill import (
     collect_queued_backfills,
     reconcile_stale_backfills,
@@ -256,6 +256,69 @@ async def test_slot_busy_is_configuration_error(factory) -> None:
     assert await slot_owner(factory) == "someone-else"  # never stolen
 
 
+# --- B5 (JD-A-002): a non-cancel crash must NOT wedge the account ---
+
+
+async def test_unexpected_listing_error_unwedges_to_queued(factory) -> None:
+    """T-BACKFILL-6 (§9.1): run_backfill only handled CancelledError, so a
+    transient listing failure (or any non-cancel exception) left the account
+    in 'backfilling' with no producer able to pick it up until a manual
+    restart. Any other exception now unwedges to 'queued' (no identifiable
+    cause) and releases the slot."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+
+    class ExplodingListEngine(FakeEngine):
+        def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
+            self.list_calls += 1
+            raise RuntimeError("keeps sending the same page")
+
+    engine = ExplodingListEngine([])
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "failed"
+    account = await get_account(factory, account_id)
+    assert account.backfill_status == "queued"
+    assert await slot_owner(factory) is None  # slot released in the finally
+
+
+async def test_gate_configuration_errors_still_raise(factory) -> None:
+    """B5 companion: the unwedge handler must never swallow gate rejections --
+    they are fail-fast business errors raised before 'backfilling' exists."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory, backfill_status="completed")
+    engine = FakeEngine([_entry("1", "20260101")])
+    with pytest.raises(ConfigurationError, match="completed"):
+        await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+    account = await get_account(factory, account_id)
+    assert account.backfill_status == "completed"  # untouched
+
+
+# --- B7 (JD-A-003/JD-B-005): backfill slideshows are SKIPPED, not integrity ---
+
+
+async def test_backfill_slideshow_is_skipped_not_integrity(factory) -> None:
+    """§4.7/T-ENGINE-5: the backfill MUST pass expected_has_video (like the
+    monitor does); without it every photo post took the degraded-response
+    path: archive entry discarded + failed/integrity, re-processed in a
+    forever loop by retry-failed."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+    slideshow = {**_entry("9", "20260109"), "duration": None}
+    engine = FakeEngine([slideshow])
+
+    def ffprobe_no_video(_path: Path) -> dict:
+        return {"streams": [], "format": {"duration": "3.5"}}
+
+    kwargs = {**make_kwargs(engine, FakePacer()), "ffprobe_fn": ffprobe_no_video}
+    status = await run_backfill(factory, account_id, **kwargs)
+
+    assert status == "completed"
+    async with factory() as session:
+        video = (await session.execute(text("SELECT status, error_category FROM videos"))).one()
+    assert tuple(video) == ("skipped", None)
+
+
 # --- Happy path: totals, done, cursor, events, slot released ---
 
 
@@ -308,16 +371,20 @@ async def test_happy_path_persists_totals_done_cursor_and_releases_slot(
     assert await slot_owner(factory) is None  # slot released
 
 
-# --- T-BACKFILL-2: snapshot cursor, strictly '<' ---
+# --- T-BACKFILL-2: snapshot cursor, strictly '<' (B6/JD-B-006: NEVER '<=') ---
 
 
-async def test_cursor_snapshot_skips_equal_and_older(factory) -> None:
+async def test_cursor_boundary_is_strictly_less_than(factory) -> None:
+    """§9.2: comparison is strictly '<', never '=='. The entry equal to the
+    cursor IS re-processed (terminal rows skip the download cheaply; a
+    retry-failed pending row is reachable again). The loop breaks only at
+    strictly older entries."""
     await add_valid_cookie(factory)
     account_id = await add_account(factory, backfill_cursor="20260103")
     entries = [
         _entry("5", "20260105"),
         _entry("4", "20260104"),
-        _entry("3", "20260103"),  # equal to the cursor: skipped (strict '<')
+        _entry("3", "20260103"),  # equal to the cursor: processed (strict '<')
         _entry("2", "20260102"),
     ]
     engine = FakeEngine(entries)
@@ -325,10 +392,66 @@ async def test_cursor_snapshot_skips_equal_and_older(factory) -> None:
     status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
 
     assert status == "completed"
-    assert engine.download_order == ["5", "4"]  # "3" and "2" never downloaded
+    assert engine.download_order == ["5", "4", "3"]  # only "2" is strictly older
     account = await get_account(factory, account_id)
-    assert account.backfill_done == 2
-    assert account.backfill_cursor == "20260104"  # last processed upload_date
+    assert account.backfill_done == 3
+    assert account.backfill_cursor == "20260103"
+
+
+async def test_resume_does_not_inflate_done_for_terminal_rows(factory) -> None:
+    """9.3 (B6): done counts videos that reached a terminal state IN THIS RUN.
+    Re-walking already-terminal entries on a resume neither downloads nor
+    inflates backfill_done."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory, backfill_cursor="20260104")
+    async with factory() as session:
+        for vid, date in (("5", "20260105"), ("4", "20260104")):
+            session.add(
+                Video(
+                    tiktok_video_id=vid,
+                    account_id=account_id,
+                    url=f"https://www.tiktok.com/@acct/video/{vid}",
+                    status="downloaded",
+                    upload_date=date,
+                )
+            )
+        await session.commit()
+    engine = FakeEngine([_entry("5", "20260105"), _entry("4", "20260104"), _entry("3", "20260103")])
+
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "completed"
+    assert engine.download_order == []  # everything already terminal
+    account = await get_account(factory, account_id)
+    assert account.backfill_done == 0  # no new transitions, no inflation
+    assert account.backfill_cursor == "20260104"
+
+
+async def test_retry_failed_pending_row_at_cursor_is_reachable(factory) -> None:
+    """JD-A-006 regression: retry-failed resets a failed row to pending; with
+    the strict '<' boundary the row at the cursor is re-processed and actually
+    re-downloaded instead of being skipped forever."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory, backfill_cursor="20260104")
+    async with factory() as session:
+        session.add(
+            Video(
+                tiktok_video_id="4",
+                account_id=account_id,
+                url="https://www.tiktok.com/@acct/video/4",
+                status="pending",  # as retry_failed leaves it
+                upload_date="20260104",
+            )
+        )
+        await session.commit()
+    engine = FakeEngine([_entry("4", "20260104"), _entry("3", "20260103")])
+
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "completed"
+    assert engine.download_order == ["4"]  # the retried row IS downloaded
+    account = await get_account(factory, account_id)
+    assert account.backfill_done == 1
 
 
 # --- T-BACKFILL-3: absent upload_date keeps the previous cursor ---
@@ -618,6 +741,59 @@ async def test_collect_excludes_network_paused_when_offline(factory) -> None:
     assert result == []
 
 
+# --- B8 (Capa1#1/JD-B-011): resumable paused accounts must actually resume ---
+
+
+async def test_collect_requeues_paused_with_resolved_cause(factory) -> None:
+    """9.1: collect picks 'paused' whose cause is resolved — the flip to
+    'queued' must happen IN the collect pass, otherwise run_backfill's Gate 2
+    rejects every launch with not_queued and the pause never ends."""
+    await add_account(
+        factory,
+        username="diskresumed",
+        backfill_status="paused",
+        backfill_pause_reason="disk",
+    )
+    await set_downloads_paused(factory, False)
+
+    result = await collect_queued_backfills(factory, engine_factory_fn=lambda account: None)
+
+    assert result == ["diskresumed"]
+    account = await get_account(factory, next(iter(await _account_ids(factory, "diskresumed"))))
+    assert account.backfill_status == "queued"
+    assert account.backfill_pause_reason is None
+
+
+async def test_collect_skips_breaker_paused_needs_review(factory) -> None:
+    """9.6: a breaker pause (needs_review=1, no pause reason) waits for manual
+    review — collect must neither collect it nor churn the slot every 60 s."""
+    await add_account(
+        factory,
+        username="breakerpaused",
+        backfill_status="paused",
+        needs_review=1,
+    )
+
+    result = await collect_queued_backfills(factory, engine_factory_fn=lambda account: None)
+
+    assert result == []
+
+
+async def _account_ids(factory, username: str) -> list[int]:
+    async with factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    text("SELECT id FROM monitored_accounts WHERE username = :u"),
+                    {"u": username},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+
 # --- 9.1 slot uniqueness across two concurrent runs ---
 
 
@@ -650,3 +826,31 @@ async def test_two_concurrent_runs_only_one_wins(factory) -> None:
     gate.set()
     assert await asyncio.wait_for(task1, timeout=10.0) == "completed"
     assert await slot_owner(factory) is None
+
+
+# --- B1 (T-ASYNC-8): blocking listing must run OFF the event loop thread ---
+
+
+def _assert_off_loop() -> None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    raise AssertionError("blocking yt-dlp listing ran on the event loop thread")
+
+
+async def test_backfill_listing_runs_off_the_loop_thread(factory) -> None:
+    """T-ASYNC-8/§1.1.3 (B1/JD-A-001): the call site must offload the blocking
+    yt-dlp listing to a worker thread. If it ran on the loop, the off-loop
+    assertion raises and B5 unwedges to 'failed' instead of 'completed'."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+
+    class OffLoopListEngine(FakeEngine):
+        def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
+            _assert_off_loop()
+            return self.entries
+
+    engine = OffLoopListEngine([_entry("1", "20260101")])
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+    assert status == "completed"

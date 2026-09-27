@@ -25,6 +25,7 @@ probe composition with the same three-state semantics (T-COOKIES-2/3).
 import asyncio
 import logging
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yt_dlp
@@ -69,6 +70,19 @@ def normalize_upload_date(value: object) -> str:
     if len(parts) == 3:
         return "".join(part.zfill(2) for part in parts)
     return ""
+
+
+def upload_date_from_timestamp(value: object) -> str:
+    """B2 fallback: flat entries (extract_flat) carry 'timestamp' (createTime
+    epoch, absolute UTC) and NO 'upload_date' — convert to canonical YYYYMMDD
+    (T-ENGINE-25) so the backfill cursor keeps its day granularity."""
+    try:
+        seconds = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+    return datetime.fromtimestamp(seconds, tz=UTC).strftime("%Y%m%d")
 
 
 def canonical_video_url(username: str, video_id: str) -> str:
@@ -234,7 +248,8 @@ class YtDlpEngine:
                     title=entry.get("title"),
                     description=entry.get("description"),
                     duration=entry.get("duration"),
-                    upload_date=normalize_upload_date(entry.get("upload_date")),  # T-ENGINE-25
+                    upload_date=normalize_upload_date(entry.get("upload_date"))
+                    or upload_date_from_timestamp(entry.get("timestamp")),  # B2 flat fallback
                     uploader=entry.get("uploader") or username,
                 )
             )
@@ -271,7 +286,11 @@ class YtDlpEngine:
     def _flat_options(self, max_entries: int | None) -> dict:
         """Mandatory 4.6 listing options; shared by list_videos/extract_profile."""
         options = {
-            "flat_playlist": True,  # T-ENGINE-12: ALWAYS
+            # T-ENGINE-12 (B2): extract_flat='in_playlist' ALWAYS. The plan's
+            # literal key 'flat_playlist' is NEVER read by yt-dlp (verified
+            # against the pinned nightly): listing URLs without resolving each
+            # video requires extract_flat.
+            "extract_flat": "in_playlist",
             "ignoreerrors": True,  # T-ENGINE-13 companion
             "quiet": True,
             "no_warnings": True,

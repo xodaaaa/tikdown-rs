@@ -99,18 +99,6 @@ class Recorder:
         self.events.append(event)
 
 
-class FakeRetry:
-    """Async retry_fn double: records invocation order, returns a fixed path."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.calls: list[tuple[str, int]] = []
-
-    async def __call__(self, video_id: str, retry_index: int) -> Path:
-        self.calls.append((video_id, retry_index))
-        return self.path
-
-
 class FakeArchive:
     """Order-recording archive double around the real file semantics."""
 
@@ -242,7 +230,6 @@ async def test_slideshow_is_skipped_archived_and_never_retried(
     downloaded.parent.mkdir(parents=True)
     downloaded.write_bytes(VIDEO_BYTES)
     archive = DownloadArchive(tmp_path / "download_archive.txt", migrated_factory)
-    retry = FakeRetry(tmp_path / "elsewhere.mp4")
     events = Recorder()
 
     result = await handle_download_result(
@@ -253,14 +240,12 @@ async def test_slideshow_is_skipped_archived_and_never_retried(
         account_id,
         expected_has_video=False,
         ffprobe_fn=probe_fn(NO_VIDEO_PROBE),
-        retry_fn=retry,
         archive=archive,
         on_event=events,
     )
 
     assert (result.outcome, result.error_category) == ("skipped", None)
     assert await archive.contains("slide1")  # dedupe entry ADDED
-    assert retry.calls == []  # NO retry for an expected slideshow
     async with migrated_factory() as session:
         video = await session.get(Video, row_id)
     assert video.status == "skipped"
@@ -271,94 +256,43 @@ async def test_slideshow_is_skipped_archived_and_never_retried(
 # --- T-ENGINE-5 cause 2: degraded response (real failure) ---
 
 
-async def test_degraded_discards_archive_before_retry_then_succeeds(
+async def test_degraded_discards_archive_entry_and_fails_integrity(
     tmp_path: Path, migrated_factory
 ) -> None:
+    """DR-18: the §4.7 fallback retry lives INSIDE engine.download (the funnel
+    already discarded the archive entry before its fallback). The truth point
+    keeps its own T-ENGINE-18 duty (discard the entry so retry-failed can
+    re-download) and persists failed/integrity — no caller-side retry hook."""
     account_id = await add_account(migrated_factory)
     row_id = await add_pending_video(migrated_factory, account_id)
-    first = tmp_path / "videos" / "acct" / "123.retry-1.mp4"
-    second = tmp_path / "videos" / "acct" / "123.retry-2.mp4"
-    first.parent.mkdir(parents=True)
-    first.write_bytes(b"audio only")
-    second.write_bytes(VIDEO_BYTES)
+    downloaded = tmp_path / "videos" / "acct" / "123.mp4"
+    downloaded.parent.mkdir(parents=True)
+    downloaded.write_bytes(b"audio only")
     archive = DownloadArchive(tmp_path / "download_archive.txt", migrated_factory)
     await archive.add("123")
-    archive_order = FakeArchive()
-    retry = FakeRetry(second)
     events = Recorder()
-
-    # Wrap the real archive so remove order vs retry_fn order is observable.
-    real_remove = archive.remove
-
-    async def spy_remove(video_id: str) -> bool:
-        archive_order.order.append(f"archive.remove:{video_id}")
-        return await real_remove(video_id)
-
-    archive.remove = spy_remove  # type: ignore[method-assign]
-
-    async def retry_recorder(video_id: str, retry_index: int) -> Path:
-        archive_order.order.append(f"retry:{video_id}")
-        return await retry(video_id, retry_index=retry_index)
 
     result = await handle_download_result(
         migrated_factory,
         row_id,
-        first,
+        downloaded,
         "123",
         account_id,
-        ffprobe_fn=probing_twice(NO_VIDEO_PROBE, GOOD_PROBE),
-        retry_fn=retry_recorder,
+        ffprobe_fn=probe_fn(NO_VIDEO_PROBE),
         archive=archive,
         on_event=events,
     )
 
-    assert result.outcome == "downloaded"
-    # T-ENGINE-18: the archive entry is discarded BEFORE the fallback retry.
-    assert archive_order.order == ["archive.remove:123", "retry:123"]
-    final = Path(result.file_path)
-    assert final.name == "123.mp4"
-    assert final.read_bytes() == VIDEO_BYTES
-    async with migrated_factory() as session:
-        video = await session.get(Video, row_id)
-    assert video.status == "downloaded"
-    assert video.file_hash == VIDEO_SHA256
-    assert video.retry_count == 1  # base_retry_count 0 + 1 attempt
-    assert [e["status"] for e in events.events] == ["downloaded"]  # exactly once
-
-
-async def test_degraded_retry_fails_again_is_integrity_failed(
-    tmp_path: Path, migrated_factory
-) -> None:
-    account_id = await add_account(migrated_factory)
-    row_id = await add_pending_video(migrated_factory, account_id)
-    first = tmp_path / "videos" / "acct" / "123.retry-1.mp4"
-    second = tmp_path / "videos" / "acct" / "123.retry-2.mp4"
-    first.parent.mkdir(parents=True)
-    first.write_bytes(b"audio only")
-    second.write_bytes(b"still audio only")
-    events = Recorder()
-
-    result = await handle_download_result(
-        migrated_factory,
-        row_id,
-        first,
-        "123",
-        account_id,
-        ffprobe_fn=probing_twice(NO_VIDEO_PROBE, NO_VIDEO_PROBE),
-        retry_fn=FakeRetry(second),
-        on_event=events,
-    )
-
     assert (result.outcome, result.error_category) == ("failed", "integrity")
+    assert not await archive.contains("123")  # entry discarded for retry-failed
     async with migrated_factory() as session:
         video = await session.get(Video, row_id)
     assert video.status == "failed"
     assert video.error_category == "integrity"
-    assert video.retry_count == 1  # base 0 + 1 attempt
     assert [e["status"] for e in events.events] == ["failed"]
 
 
-async def test_degraded_without_retry_fn_is_integrity_failed(
+async def test_degraded_without_archive_entry_still_fails_integrity(
     tmp_path: Path, migrated_factory
 ) -> None:
     account_id = await add_account(migrated_factory)
@@ -377,32 +311,6 @@ async def test_degraded_without_retry_fn_is_integrity_failed(
     )
 
     assert (result.outcome, result.error_category) == ("failed", "integrity")
-
-
-async def test_degraded_with_exhausted_retry_budget_skips_retry_fn(
-    tmp_path: Path, migrated_factory
-) -> None:
-    """The fallback retry fires only when base_retry_count < 1."""
-    account_id = await add_account(migrated_factory)
-    row_id = await add_pending_video(migrated_factory, account_id)
-    downloaded = tmp_path / "videos" / "acct" / "123.retry-2.mp4"
-    downloaded.parent.mkdir(parents=True)
-    downloaded.write_bytes(b"audio only")
-    retry = FakeRetry(tmp_path / "never.mp4")
-
-    result = await handle_download_result(
-        migrated_factory,
-        row_id,
-        downloaded,
-        "123",
-        account_id,
-        base_retry_count=1,
-        ffprobe_fn=probe_fn(NO_VIDEO_PROBE),
-        retry_fn=retry,
-    )
-
-    assert (result.outcome, result.error_category) == ("failed", "integrity")
-    assert retry.calls == []
 
 
 # --- T-DATA-3: download failures classified by THE classifier ---
