@@ -435,16 +435,22 @@ async def run_backfill(
             # T-BACKFILL-2: the boundary uses the SNAPSHOT taken before the
             # loop, never the moving cursor (using the moving one stopped the
             # run after the first video: the next listed entry is always
-            # older). Strictly newer entries are processed; an entry equal to
-            # the cursor is already processed, and everything after it in the
-            # newest-first listing is older, so the loop BREAKS here.
-            if upload_date and scope_cursor and upload_date <= scope_cursor:
+            # older). §9.2 mandates a STRICTLY '<' comparison, never '=='
+            # (B6/JD-B-006): the entry equal to the cursor is re-processed --
+            # terminal rows skip the download below, and a retry-failed row
+            # reset to 'pending' is reachable again (JD-A-006). The loop
+            # breaks only at strictly older entries.
+            if upload_date and scope_cursor and upload_date < scope_cursor:
                 break
 
             row_id, existing_status = await _get_or_create_pending_video(
                 session_factory, account_id, entry
             )
-            if existing_status not in _TERMINAL_VIDEO_STATUSES:
+            # 9.3 (B6): done counts videos reaching a terminal state IN THIS
+            # RUN; re-walked terminal rows on a resume download nothing and
+            # must not inflate backfill_done.
+            new_transition = existing_status not in _TERMINAL_VIDEO_STATUSES
+            if new_transition:
                 try:
                     await pacer.acquire()  # 4.5: the one cross-process gate
                     async with semaphore:
@@ -497,7 +503,8 @@ async def run_backfill(
             # value; never the initial snapshot, never NULL-by-overwrite).
             if upload_date:
                 moving_cursor = upload_date
-            done += 1
+            if new_transition:
+                done += 1
             if not await _persist_progress(session_factory, account_id, moving_cursor, done):
                 _emit_event(
                     on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username

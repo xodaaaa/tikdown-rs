@@ -23,7 +23,7 @@ import tikdown_rs.services.backfill as backfill_module
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.core.migrations import run_migrations
-from tikdown_rs.models import Cookie, MonitoredAccount
+from tikdown_rs.models import Cookie, MonitoredAccount, Video
 from tikdown_rs.services.backfill import (
     collect_queued_backfills,
     reconcile_stale_backfills,
@@ -308,16 +308,20 @@ async def test_happy_path_persists_totals_done_cursor_and_releases_slot(
     assert await slot_owner(factory) is None  # slot released
 
 
-# --- T-BACKFILL-2: snapshot cursor, strictly '<' ---
+# --- T-BACKFILL-2: snapshot cursor, strictly '<' (B6/JD-B-006: NEVER '<=') ---
 
 
-async def test_cursor_snapshot_skips_equal_and_older(factory) -> None:
+async def test_cursor_boundary_is_strictly_less_than(factory) -> None:
+    """§9.2: comparison is strictly '<', never '=='. The entry equal to the
+    cursor IS re-processed (terminal rows skip the download cheaply; a
+    retry-failed pending row is reachable again). The loop breaks only at
+    strictly older entries."""
     await add_valid_cookie(factory)
     account_id = await add_account(factory, backfill_cursor="20260103")
     entries = [
         _entry("5", "20260105"),
         _entry("4", "20260104"),
-        _entry("3", "20260103"),  # equal to the cursor: skipped (strict '<')
+        _entry("3", "20260103"),  # equal to the cursor: processed (strict '<')
         _entry("2", "20260102"),
     ]
     engine = FakeEngine(entries)
@@ -325,10 +329,66 @@ async def test_cursor_snapshot_skips_equal_and_older(factory) -> None:
     status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
 
     assert status == "completed"
-    assert engine.download_order == ["5", "4"]  # "3" and "2" never downloaded
+    assert engine.download_order == ["5", "4", "3"]  # only "2" is strictly older
     account = await get_account(factory, account_id)
-    assert account.backfill_done == 2
-    assert account.backfill_cursor == "20260104"  # last processed upload_date
+    assert account.backfill_done == 3
+    assert account.backfill_cursor == "20260103"
+
+
+async def test_resume_does_not_inflate_done_for_terminal_rows(factory) -> None:
+    """9.3 (B6): done counts videos that reached a terminal state IN THIS RUN.
+    Re-walking already-terminal entries on a resume neither downloads nor
+    inflates backfill_done."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory, backfill_cursor="20260104")
+    async with factory() as session:
+        for vid, date in (("5", "20260105"), ("4", "20260104")):
+            session.add(
+                Video(
+                    tiktok_video_id=vid,
+                    account_id=account_id,
+                    url=f"https://www.tiktok.com/@acct/video/{vid}",
+                    status="downloaded",
+                    upload_date=date,
+                )
+            )
+        await session.commit()
+    engine = FakeEngine([_entry("5", "20260105"), _entry("4", "20260104"), _entry("3", "20260103")])
+
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "completed"
+    assert engine.download_order == []  # everything already terminal
+    account = await get_account(factory, account_id)
+    assert account.backfill_done == 0  # no new transitions, no inflation
+    assert account.backfill_cursor == "20260104"
+
+
+async def test_retry_failed_pending_row_at_cursor_is_reachable(factory) -> None:
+    """JD-A-006 regression: retry-failed resets a failed row to pending; with
+    the strict '<' boundary the row at the cursor is re-processed and actually
+    re-downloaded instead of being skipped forever."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory, backfill_cursor="20260104")
+    async with factory() as session:
+        session.add(
+            Video(
+                tiktok_video_id="4",
+                account_id=account_id,
+                url="https://www.tiktok.com/@acct/video/4",
+                status="pending",  # as retry_failed leaves it
+                upload_date="20260104",
+            )
+        )
+        await session.commit()
+    engine = FakeEngine([_entry("4", "20260104"), _entry("3", "20260103")])
+
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "completed"
+    assert engine.download_order == ["4"]  # the retried row IS downloaded
+    account = await get_account(factory, account_id)
+    assert account.backfill_done == 1
 
 
 # --- T-BACKFILL-3: absent upload_date keeps the previous cursor ---

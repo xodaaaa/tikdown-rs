@@ -396,7 +396,11 @@ async def test_disk_check_job_pauses_under_threshold(tmp_path) -> None:
 
 
 async def test_network_probe_job_toggles_state(tmp_path) -> None:
-    settings = Settings(data_dir=tmp_path, network_offline_threshold_consecutive_failures=1)
+    settings = Settings(
+        data_dir=tmp_path,
+        network_probe_url="https://probe.example.com/generate_204",  # B4: empty URL assumes online
+        network_offline_threshold_consecutive_failures=1,
+    )
     components, db_engine = await make_components(tmp_path, settings=settings)
 
     async def probe_offline(_url: str, _timeout: float) -> bool:
