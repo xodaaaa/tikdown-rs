@@ -29,7 +29,35 @@ Master base: d2bcb78. Cada fix = un commit revertible, tests de regresión prime
 
 Merge decision: del usuario.
 
-## Review nativo (RDD) — PAUSADO, candidata sin review
+## Review nativo (RDD) — intento 2 en curso, 3/4 lentes admitidas, pendiente retry de reliability
+
+- Intento 1 (lineage `review-d6988ced83f87fbc`): pausado en 1/4 lentes (relay falló en
+  review-resilience); nunca cerrado, nunca reusado.
+- **Intento 2 (lineage `review-da06f39260bfd109`, START fresh con baseRef master +
+  committedOnly, tier high, 21 archivos, 829 líneas, presupuesto corrección 200)**:
+  - `review-risk` (0) — capturado y admitido.
+  - `review-resilience` (1) — capturado y admitido (el que falló 3 veces en el intento 1).
+  - `review-readability` (2) — capturado y admitido.
+  - `review-reliability` (3) — **pi-timed-out**: reviewer >16 min vs bound de relay 15 min
+    (piso 900000 ms + 15 min/MiB; prompt ~82 KB). Provider lo declaró `unachievable_lens_slot`,
+    estado `stop`. Nada de este slot fue admitido.
+- **Causa raíz**: bound del relay configurado al arrancar el proceso pi
+  (`GENTLE_PI_REVIEW_RELAY_PI_TIMEOUT_MS`, techo 7200000). No cambiable en caliente.
+- **Decisión del usuario**: reiniciar pi con `GENTLE_PI_REVIEW_RELAY_PI_TIMEOUT_MS=3600000`
+  y completar en la sesión nueva. Los 3 resultados admitidos se conservan (no se re-corren).
+- **Pasos de la sesión nueva (en orden)**:
+  1. Arrancar pi con `GENTLE_PI_REVIEW_RELAY_PI_TIMEOUT_MS=3600000` en el entorno.
+  2. Ejecutar VERBATIM el comando withdraw proveído por el provider (declara el slot
+     lograble de nuevo y re-ofrece el reviewer exacto):
+     ```
+     gentle-ai review capture-unachievable --lineage=review-da06f39260bfd109 --expected-revision=sha256:481f4ab442af7fce4842d574e26fb2f9a264b99512314c16aaf599c76c6eb700 --target=sha256:412067f2432ac3ef27a80e655157ba73396fd2892b9fa6b899ab2082afee8813 --repository-context=rctx2_8a21a457bd7a89355ac4b7175982019cb97315dc84c0fd98bbb8a0776299f4f5 --request-hash=sha256:6de666703649bf01c8fe8470a556fd7aec26c2a2ee09b7dd3337fb233aed1c69 --withdraw=true
+     ```
+  3. `gentle_review` STATUS fresco del lineage → capturar el slot `review-reliability`
+     slot a slot (forecast + acknowledgement), NUNCA reusar bindings viejos.
+  4. Seguir la transición hasta acknowledge-approved; el merge se hace después del cierre.
+- Regla vigente: nunca resubmeter bytes rechazados de `.git/gentle-ai/rejected-results/`.
+
+## Notas históricas — intento 1 (pausado, sin review)
 
 - Lineage `review-d6988ced83f87fbc` (tier high, 20 archivos, 749 líneas, presupuesto de corrección 200).
 - Lentes: `review-risk` (orden 0) **capturada y admitida**; `review-resilience` (1), `review-readability` (2), `review-reliability` (3) **pendientes**.
