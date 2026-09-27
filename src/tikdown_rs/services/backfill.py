@@ -325,10 +325,30 @@ async def collect_queued_backfills(
     usernames: list[str] = []
     for row in rows:
         if row.backfill_status == "paused":
-            if row.backfill_pause_reason == "disk" and not disk_pause_resolved:
+            if row.needs_review:
+                # B8/§9.6: a breaker pause waits for MANUAL review -- never
+                # collected, never churned into a not_queued warning loop.
                 continue
-            if row.backfill_pause_reason == "network" and not network_online_fn():
+            cause_resolved = (row.backfill_pause_reason != "disk" or disk_pause_resolved) and (
+                row.backfill_pause_reason != "network" or network_online_fn()
+            )
+            if not cause_resolved:
                 continue
+            # B8/§9.1: flip paused -> queued IN the collect pass (CAS), or
+            # run_backfill's Gate 2 would reject every launch with not_queued
+            # and a resolved pause would loop a warning every beat forever.
+            async with session_factory() as session:
+                result = await session.execute(
+                    text(
+                        "UPDATE monitored_accounts SET backfill_status = 'queued',"
+                        " backfill_pause_reason = NULL, updated_at = :now"
+                        " WHERE id = :id AND backfill_status = 'paused'"
+                    ),
+                    {"now": _utcnow_iso(), "id": row.id},
+                )
+                await session.commit()
+            if result.rowcount == 0:
+                continue  # a concurrent cancel/queue change won the race
         async with session_factory() as session:
             won = await acquire_backfill_slot(session, "collect")
         if not won:

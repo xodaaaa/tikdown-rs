@@ -716,6 +716,59 @@ async def test_collect_excludes_network_paused_when_offline(factory) -> None:
     assert result == []
 
 
+# --- B8 (Capa1#1/JD-B-011): resumable paused accounts must actually resume ---
+
+
+async def test_collect_requeues_paused_with_resolved_cause(factory) -> None:
+    """9.1: collect picks 'paused' whose cause is resolved — the flip to
+    'queued' must happen IN the collect pass, otherwise run_backfill's Gate 2
+    rejects every launch with not_queued and the pause never ends."""
+    await add_account(
+        factory,
+        username="diskresumed",
+        backfill_status="paused",
+        backfill_pause_reason="disk",
+    )
+    await set_downloads_paused(factory, False)
+
+    result = await collect_queued_backfills(factory, engine_factory_fn=lambda account: None)
+
+    assert result == ["diskresumed"]
+    account = await get_account(factory, next(iter(await _account_ids(factory, "diskresumed"))))
+    assert account.backfill_status == "queued"
+    assert account.backfill_pause_reason is None
+
+
+async def test_collect_skips_breaker_paused_needs_review(factory) -> None:
+    """9.6: a breaker pause (needs_review=1, no pause reason) waits for manual
+    review — collect must neither collect it nor churn the slot every 60 s."""
+    await add_account(
+        factory,
+        username="breakerpaused",
+        backfill_status="paused",
+        needs_review=1,
+    )
+
+    result = await collect_queued_backfills(factory, engine_factory_fn=lambda account: None)
+
+    assert result == []
+
+
+async def _account_ids(factory, username: str) -> list[int]:
+    async with factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    text("SELECT id FROM monitored_accounts WHERE username = :u"),
+                    {"u": username},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return list(rows)
+
+
 # --- 9.1 slot uniqueness across two concurrent runs ---
 
 
