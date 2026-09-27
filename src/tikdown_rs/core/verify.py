@@ -38,7 +38,7 @@ def probe_profile(cookies_blob: bytes, profile_url: str, max_entries: int) -> li
     tmp_path = write_canonical_netscape_tempfile(cookies_blob.decode("utf-8"))
     try:
         options = {
-            "flat_playlist": True,  # T-ENGINE-12
+            "extract_flat": "in_playlist",  # T-ENGINE-12 (B2: 'flat_playlist' is a yt-dlp no-op)
             "ignoreerrors": True,
             "playlistend": max_entries,
             "cookiefile": str(tmp_path),

@@ -150,7 +150,7 @@ def test_probe_profile_option_surface_and_tempfile_lifecycle(monkeypatch) -> Non
     fake = FakeYoutubeDL.last_instance
     assert fake is not None and fake.entered
     opts = fake.params
-    assert opts["flat_playlist"] is True  # T-ENGINE-12
+    assert opts["extract_flat"] == "in_playlist"  # T-ENGINE-12 (B2)
     assert opts["ignoreerrors"] is True
     assert opts["playlistend"] == 5
     assert "impersonate" not in opts  # T-ENGINE-11
