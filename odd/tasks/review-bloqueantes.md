@@ -8,7 +8,7 @@ Master base: d2bcb78. Cada fix = un commit revertible, tests de regresión prime
 
 - [x] B4 — NETWORK_PROBE_URL vacío → probe exitoso + warning (§8.1, §0.2.3: no está en la lista fail-fast). Commit `a21bc23`.
 - [x] B6 — Cursor `<=` → `<` estricto (§9.2) + `done` solo para transiciones nuevas (§9.3); arregla retry-failed. Commit `c893cd9`.
-- [ ] B2 — `extract_flat: "in_playlist"` + fallback `timestamp→YYYYMMDD` (T-ENGINE-12/25; verificado contra nightly pineada). Commit `<sha>`.
+- [x] B2 — `extract_flat: "in_playlist"` + fallback `timestamp→YYYYMMDD` (T-ENGINE-12/25; verificado contra nightly pineada). Commit `279abc6`.
 - [ ] B3 — Cablear `MONITOR_INTERVAL_MINUTES` en el hot start del heartbeat (§11.1, T-DEPLOY-9). Commit `<sha>`.
 - [ ] B5 — `except Exception` en run_backfill → `queued` (§9.1/T-BACKFILL-6). Commit `<sha>`.
 - [ ] B8 — collect hace `paused→queued` con causa resuelta y salta `needs_review` (§9.1). Commit `<sha>`.

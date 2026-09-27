@@ -45,6 +45,7 @@ import asyncio
 import logging
 import os
 import signal
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -175,6 +176,10 @@ class DaemonComponents:
     disk_usage_fn: Callable | None = None
     # Hot monitor start state (5.3): the CURRENT cycle task, replaced per beat.
     monitor_cycle_task: asyncio.Task | None = None
+    # B3 (JD-A-004): hot-start gate clock. In-memory by design: one process,
+    # restart resets it and the first beat launches a cycle (T-CLI-6 intact).
+    monotonic_fn: Callable[[], float] = time.monotonic
+    last_monitor_cycle_started_at: float | None = None
     # 5.6 dedupe-per-edge: the last count seen by the heartbeat.
     last_contention_count: int = 0
 
@@ -226,6 +231,17 @@ async def _maybe_start_monitor_cycle(components: DaemonComponents) -> None:
         return
     if components.monitor_cycle_task is not None and not components.monitor_cycle_task.done():
         return  # a cycle is already running; coalesce into it
+    # B3 (§11.1, T-DEPLOY-9): MONITOR_INTERVAL_MINUTES gates the hot start.
+    # Without this guard the cycle relaunched on EVERY 10 s beat, re-listing
+    # feeds every ~30 s instead of the configured interval.
+    now = components.monotonic_fn()
+    interval = components.settings.monitor_interval_minutes * 60
+    if (
+        components.last_monitor_cycle_started_at is not None
+        and now - components.last_monitor_cycle_started_at < interval
+    ):
+        return
+    components.last_monitor_cycle_started_at = now
     components.monitor_cycle_task = create_supervised_task(
         _monitor_cycle(components), name="monitor-cycle"
     )

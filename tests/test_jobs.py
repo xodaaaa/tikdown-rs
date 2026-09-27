@@ -236,6 +236,48 @@ async def test_heartbeat_hot_start_runs_monitor_cycle(tmp_path) -> None:
         await db_engine.dispose()
 
 
+class FakeMonotonic:
+    """Injectable monotonic clock with manual advance (B3 tests)."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+async def test_heartbeat_respects_monitor_interval_minutes(tmp_path) -> None:
+    """B3 (JD-A-004/JD-B-001): MONITOR_INTERVAL_MINUTES must gate the hot
+    start. Without it the cycle relaunched on every 10 s beat, re-listing
+    feeds every ~30 s — 10x the configured cadence (anti-bot exposure)."""
+    clock = FakeMonotonic()
+    components, db_engine = await make_components(tmp_path, monotonic_fn=clock)
+    try:
+        await _add_account(components.session_factory, mode="monitor")
+        await _add_valid_cookie(components.session_factory)
+        await set_monitor_running(components.session_factory, True)
+
+        await _heartbeat_job(components)
+        first = components.monitor_cycle_task
+        assert first is not None  # first beat launches immediately (T-CLI-6)
+        await asyncio.wait_for(first, timeout=5.0)
+
+        clock.advance(5)  # well below the 5-minute default interval
+        await _heartbeat_job(components)
+        assert components.monitor_cycle_task is first  # NO relaunch inside the interval
+
+        clock.advance(components.settings.monitor_interval_minutes * 60)
+        await _heartbeat_job(components)
+        second = components.monitor_cycle_task
+        assert second is not None and second is not first  # interval elapsed: new cycle
+        await asyncio.wait_for(second, timeout=5.0)
+    finally:
+        await db_engine.dispose()
+
+
 async def test_heartbeat_refuses_cycle_when_degraded_no_engine(tmp_path, caplog) -> None:
     """No working cookie at startup -> engine None -> the cycle is never launched."""
     components, db_engine = await make_components(tmp_path, engine=None)
