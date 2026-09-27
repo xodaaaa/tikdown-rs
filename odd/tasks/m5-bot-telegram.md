@@ -22,20 +22,33 @@ ni `yt_dlp`; el bot no importa `cli/` (test de arquitectura).
       Commit `2804775` (27 tests nuevos; suite 580 passed, ruff clean). Campos reales del modelo:
       `username`/`backfill_status`/`video_count` (no handle/state). Desviación aceptada: expiración
       estricta `now - ts > 60` (tolera clock skew); página vacía → total_pages 0.
-- [ ] T5 — Dispatcher de comandos §6.2: `/start /help /list /add /stats /disk /status /monitor /check
-      /backfill /pause /resume /remove /cookies /notify /last`; paridad **funcional** con
-      `services/*` (el dispatcher solo orquesta); handlers idempotentes (T-BOT-4); upload de cookies
-      con límite 10 MB (metadato + tamaño real), `mkstemp` + `os.close(fd)` + borrado en `finally`
-      (T-COOKIES-7).
-- [ ] T6 — Integración en el daemon §6.1/§5.1(paso 8): `initialize() → start() →
-      updater.start_polling(timeout=25)`; NUNCA `run_polling()`; apagado `updater.stop() → stop() →
-      shutdown()` (T-BOT-1); engine único inyectado + `owns_engine` (T-BOT-3); verificación con
-      `getMe`/`sendMessage`, nunca `getUpdates` manual (T-BOT-2); supervisión activa.
-- [ ] T7 — Supervisión del polling §6.5: tarea supervisada con healthcheck `getMe` cada
-      `POLLING_HEALTHCHECK_INTERVAL` (30 s); tras 3 fallos consecutivos reinicio completo
-      (`stop()` + `start()`) sin reiniciar el daemon; flag `_restarting` anticoncurrencia.
-      Verificación empírica del polling (aviso §6.5, PTB ≥20): pendiente del usuario/entorno.
-- [ ] T8 — Gate M5: pytest en verde + test de arquitectura (bot no importa `cli/`) + ruff.
+- [~] T5 — Dispatcher de comandos §6.2:
+      - [x] T5a — Core + lectura (`/start /help /list /stats /disk /status /last` + callback
+            `listp:`): commit `0459ef6` (38 tests nuevos; suite 618 passed estable ×2, ruff clean).
+            `/stats` y `/last` responden "pending (M6)" (el CLI también es stub — paridad funcional
+            OK). PTB API verificada en runtime (22.8). Desviación: `TELEGRAM_CHAT_ID` no parseable →
+            sentinel `-1` (deny-all, default seguro) — confirmar con el usuario.
+      - [x] T5b — Mutadores + upload: commit `7c74ea4` (35 tests nuevos; suite 653 passed ×2,
+            ruff clean). `/monitor` y `/check` responden pending: el CLI es stub explícito
+            (accounts.py: "check needs the engine listing round") y no existe verbo `monitor` en
+            el CLI — paridad funcional OK. Upload: rechazo por metadato ANTES de descargar,
+            tamaño real post-descarga, mkstemp + fd close inmediato + unlink en finally
+            (idempotente), authz/throttle aplican a uploads, deleteMessage best-effort.
+- [x] T6 — Integración daemon §6.1/§5.1(paso 8): commit `d648475`. Bot en el punto marcado
+      (run.py ~636-643), solo si `telegram_bot_token` está seteado; session_factory del daemon
+      inyectada (UN engine, T-BOT-3); `owns_engine` NO añadido (flag con un solo valor posible =
+      flexibilidad muerta — el daemon dispone su engine en shutdown); lifecycle estricto T-BOT-1;
+      tarea supervisada `bot-polling-supervision`; degradación graciosa si el bot falla al arrancar
+      (el daemon sigue funcional); sin `getUpdates` manual (grep-verified).
+- [x] T7 — Supervisión del polling §6.5: commit `a20d838`. `bot/supervision.py`: healthcheck
+      `get_me` cada `polling_healthcheck_interval` con `asyncio.wait_for(min(interval, 10 s))`;
+      3 fallos consecutivos → reinicio completo sin reiniciar el daemon; `_restarting` anticoncurrencia;
+      restart fallido → reintento próximo ciclo (contador NO se resetea); 12 tests deterministas.
+      **Verificación empírica (criterio de aceptación M5) PENDIENTE**: matar polling y observar
+      recuperación requiere entorno real con token — pedir al usuario.
+- [x] T8 — Gate M5: pytest `669 passed, 1 deselected (live)` (estable, ×2 corridas por unidad);
+      ruff check + format clean; test de arquitectura verde (bot no importa `cli/`,
+      `tests/test_architecture.py:4`). Suite total M5: 580 → 669 (+89 tests).
 
 ## Notas
 
