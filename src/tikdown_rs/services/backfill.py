@@ -573,6 +573,12 @@ async def run_backfill(
             )
         return status
 
+    except ConfigurationError:
+        # Gate rejections (no_cookies/not_queued/slot_busy) are fail-fast
+        # business errors raised BEFORE 'backfilling' is ever set: re-raise
+        # untouched, never unwedge (there is nothing to unwedge).
+        raise
+
     except Exception:
         # B5 (JD-A-002): a non-cancel crash (transient listing failure, locked
         # DB, IntegrityError) used to leave the account in 'backfilling' with

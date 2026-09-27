@@ -282,6 +282,18 @@ async def test_unexpected_listing_error_unwedges_to_queued(factory) -> None:
     assert await slot_owner(factory) is None  # slot released in the finally
 
 
+async def test_gate_configuration_errors_still_raise(factory) -> None:
+    """B5 companion: the unwedge handler must never swallow gate rejections --
+    they are fail-fast business errors raised before 'backfilling' exists."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory, backfill_status="completed")
+    engine = FakeEngine([_entry("1", "20260101")])
+    with pytest.raises(ConfigurationError, match="completed"):
+        await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+    account = await get_account(factory, account_id)
+    assert account.backfill_status == "completed"  # untouched
+
+
 # --- Happy path: totals, done, cursor, events, slot released ---
 
 
