@@ -278,7 +278,7 @@ def cookie_metadata_oversize(file_size: int | None) -> bool:
 
 def format_pause_message(username: str, target_paused: bool, already_in_state: bool) -> str:
     """Resulting-state report for /pause //resume; '@' carried by the template (T-BOT-9)."""
-    name = display_username(username)
+    name = escape_html(display_username(username))
     if target_paused:
         return (
             f"La cuenta @{name} ya estaba pausada."

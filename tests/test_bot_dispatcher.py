@@ -840,6 +840,11 @@ class TestFormatPauseMessage:
         assert text.startswith("Cuenta @alice")
         assert not text.startswith("Cuenta @@")
 
+    def test_username_html_escaped(self):
+        # R3-1: replies go out with parse_mode=HTML.
+        text = format_pause_message("<b>evil</b>", True, False)
+        assert "Cuenta @&lt;b&gt;evil&lt;/b&gt; pausada." in text
+
 
 class TestUsageFor:
     def test_usage_line(self):
