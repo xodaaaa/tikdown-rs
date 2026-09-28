@@ -7,10 +7,12 @@ import asyncio
 import logging
 from logging.config import fileConfig
 
+from sqlalchemy import event
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from tikdown_rs.core.db import apply_pragmas
 
 config = context.config
 
@@ -44,6 +46,15 @@ def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
     )
+
+    # M15: migration connections apply the same runtime PRAGMA sequence
+    # (core/db.py PRAGMA_STATEMENTS) so a migration cannot die on
+    # 'database is locked' while the daemon holds the DB. SQLite only:
+    # the PRAGMAs are dialect-specific.
+    @event.listens_for(connectable.sync_engine, "connect")
+    def _apply_migration_pragmas(dbapi_connection: object, connection_record: object) -> None:
+        if connectable.sync_engine.dialect.name == "sqlite":
+            apply_pragmas(dbapi_connection)
 
     async def run() -> None:
         async with connectable.connect() as connection:
