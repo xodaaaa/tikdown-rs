@@ -88,7 +88,7 @@ limpio (T-CLI-6), estado saneado.
    `:` → `has_video` SIEMPRE False → TODO download degradaba a `failed/integrity`. Invisible a los
    tests (ffprobe stubbeado — punto ciego del mock). Fix: `_ffprobe_command` puro + test de
    integración real skipif.
-4. `T-CLI-10` (`04fd852`): export en consola Windows cp1252 revienta con títulos unicode. Fix:
+4. `T-CLI-11` (`04fd852`): export en consola Windows cp1252 revienta con títulos unicode. Fix:
    UTF-8 explícito por `sys.stdout.buffer`.
 
 Entorno: ffmpeg/ffprobe portable en `tikdown-rs-trash/ffmpeg/` (build gyan 7.1.1) agregado al PATH
@@ -130,19 +130,52 @@ encadenada por cortes en el worktree temporal `<repo-root>/../tikdown-rs-review`
 | Corte | Rango (baseRef..HEAD del worktree) | Líneas | Estado |
 |---|---|---|---|
 | 1 | `1c3d342..2804775` (prereq + security + paginación) | 697 | **APPROVED 4/4** — lineage `review-b807aefa95bdb6b8`, acknowledge quemado. 11 hallazgos informativos (2 WARNING: allowlist vacía fail-open en security.py:95-96; clamp de paginación pagination.py:103-104). Un relay fallido ("Stream ended without finish_reason") resuelto a slot en reintento. |
-| 2 | `2804775..0459ef6` (dispatcher core T5a) | 1071 | pendiente |
-| 3 | `0459ef6..7c74ea4` (mutadores + upload T5b) | 667 | pendiente |
-| 4 | `7c74ea4..d648475` (supervisión + daemon T6/T7) | 682 | pendiente |
-| 5 | `d648475..77c8b8c` (docs M5 + services/status) | ~1138 | pendiente |
-| 6 | `77c8b8c..15d31e7` (videos last/export + /last bot) | 574 | pendiente |
-| 7 | `15d31e7..3084c72` (integrity + backup) | 734 | pendiente |
-| 8 | `3084c72..f51a403` (static site + stats) | 1213 | pendiente (si excede: dividir) |
-| 9 | `f51a403..63ab74d` (README + M20 + fixes en vivo + docs) | 547 | pendiente |
+| 2 | `2804775..0459ef6` (dispatcher core T5a) | 1071 | **APPROVED 4/4** — lineage `review-f183bbcd49f2483e`, acknowledge quemado. 4 hallazgos informativos no bloqueantes (1 WARNING: hueco de ejecución de query tests/test_bot_dispatcher.py:502-525; resto SUGGESTION). |
+| 3 | `0459ef6..7c74ea4` (mutadores + upload T5b) | 725 | **APPROVED 4/4 CON CORRECCIÓN** — lineage `review-539f12154b07b63f`, acknowledge quemado. Historia: 2 intentos murieron contra el bound derivado (stream-end a 781 s, timeout a 944 s); slot withdraw y re-ofrecido; a la tercera el slot `review-reliability` cerró con **R3-1 (CRITICAL, determinista)**: `format_pause_message` interpolaba `display_username(username)` sin `escape_html` en un reply con `parse_mode=HTML` (viola T-BOT-9). Corrección acotada de 7 diff lines (plan forecast 7, ejecutado 6+1) en commit `81b52bd` sobre la rama `review-fix-r3-1`; 654 tests passed (1 deselected live); validador dirigido PASSED. R3-1 era el único interpolado sin escapar del corte (add/remove/backfill sí escapaban). |
+| 4 | `7c74ea4..d648475` (supervisión + daemon T6/T7) | 682 | **APPROVED 4/4 CON CORRECCIÓN** — lineage `review-0907af71ea9d74a3`, acknowledge quemado. 3 CRITICAL confirmados por refuter: R3-001/R3-003 (etapas del lifecycle PTB sin deadline, wedges startup/shutdown) y R3-002 (determinista: `_start_bot` no atómico, bot parcial sin shutdown). Corrección de 157 diff lines en commit `b35e14f` (rama `review-fix-r4`): `LIFECYCLE_STAGE_TIMEOUT_SECONDS=30` vía `asyncio.wait_for` en todas las etapas + cleanup `stop_bot_polling` antes de re-lanzar. Validador PASSED (4 advisory). |
+| 5 | `d648475..77c8b8c` (docs M5 + services/status) | ~1138 | **APPROVED 4/4** — lineage `review-07c55dcf25c8d106`, acknowledge quemado. 2 WARNING informativos (R3-ROW-COMPAT, R3-TZ-NAIVE-NOW en services/status.py). Un relay timeout (951 s) resuelto con withdraw + reintento. |
+| 6 | `77c8b8c..15d31e7` (videos last/export + /last bot) | 574 | **APPROVED 4/4** — lineage `review-f8a4c42e949b687e`, acknowledge quemado. 5 hallazgos informativos (4 readability + 1 resilience WARNING/SUGGESTION). |
+| 7 | `15d31e7..3084c72` (integrity + backup) | 734 | **APPROVED 4/4 CON CORRECCIÓN** — lineage `review-db748f8801a726d0`, acknowledge quemado. 3 CRITICAL: R3-001/R4-001 (deterministas: `create_backup` hacía `unlink` del snapshot previo antes del VACUUM → colisión mismo-segundo + fallo destruía la última copia buena) y R4-002 (retención contaba `.db` parciales). Corrección de 89 diff lines en commit `cb18f3f` (rama `review-fix-r7`): publicación atómica (stage `*.db.tmp` + `os.replace`). Validador PASSED (16 advisory). |
+| 8 | `3084c72..f51a403` (static site + stats) | 1229 | **APPROVED 4/4** — lineage `review-6c5f27e4831dea73`, acknowledge quemado. 5 WARNING informativos (static_site.py, dispatcher.py). Entró completo sin dividir; 1 relay timeout resuelto con withdraw + reintento. |
+| 9 | `f51a403..63ab74d` (README + M20 + fixes en vivo + docs) | 549 | **ABIERTO (bloqueado por defecto del provider)** — lineage `review-4243ec66e4c06b3b` en state=reviewing: review-risk y review-resilience CAPTURADAS; review-readability rechazada 4 veces por `proof_path_out_of_scope`: el reviewer cita `specs/Plan de implementacion tikdown-rs.md:1609` (fila T-CLI-10 duplicada, hallazgo real) y el admission parte el path en el espacio → `tikdown-rs.md` → rechazo determinista. review-reliability sin ofrecer. Re-review planeada con candidato nuevo (fix T-CLI-11). |
 
-Receta por corte (probada en el corte 1): `git -C <worktree> checkout <head-del-corte>` →
+Receta por corte (probada en los cortes 1-3): `git -C <worktree> checkout <head-del-corte>` →
 `gentle_review inspect` (workspaceRoot=worktree) con `{"baseRef": "<base-del-corte>",
 "committedOnly": true}` → START ordinary + idempotencia fresca → STATUS → capturas slot a slot
 (forecast + ack) → acknowledge-approved verbatim. NUNCA reusar bindings.
+
+Si un corte vuelve `correction_required`: STATUS bound (con `input` baseRef+committedOnly, o el
+provider resuelve el workspace ambiente y devuelve `unrelated`) → `gentle_review_capture` con
+`correctionLines` = forecast en diff lines **antes de editar** → editar → commit (el candidato
+corregido TIENE que ser un commit: un lineage committedOnly no ve el working tree) → STATUS →
+slot `provider_targeted_validator` (forecast + ack) → acknowledge-approved. Un solo presupuesto
+de corrección: si el validador falla, escala.
+
+Dos lecciones duras:
+
+1. **El bound del relay solo lo sube el env var.** `lib/review-host-relay.ts:458-472`: bound =
+   900 s + 900 s por MiB de prompt, techo 7.200 s, y `GENTLE_PI_REVIEW_RELAY_PI_TIMEOUT_MS` lo
+   reemplaza entero leyéndolo del proceso pi. Dividir el corte NO ayuda: el piso ya es 900 s.
+2. **Transcribir un `collectBinding` a mano**: el parámetro NO se desescapa (lo que se escribe
+   llega literal) y el output del provider es fiel, así que los `\n` de `proof`/`policyContent`
+   se escriben con **un** backslash, no dos. Un binding rechazado no muta nada
+   (`capture-binding-rejected`), y el binding exacto se puede extraer del transcript de sesión
+   (`~/.pi/agent/sessions/<proyecto>/<ts>_<id>.jsonl`, record `toolResult`) para comparar.
+
+Tres lecciones más (cortes 4-8):
+
+3. **El plan de corrección va ANTES del commit.** Si el candidato committed cambia de identidad
+   antes de capturar `correctionLines`, el binding (target original) es rechazado por la facade
+   ("does not carry one non-empty matching provider lineage and target token"). Ante ese rechazo
+   ya-commiteado: `git reset --soft HEAD~1`, capturar el plan, re-commitear (aplicado en corte 7:
+   `5dc9bea` descartado, `cb18f3f` final).
+4. **Facade STATUS atascada con `capture-route-registration-rejected` persistente**: las rutas de
+   captura retenidas llevan `baseRef=undefined` si la primera STATUS del lineage fue sin `input`;
+   una STATUS posterior CON baseRef colisiona (`gentle-ai.ts:6543`). Solución: llamar STATUS SIN
+   `input` (sin baseRef) — el provider igual resuelve el target correcto.
+5. **El admission NO soporta paths con espacios** en `location`/`proof_refs`: parte el `path:línea`
+   en el primer espacio. Los rechazos NO consumen el slot ni el presupuesto (reintento barato,
+   ~2 s), pero un hallazgo que DEPENDE de citar ese path entra en loop (caso del corte 9).
 
 ## Notas
 
