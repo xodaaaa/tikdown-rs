@@ -103,6 +103,48 @@ def test_run_or_exit_converts_configuration_error(capsys) -> None:
     assert "ERROR boom" in captured.err
 
 
+def test_run_or_exit_converts_business_error(capsys) -> None:
+    """M7/T-CLI-8: DownloadTimeoutError exits cleanly, same funnel style."""
+    from tikdown_rs.cli.common import run_or_exit
+    from tikdown_rs.core.errors import DownloadTimeoutError
+
+    def slow() -> None:
+        raise DownloadTimeoutError("video exceeded the timeout")
+
+    with pytest.raises(typer.Exit) as excinfo:
+        run_or_exit(slow)
+    assert excinfo.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "ERROR video exceeded the timeout" in captured.err
+
+
+def test_run_or_exit_converts_operational_error(capsys) -> None:
+    """M7/T-CLI-8: a locked SQLite DB at the CLI boundary exits cleanly, no traceback."""
+    from sqlalchemy.exc import OperationalError
+
+    from tikdown_rs.cli.common import run_or_exit
+
+    def locked() -> None:
+        raise OperationalError("SELECT 1", {}, Exception("database is locked"))
+
+    with pytest.raises(typer.Exit) as excinfo:
+        run_or_exit(locked)
+    assert excinfo.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "ERROR database is locked" in captured.err
+
+
+def test_run_or_exit_does_not_catch_unexpected_exceptions() -> None:
+    """M7: programming errors are never caught — bare Exception stays out of the funnel."""
+    from tikdown_rs.cli.common import run_or_exit
+
+    def broken() -> None:
+        raise RuntimeError("bug")
+
+    with pytest.raises(RuntimeError):
+        run_or_exit(broken)
+
+
 def test_run_or_exit_returns_value() -> None:
     from tikdown_rs.cli.common import run_or_exit
 

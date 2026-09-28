@@ -6,19 +6,26 @@ T-ASYNC-4 (migrations off the loop thread). Regla: 10.2, 10.1, 5.4.
 
 import asyncio
 
+import sqlalchemy.exc
 import typer
 
 from tikdown_rs.core.config import Settings
-from tikdown_rs.core.errors import ConfigurationError
+from tikdown_rs.core.errors import ConfigurationError, DownloadTimeoutError
 from tikdown_rs.core.migrations import run_migrations
 
 
 def run_or_exit(fn, *args, **kwargs):
-    """Run fn; ConfigurationError becomes `ERROR <msg>` + exit 1, no traceback (T-CLI-4)."""
+    """Run fn; configuration/business/DB errors become `ERROR <msg>` + exit 1, no
+    traceback (T-CLI-4, M7/T-CLI-8: never a raw traceback at the CLI boundary).
+    Deliberately NOT bare Exception (M7): programming errors must still traceback."""
     try:
         return fn(*args, **kwargs)
-    except ConfigurationError as exc:
-        typer.secho(f"ERROR {exc}", err=True, fg=typer.colors.RED)
+    except (ConfigurationError, DownloadTimeoutError, sqlalchemy.exc.OperationalError) as exc:
+        # M7: one clean line — for OperationalError the DBAPI `orig` message
+        # ('database is locked') beats SQLAlchemy's multiline wrapper text.
+        orig = getattr(exc, "orig", None)
+        message = str(orig) if orig is not None else str(exc)
+        typer.secho(f"ERROR {message}", err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from None
 
 
