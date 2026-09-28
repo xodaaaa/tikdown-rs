@@ -907,9 +907,9 @@ Exactamente **7 grupos de sustantivo**: `daemon`, `monitor`, `accounts`, `backfi
 |---|---|
 | `daemon` | `run`, `stop`, `status`, `selfcheck`, `healthcheck` |
 | `monitor` | `start`, `stop` |
-| `accounts` | `add @user [--mode history\|monitor] [--then-monitor]`, `list`, `pause`, `resume`, `notify --on/--off`, `remove`, `check`, `stats` |
+| `accounts` | `add @user [--mode history\|monitor] [--then-monitor]`, `list`, `pause`, `resume`, `notify [@user] --on/--off`, `remove`, `check`, `stats` |
 | `backfill` | `run @user [--queue]`, `status @user`, `cancel @user`, `retry-failed @user \| --all` |
-| `cookies` | `add <ruta> [--keep-source]`, `list`, `test <id>`, `remove <id>` |
+| `cookies` | `add <ruta> [--keep-source] [--label <etiqueta>]`, `list`, `test <id>`, `remove <id>` |
 | `videos` | `last [N]`, `export [--format json\|csv]`, `integrity [username]` |
 | `system` | `disk [--resume]`, `backup`, `site render` |
 

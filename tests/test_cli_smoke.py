@@ -27,7 +27,9 @@ EXPECTED_FLAGS = {
     ("accounts", "notify"): ["--on", "--off"],
     ("backfill", "run"): ["--queue"],
     ("backfill", "retry-failed"): ["--all"],
-    ("cookies", "add"): ["--keep-source"],
+    # M21: adopted real flag already used in production rounds (labels like
+    # 'live-round'); added to the 10.1 tree.
+    ("cookies", "add"): ["--keep-source", "--label"],
     ("videos", "export"): ["--format"],
     ("system", "disk"): ["--resume"],
 }
@@ -62,6 +64,14 @@ def test_help_shows_declared_flags(group: str, command: str) -> None:
     assert result.exit_code == 0
     for flag in EXPECTED_FLAGS[(group, command)]:
         assert flag in result.output
+
+
+def test_accounts_notify_accepts_an_optional_user_argument() -> None:
+    """M21: adopted real usage — `accounts notify` toggles one account with a
+    handle, or ALL accounts when it is omitted (10.1 tree: `notify [@user]`)."""
+    result = runner.invoke(app, ["accounts", "notify", "--help"])
+    assert result.exit_code == 0
+    assert "[user]" in result.output
 
 
 def test_registered_groups_match_10_1_exactly() -> None:
