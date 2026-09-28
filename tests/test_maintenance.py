@@ -19,12 +19,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text as sa_text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.migrations import run_migrations
 from tikdown_rs.models import Cookie, MonitoredAccount
+from tikdown_rs.services import maintenance as maintenance_mod
 from tikdown_rs.services.maintenance import (
     create_backup,
     refresh_all_profiles,
@@ -322,7 +325,8 @@ async def test_create_backup_same_second_overwrites_deterministically(
     factory, tmp_path: Path
 ) -> None:
     """Two invocations in the same second: the newer VACUUM INTO overwrites
-    deterministically (unlink-then-vacuum), leaving exactly one snapshot."""
+    deterministically (staged + atomic os.replace), leaving exactly one snapshot
+    and no *.db.tmp behind."""
     settings = Settings(data_dir=tmp_path, system_backup_retain_count=7)
     fixed = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -333,6 +337,49 @@ async def test_create_backup_same_second_overwrites_deterministically(
     assert first == second
     assert second.stat().st_size > 0  # real snapshot replaced the stale bytes
     assert sorted(p.name for p in (tmp_path / "backups").iterdir()) == [second.name]
+
+
+async def test_create_backup_failure_preserves_previous_snapshot(
+    factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R3-001/R4-001: a failed VACUUM run must NOT destroy the last good snapshot.
+
+    The pre-fix code unlinked the target before vacuuming, so a same-second
+    collision plus a failure (disk full, interruption) erased the only
+    known-good copy. With staged atomic publication the previous snapshot
+    survives untouched and the failed stage leaves no *.db.tmp behind.
+    """
+    settings = Settings(data_dir=tmp_path, system_backup_retain_count=7)
+    fixed = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+    good, _ = await create_backup(factory, settings, now_fn=lambda: fixed)
+    good_bytes = good.read_bytes()
+
+    # Force the VACUUM statement to fail deterministically.
+    monkeypatch.setattr(maintenance_mod, "text", lambda _q: sa_text("SELECT * FROM no_such_table"))
+    with pytest.raises(OperationalError):
+        await create_backup(factory, settings, now_fn=lambda: fixed)
+
+    assert good.read_bytes() == good_bytes  # previous snapshot intact
+    assert not (tmp_path / "backups" / f"{good.name}.tmp").exists()  # stage cleaned
+
+
+async def test_stale_tmp_never_matches_retention_pattern(factory, tmp_path: Path) -> None:
+    """R4-002: a staged *.db.tmp (partial/interrupted write) is invisible to
+    retention -- only complete final-name snapshots are ever counted or evicted.
+    """
+    settings = Settings(data_dir=tmp_path, system_backup_retain_count=1)
+    backups = tmp_path / "backups"
+    _seed_backups(backups, ["20240101T000000", "20240102T000000"])
+    (backups / "tikdown-rs-20250101T120000Z.db.tmp").write_bytes(b"partial write")
+
+    snapshot, deleted = await create_backup(factory, settings)
+
+    assert deleted == 2  # both older final-name snapshots evicted, tmp ignored
+    assert SNAPSHOT_RE.match(snapshot.name)
+    assert (backups / "tikdown-rs-20250101T120000Z.db.tmp").exists()  # untouched
+    assert [p.name for p in backups.iterdir() if SNAPSHOT_RE.match(p.name)] == [
+        snapshot.name,
+    ]
 
 
 def test_cli_backup_creates_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
