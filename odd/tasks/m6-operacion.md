@@ -69,6 +69,37 @@ Cada unidad = un commit revertible, tests primero. §0.4: mínimo diff, solo tab
 - [ ] Pendiente usuario — Ronda en vivo contra TikTok real (datos desechables) + verificación
       empírica de recuperación de polling (M5 §6.5).
 
+## Ronda en vivo (2026-09-27/28, @rosary657, DATA_DIR desechable en tikdown-rs-trash/live-data)
+
+Resultado: **ronda completa exitosa**. Cookies: import → `inconclusive` → sonda real → `valid`
+(WAF challenge PoW resuelto por el extractor). Backfill history completo: **17/17 videos
+`downloaded`, 30.3 MB en disco, `videos integrity` 17/17 ok**. Un 403 transitorio absorvido por el
+embudo. Export json/csv OK. Backup OK (VACUUM INTO + retención). `system site render` OK: los 4
+archivos con datos reales. Daemon: heartbeat 10 s, healthcheck exit 0, jobs al día, `daemon stop`
+limpio (T-CLI-6), estado saneado.
+
+**4 bugs reales cazados en vivo — cada uno con test de regresión + fila en el Apéndice A:**
+
+1. `T-ENGINE-31` (`f23ff10`): `accounts add` persiste la URL verbatim → URL basura en el motor →
+   listado vacío silencioso. Fix: `normalize_handle` en el motor (cubre backfill/monitor/perfil).
+2. `T-ENGINE-32` (`53b204f`): yt-dlp salta archivos existentes con `requested_downloads` vacío →
+   `retry-failed` nunca convergía. Fix: adopción por glob-by-id (nunca `.part`).
+3. `T-ENGINE-33` (`98a1d08`): argv de ffprobe con `--` mal ubicado + secciones con `,` en vez de
+   `:` → `has_video` SIEMPRE False → TODO download degradaba a `failed/integrity`. Invisible a los
+   tests (ffprobe stubbeado — punto ciego del mock). Fix: `_ffprobe_command` puro + test de
+   integración real skipif.
+4. `T-CLI-10` (`04fd852`): export en consola Windows cp1252 revienta con títulos unicode. Fix:
+   UTF-8 explícito por `sys.stdout.buffer`.
+
+Entorno: ffmpeg/ffprobe portable en `tikdown-rs-trash/ffmpeg/` (build gyan 7.1.1) agregado al PATH
+solo para la ronda (equivalente al binario que la imagen Docker lleva baked). Suite al cierre:
+**774 passed, 2 skipped (Windows chmod + ffprobe-integration), 1 deselected**.
+
+Pendiente de la ronda: verificación empírica de recuperación de polling (M5 §6.5) — requiere
+TELEGRAM_BOT_TOKEN (el usuario eligió ronda solo-CLI). Ciclo de monitor con video NUEVO real no
+observado (la cuenta no publicó durante la ronda; el listado real ya quedó validado por el
+backfill).
+
 ## Notas
 
 - `/monitor` y `/check` del bot siguen pendientes de la ronda de listado real (T-ENGINE-19);
