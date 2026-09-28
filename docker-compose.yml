@@ -25,3 +25,17 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  # Static dashboard server (§10.3): serves the 4 files `system site render`
+  # writes into <data_dir>/public. Read-only mount; regenerate the files with
+  # `tikdown-rs system site render` (CLI or the scheduler job when
+  # STATIC_SITE_ENABLED) and refresh the browser -- no server reload needed.
+  site:
+    image: nginx:alpine
+    depends_on:
+      - tikdown-rs
+    restart: on-failure
+    ports:
+      - "${SITE_PORT:-8080}:80"
+    volumes:
+      - ./data/public:/usr/share/nginx/html:ro
