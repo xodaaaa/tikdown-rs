@@ -796,3 +796,61 @@ class TestFfprobeCommand:
         probe = _ffprobe_file(sample)
         assert probe, "ffprobe returned {} — command construction broken"
         assert _probe_has_video(probe) is True
+
+
+# --- T-CLI-10 (live round M6): exports are DATA, written as UTF-8 ---
+
+
+class TestExportPayloadEncoding:
+    """Windows legacy consoles run cp1252: `typer.echo` of a payload with real
+    TikTok titles (emoji/unicode) raises UnicodeEncodeError and the whole
+    export crashes with a traceback (live round, `videos export --format csv`).
+    Exports are DATA: they must reach stdout as explicit UTF-8 bytes, never
+    through the console's legacy codepage.
+    """
+
+    def test_echo_payload_utf8_on_cp1252_console(self, monkeypatch):
+        import io
+        import sys
+
+        from tikdown_rs.cli.videos import _echo_payload
+
+        class LegacyConsole:
+            encoding = "cp1252"
+
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+            def write(self, text):
+                text.encode("cp1252")  # raises exactly like the real console
+                raise AssertionError("echo() must not be used for payloads")
+
+        fake = LegacyConsole()
+        monkeypatch.setattr(sys, "stdout", fake)
+
+        _echo_payload("title with \U0001f600 emoji, ñ, 中文")
+
+        out = fake.buffer.getvalue().decode("utf-8")
+        assert "emoji" in out and "ñ" in out and "中文" in out
+
+    def test_echo_payload_falls_back_without_buffer(self, monkeypatch):
+        import sys
+
+        from tikdown_rs.cli.videos import _echo_payload
+
+        written = []
+
+        class Headless:
+            """No .buffer attribute (e.g. captured text stream)."""
+
+            def write(self, text):
+                written.append(text)
+
+            def flush(self):
+                pass
+
+        monkeypatch.setattr(sys, "stdout", Headless())
+        _echo_payload("plain data")
+        # click.echo may write bytes/CRLF in fragments: assert the payload is there
+        rendered = b"".join(f.encode() if isinstance(f, str) else f for f in written)
+        assert b"plain data" in rendered

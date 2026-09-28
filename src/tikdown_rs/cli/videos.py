@@ -8,6 +8,7 @@ callables the bot's /last uses; the CLI only orchestrates and prints.
 """
 
 import asyncio
+import sys
 
 import typer
 
@@ -67,6 +68,23 @@ def export(
     run_or_exit(_export, output_format)
 
 
+def _echo_payload(payload: str) -> None:
+    """Write export DATA as explicit UTF-8, never the console codepage.
+
+    T-CLI-10 (live round M6): Windows legacy consoles run cp1252 and real
+    TikTok titles carry emoji/unicode — ``typer.echo`` raises
+    ``UnicodeEncodeError`` and the export crashes with a traceback. Exports
+    are data: UTF-8 bytes on ``sys.stdout.buffer`` (redirection yields valid
+    UTF-8 files). Falls back to plain echo when stdout has no buffer.
+    """
+    buffer = getattr(sys.stdout, "buffer", None)
+    if buffer is None:
+        typer.echo(payload)
+        return
+    buffer.write(payload.encode("utf-8") + b"\n")
+    buffer.flush()
+
+
 def _export(output_format: str) -> None:
     async def impl() -> None:
         settings = await prepare_invocation(load_settings())
@@ -75,7 +93,7 @@ def _export(output_format: str) -> None:
             payload = await export_videos(make_session_factory(engine), output_format)
         finally:
             await engine.dispose()
-        typer.echo(payload)  # raw payload only: no echo decoration (T-CLI-3)
+        _echo_payload(payload)  # raw payload only: no echo decoration (T-CLI-3)
 
     asyncio.run(impl())
 
