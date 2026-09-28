@@ -7,6 +7,11 @@ through a CLI and a Telegram bot.
 - Storage: SQLite via SQLAlchemy + Alembic
 - CLI: `uv run tikdown-rs --help`
 
+<p align="center">
+  <img src="docs/assets/gentleai-egdev66.jpg" alt="Post by @egdev66: 'Yo uso #gentleai de @G_Programming. ¿Y tú?'" width="640">
+</p>
+<p align="center"><sub>Post de <a href="https://x.com/egdev66/status/2102774191925944415">@egdev66</a> en X — imagen reproducida con fines de atribución.</sub></p>
+
 Legal: this tool downloads publicly available content; respect creators' rights and the
 platform's terms of service. Do not commit `.env`, `cookies*`, `*.db*`, or `videos/`.
 
