@@ -13,12 +13,13 @@ import asyncio
 import hashlib
 import json
 import logging
-import tempfile
 import time
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
+import tikdown_rs.core.tasks as core_tasks
 import tikdown_rs.daemon.run as daemon_run
 from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.config import Settings
@@ -77,11 +78,16 @@ def _entry(video_id: str, upload_date: str = "20260101") -> dict:
 class FakeEngine:
     """Listing + download double: fixed entries, call log (deterministic)."""
 
+    # M23: per-test root injected by the autouse fixture (pytest tmp_path);
+    # no tempfile.mkdtemp leak that outlives the test.
+    tmp_root: Path = Path(".")
+
     def __init__(self, entries: list[dict] | None = None) -> None:
         self.entries = entries or []
         self.list_calls = 0
         self.download_order: list[str] = []
-        self.download_dir = Path(tempfile.mkdtemp(prefix="tikdown_fake_jobs_"))
+        self.download_dir = self.tmp_root / "fake_engine_downloads"
+        self.download_dir.mkdir(parents=True, exist_ok=True)
         self.profiles: dict[str, dict] = {}
 
     def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
@@ -112,6 +118,12 @@ class FakeEngine:
 
 def ffprobe_ok(_path: Path) -> dict:
     return json.loads(json.dumps(GOOD_PROBE))
+
+
+@pytest.fixture(autouse=True)
+def _engine_tmp_root(tmp_path: Path, monkeypatch) -> None:
+    """M23: fake-engine download bytes land under the test's own tmp_path."""
+    monkeypatch.setattr(FakeEngine, "tmp_root", tmp_path)
 
 
 def sha_ok(_path: Path) -> str:
@@ -203,10 +215,14 @@ async def _wait_until(predicate, timeout: float = 5.0) -> None:
 async def test_heartbeat_writes_heartbeat_and_no_cycle_when_monitor_stopped(tmp_path) -> None:
     components, db_engine = await make_components(tmp_path)
     try:
+        components.engine.zombie_threads = 2  # M9: the engine attr the beat reads
         await _heartbeat_job(components)
         async with components.session_factory() as session:
             row = await read_status(session)
         assert row.last_heartbeat_at is not None
+        # M9: the daemon-process counters reach the daemon_state row.
+        assert row.ytdlp_zombie_threads == 2
+        assert row.supervised_tasks == len(core_tasks.supervised_tasks())
         assert components.monitor_cycle_task is None
     finally:
         await db_engine.dispose()

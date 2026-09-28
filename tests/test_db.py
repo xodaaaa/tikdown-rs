@@ -175,6 +175,9 @@ def test_daemon_state_model_shapes_singleton_table() -> None:
         "last_heartbeat_at",
         "db_busy_count_5min",
         "downloads_paused",
+        # M9: daemon-process counters persisted by the heartbeat job.
+        "supervised_tasks",
+        "ytdlp_zombie_threads",
         "last_known_good_ytdlp_version",
         "last_selfcheck_at",
         "last_selfcheck_ok",

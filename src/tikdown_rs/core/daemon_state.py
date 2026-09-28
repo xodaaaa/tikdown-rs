@@ -56,14 +56,25 @@ async def read_stop_requested(session: AsyncSession) -> bool:
 
 
 async def write_heartbeat(
-    session: AsyncSession, pid: int | None = None, db_busy_count: int | None = None
+    session: AsyncSession,
+    pid: int | None = None,
+    db_busy_count: int | None = None,
+    supervised_tasks: int | None = None,
+    ytdlp_zombie_threads: int | None = None,
 ) -> None:
-    """Persist last_heartbeat_at (+ pid, + 5.6 contention window), committing (T-DB-13)."""
+    """Persist last_heartbeat_at (+ pid, 5.6 contention window, M9 process
+    counters), committing (T-DB-13). The counters stay untouched when their
+    argument is None: a NULL column reads 'n/a (in-process)' in status.
+    """
     values: dict[str, object] = {"last_heartbeat_at": _utcnow_iso()}
     if pid is not None:
         values["daemon_pid"] = pid
     if db_busy_count is not None:
         values["db_busy_count_5min"] = db_busy_count
+    if supervised_tasks is not None:
+        values["supervised_tasks"] = supervised_tasks
+    if ytdlp_zombie_threads is not None:
+        values["ytdlp_zombie_threads"] = ytdlp_zombie_threads
     await session.execute(_upsert(values))
     await session.commit()
 

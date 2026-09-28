@@ -97,7 +97,7 @@ from tikdown_rs.core.notifications import (
     NotificationService,
 )
 from tikdown_rs.core.pacing import DownloadPacer, DownloadSemaphore
-from tikdown_rs.core.tasks import create_supervised_task, drain_supervised_tasks
+from tikdown_rs.core.tasks import create_supervised_task, drain_supervised_tasks, supervised_tasks
 from tikdown_rs.core.verify import entries_have_video, probe_profile
 from tikdown_rs.models import MonitoredAccount
 from tikdown_rs.services.backfill import (
@@ -299,8 +299,19 @@ async def _heartbeat_job(components: DaemonComponents) -> None:
 
 
 async def _write_heartbeat(components: DaemonComponents, busy_count: int) -> None:
+    # M9: persist the daemon-process counters (T-ASYNC-14/T-DATA-2) so a
+    # separate `daemon status` process reads real values from the row instead
+    # of 'n/a (in-process)'. Degraded (no engine) means zero zombie threads.
+    engine = components.engine
+    zombie_threads = getattr(engine, "zombie_threads", 0) if engine is not None else 0
     async with components.session_factory() as session:
-        await write_heartbeat(session, pid=os.getpid(), db_busy_count=busy_count)
+        await write_heartbeat(
+            session,
+            pid=os.getpid(),
+            db_busy_count=busy_count,
+            supervised_tasks=len(supervised_tasks()),
+            ytdlp_zombie_threads=zombie_threads,
+        )
 
 
 async def _disk_check_job(components: DaemonComponents) -> None:

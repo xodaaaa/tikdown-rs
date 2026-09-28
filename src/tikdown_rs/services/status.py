@@ -44,10 +44,12 @@ def heartbeat_age_seconds(
 class DaemonStatus:
     """§10.1 status snapshot: plain types only, JSON-ready (§10.3 Column 1).
 
-    Honesty contract (T-ASYNC-14): ``supervised_tasks`` and
-    ``ytdlp_zombie_threads`` are IN-PROCESS counters; ``None`` means the
-    caller cannot see them (out-of-process) and the ASCII formatter prints
-    'n/a (in-process)' instead of a fake 0.
+    M9: ``supervised_tasks`` and ``ytdlp_zombie_threads`` come from the
+    daemon_state row, persisted by the daemon's heartbeat job every beat
+    (freshness <= 1 heartbeat interval). ``None`` means no heartbeat has
+    reported counters yet (NULL columns) and the ASCII formatter prints
+    'n/a (in-process)'; a caller holding the live objects may still set them
+    explicitly (T-ASYNC-14 seam).
     """
 
     heartbeat_age_seconds: float | None
@@ -97,14 +99,21 @@ def status_from_row(
     recent_error_lines: list[str] | None = None,
     now: datetime | None = None,
 ) -> DaemonStatus:
-    """Map a daemon_state row (+ gathered side data) into the structured status."""
+    """Map a daemon_state row (+ gathered side data) into the structured status.
+
+    M9: the counters default to the PERSISTED row values (written by the
+    heartbeat); an explicit argument (a caller holding the live objects,
+    T-ASYNC-14) overrides the row. NULL row columns read None ('n/a').
+    """
     return DaemonStatus(
         heartbeat_age_seconds=heartbeat_age_seconds(row.last_heartbeat_at, now),
         monitor_running=bool(row.monitor_running),
         daemon_pid=row.daemon_pid,
         db_busy_count_5min=row.db_busy_count_5min,
-        supervised_tasks=supervised_tasks,
-        ytdlp_zombie_threads=ytdlp_zombie_threads,
+        supervised_tasks=(row.supervised_tasks if supervised_tasks is None else supervised_tasks),
+        ytdlp_zombie_threads=(
+            row.ytdlp_zombie_threads if ytdlp_zombie_threads is None else ytdlp_zombie_threads
+        ),
         cookie_counts=dict(cookie_counts or {}),
         last_selfcheck_at=row.last_selfcheck_at,
         last_selfcheck_ok=row.last_selfcheck_ok,
@@ -181,17 +190,12 @@ async def gather_status(
 def format_status_lines(status: DaemonStatus) -> list[str]:
     """10.1 status contents as plain ASCII key: value lines (T-CLI-1).
 
-    Honesty contract (T-ASYNC-14): supervised tasks and zombie yt-dlp threads
-    are IN-PROCESS counters of the daemon process. `daemon status` runs in a
-    separate CLI process whose registry is always empty and whose engine
-    object does not exist, so None prints 'n/a (in-process)' instead of a
-    fake 0. A caller that DOES hold the live objects (the daemon itself or
-    the M5 bot, which runs inside the daemon process) sets the real counts
-    and gets real numbers.
-
-    ponytail: persisting the counters would need new daemon_state columns
-    (forbidden here: no migrations); the M5 bot or a future column can
-    promote these to persisted values without changing the output format.
+    M9: supervised tasks and zombie yt-dlp threads are read from the
+    daemon_state row the heartbeat persists every beat, so a separate CLI
+    process gets the daemon's real numbers. ``None`` (NULL columns: no
+    heartbeat reported yet) still prints 'n/a (in-process)' instead of a
+    fake 0, and a caller holding the live objects may set the counts
+    explicitly (T-ASYNC-14 seam).
     """
     age = status.heartbeat_age_seconds
     if age is None:

@@ -29,6 +29,11 @@ class DaemonState(Base):
     downloads_paused: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("0")
     )
+    # M9 (T-ASYNC-14/T-DATA-2): daemon-process counters persisted by the
+    # heartbeat job so out-of-process `daemon status` reports real values.
+    # NULL means no daemon heartbeat has reported them yet ('n/a (in-process)').
+    supervised_tasks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ytdlp_zombie_threads: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_known_good_ytdlp_version: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_selfcheck_at: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_selfcheck_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

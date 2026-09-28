@@ -19,6 +19,7 @@ from tikdown_rs.services.status import (
     format_status_lines,
     gather_status,
     heartbeat_age_seconds,
+    status_from_row,
 )
 
 IN_MEMORY_URL = "sqlite+aiosqlite:///:memory:"
@@ -80,6 +81,8 @@ class TestGatherStatus:
         await seed_state(
             session_factory,
             monitor_running=True,
+            supervised_tasks=3,  # M9: persisted daemon-process counters
+            ytdlp_zombie_threads=2,
             last_selfcheck_at="2025-01-01T10:00:00+00:00",
             last_selfcheck_ok=False,
             degraded_reason="impersonation: curl_cffi-missing",
@@ -91,13 +94,40 @@ class TestGatherStatus:
         assert status.monitor_running is True
         assert status.daemon_pid == 4242
         assert status.db_busy_count_5min == 7
-        # T-ASYNC-14: in-process counters are None ('n/a') for out-of-process callers.
-        assert status.supervised_tasks is None
-        assert status.ytdlp_zombie_threads is None
+        # M9: the counters come from the persisted daemon_state row, not
+        # 'n/a (in-process)' — the heartbeat job writes them every beat.
+        assert status.supervised_tasks == 3
+        assert status.ytdlp_zombie_threads == 2
         assert status.last_selfcheck_at == "2025-01-01T10:00:00+00:00"
         assert status.last_selfcheck_ok is False
         assert status.degraded_reason == "impersonation: curl_cffi-missing"
         assert status.downloads_paused is False
+
+    async def test_heartbeat_persists_process_counters(self, session_factory):
+        """M9: write_heartbeat persists both daemon-process counters."""
+        async with session_factory() as session:
+            await write_heartbeat(
+                session,
+                pid=4242,
+                db_busy_count=7,
+                supervised_tasks=5,
+                ytdlp_zombie_threads=1,
+            )
+        async with session_factory() as session:
+            status = await gather_status(session, now=NOW)
+        assert status is not None
+        assert status.supervised_tasks == 5
+        assert status.ytdlp_zombie_threads == 1
+
+    async def test_explicit_counters_override_the_row(self, session_factory):
+        """M9/T-ASYNC-14 seam: a caller holding the live objects (the daemon
+        itself, the bot) overrides the persisted row values."""
+        await seed_state(session_factory, supervised_tasks=0, ytdlp_zombie_threads=0)
+        async with session_factory() as session:
+            row = await session.get(DaemonState, 1)
+        status = status_from_row(row, {}, supervised_tasks=5, ytdlp_zombie_threads=1)
+        assert status.supervised_tasks == 5
+        assert status.ytdlp_zombie_threads == 1
 
     async def test_counts_cookies_by_state(self, session_factory):
         await seed_state(session_factory)
