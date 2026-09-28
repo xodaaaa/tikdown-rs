@@ -33,18 +33,45 @@ POLLING_TIMEOUT_SECONDS = 25
 GET_ME_TIMEOUT_CAP_SECONDS = 10.0
 
 
+#: Per-stage deadline for the strict lifecycle sequences (R3-001/R3-003): a
+#: hung stage await must RAISE instead of wedging daemon startup or shutdown
+#: forever (an exception handler cannot rescue a non-returning await). Generous
+#: bound: real PTB stages complete in seconds; a stuck stage is a wedge.
+LIFECYCLE_STAGE_TIMEOUT_SECONDS = 30.0
+
+
+async def _bounded(stage: str, awaitable: Any) -> None:
+    """Run one lifecycle stage under a deadline (R3-001/R3-003).
+
+    A timeout is re-raised as ``RuntimeError`` so callers can distinguish a
+    wedged stage from a fast failure; ``wait_for`` cancels the hung await.
+    """
+    try:
+        await asyncio.wait_for(awaitable, timeout=LIFECYCLE_STAGE_TIMEOUT_SECONDS)
+    except TimeoutError as exc:
+        raise RuntimeError(
+            f"bot lifecycle stage {stage} timed out after {LIFECYCLE_STAGE_TIMEOUT_SECONDS:.0f}s"
+        ) from exc
+
+
 async def start_bot_polling(app: Any) -> None:
-    """Strict T-BOT-1 startup sequence; NEVER ``run_polling()`` on a live loop."""
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling(timeout=POLLING_TIMEOUT_SECONDS)
+    """Strict T-BOT-1 startup sequence; NEVER ``run_polling()`` on a live loop.
+
+    Every stage is deadline-bounded (R3-003): a hung stage raises instead of
+    blocking daemon startup forever (the bot is an optional enhancement).
+    """
+    await _bounded("initialize", app.initialize())
+    await _bounded("start", app.start())
+    await _bounded("start_polling", app.updater.start_polling(timeout=POLLING_TIMEOUT_SECONDS))
 
 
 async def stop_bot_polling(app: Any) -> None:
-    """Strict T-BOT-1 shutdown sequence; each stage is exception-tolerant.
+    """Strict T-BOT-1 shutdown sequence; each stage is exception-tolerant AND
+    deadline-bounded (R3-001).
 
     A failed stage is logged and the NEXT stage still runs (try-per-stage, not
-    a fail-fast chain), so a wedged updater can never skip ``app.shutdown()``.
+    a fail-fast chain), and a hung stage is cancelled by its deadline, so a
+    wedged updater can never skip ``app.shutdown()`` nor wedge shutdown.
     """
     updater = getattr(app, "updater", None)
     stages = (
@@ -56,7 +83,7 @@ async def stop_bot_polling(app: Any) -> None:
         if stage is None:
             continue
         try:
-            await stage()
+            await _bounded(name, stage())
         except Exception:
             logger.exception("bot stop stage %s failed; continuing shutdown", name)
 

@@ -222,3 +222,49 @@ async def test_supervisor_is_wired_to_the_bot_app_and_settings(tmp_path, monkeyp
         assert recorded["max_failures"] == settings.polling_healthcheck_max_failures == 2
     finally:
         await shutdown_daemon(runtime)
+
+
+async def test_start_bot_failure_is_atomic_and_stops_partial_app(monkeypatch):
+    """R3-002: a failure after a partial start stops the app before re-raising.
+
+    Without the fix, components.bot stays None (the assignment only happens on
+    a successful return) and the partially started bot would never be shut
+    down. The fix makes _start_bot stop the partial app and re-raise, so the
+    daemon's log-and-continue keeps a clean, leak-free state.
+    """
+    from types import SimpleNamespace
+
+    class FailPollingUpdater:
+        def __init__(self, calls: list[tuple]) -> None:
+            self._calls = calls
+
+        async def start_polling(self, **kwargs) -> None:
+            self._calls.append(("updater.start_polling", kwargs))
+            raise RuntimeError("start_polling exploded")
+
+        async def stop(self) -> None:
+            self._calls.append(("updater.stop", {}))
+
+    class FailPollingApp(StubApplication):
+        def __init__(self) -> None:
+            super().__init__()
+            self.updater = FailPollingUpdater(self.calls)
+
+    class AtomicStubBot(StubTikDownBot):
+        def __init__(self, settings, session_factory) -> None:
+            super().__init__(settings, session_factory)
+            self.application = FailPollingApp()
+
+    monkeypatch.setattr(daemon_run, "TikDownBot", AtomicStubBot)
+    components = SimpleNamespace(settings=object(), session_factory=object())
+    with pytest.raises(RuntimeError, match="start_polling exploded"):
+        await daemon_run._start_bot(components)
+    bot = AtomicStubBot.instances[-1]
+    assert [name for name, _ in bot.application.calls] == [
+        "initialize",
+        "start",
+        "updater.start_polling",
+        "updater.stop",
+        "app.stop",
+        "app.shutdown",
+    ]
