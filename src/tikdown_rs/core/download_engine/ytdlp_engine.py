@@ -229,9 +229,7 @@ class YtDlpEngine:
             if path.is_file() and not path.name.endswith(".part")
         ]
         if candidates:
-            logger.info(
-                "download adopt: %s already on disk, adopting %s", video_id, candidates[0]
-            )
+            logger.info("download adopt: %s already on disk, adopting %s", video_id, candidates[0])
             return candidates[0]
         raise RuntimeError(
             "yt-dlp returned no downloaded file (requested_downloads empty): "
