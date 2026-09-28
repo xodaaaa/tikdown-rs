@@ -234,6 +234,17 @@ def _mock_disk_usage(free_percent: float, total: int = 1_000_000):
     return fake
 
 
+def _wait_until(predicate, timeout: float) -> bool:
+    """M23: bounded condition poll (the test_jobs.py pattern, sync variant);
+    replaces fixed time.sleep waits with a deterministic predicate deadline."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(POLL_STEP_SECONDS)
+    return False
+
+
 @pytest.mark.timeout(120)
 def test_daemon_run_stop_real_subprocess(tmp_path) -> None:
     """13.2 mandatory case: `daemon stop` really stops the `daemon run` process (T-CLI-6)."""
@@ -248,9 +259,7 @@ def test_daemon_run_stop_real_subprocess(tmp_path) -> None:
         )
         try:
             # Poll the DB with short deadlines; fail fast if the daemon died early.
-            deadline = time.monotonic() + 90.0
-            heartbeat_seen = False
-            while time.monotonic() < deadline:
+            def heartbeat_written() -> bool:
                 if run_proc.poll() is not None:
                     raise AssertionError(
                         f"daemon run exited early with {run_proc.returncode}: "
@@ -267,11 +276,11 @@ def test_daemon_run_stop_real_subprocess(tmp_path) -> None:
                     rows = []
                 finally:
                     connection.close()
-                if rows and rows[0][0]:
-                    heartbeat_seen = True
-                    break
-                time.sleep(POLL_STEP_SECONDS)
-            assert heartbeat_seen, "heartbeat row never appeared before the deadline"
+                return bool(rows and rows[0][0])
+
+            assert _wait_until(heartbeat_written, 90.0), (
+                "heartbeat row never appeared before the deadline"
+            )
 
             stop_result = subprocess.run(
                 ["uv", "run", "tikdown-rs", "daemon", "stop"],
@@ -284,10 +293,7 @@ def test_daemon_run_stop_real_subprocess(tmp_path) -> None:
                 f"daemon stop failed: stdout={stop_result.stdout!r} stderr={stop_result.stderr!r}"
             )
 
-            exit_deadline = time.monotonic() + 20.0
-            while run_proc.poll() is None and time.monotonic() < exit_deadline:
-                time.sleep(POLL_STEP_SECONDS)
-            assert run_proc.poll() is not None, (
+            assert _wait_until(lambda: run_proc.poll() is not None, 20.0), (
                 "daemon run still alive after daemon stop: "
                 f"{log_path.read_text(encoding='utf-8', errors='replace')}"
             )

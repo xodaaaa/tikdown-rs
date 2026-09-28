@@ -16,7 +16,6 @@ seeded relative to now, so no sleeps and no frozen clock are needed.
 import asyncio
 import hashlib
 import json
-import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -58,6 +57,10 @@ def _entry(video_id: str, upload_date: str = "20260101") -> dict:
 class FakeEngine:
     """Listing + download double: fixed entries, per-video failures, call log."""
 
+    # M23: per-test root injected by the autouse fixture (pytest tmp_path);
+    # no tempfile.mkdtemp leak that outlives the test.
+    tmp_root: Path = Path(".")
+
     def __init__(
         self,
         entries: list[dict] | None = None,
@@ -69,7 +72,8 @@ class FakeEngine:
         self.list_error = list_error
         self.list_calls = 0
         self.download_order: list[str] = []
-        self.download_dir = Path(tempfile.mkdtemp(prefix="tikdown_fake_monitor_"))
+        self.download_dir = self.tmp_root / "fake_engine_downloads"
+        self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
         self.list_calls += 1
@@ -143,6 +147,12 @@ class Recorder:
 
 def ffprobe_ok(_path: Path) -> dict:
     return json.loads(json.dumps(GOOD_PROBE))
+
+
+@pytest.fixture(autouse=True)
+def _engine_tmp_root(tmp_path: Path, monkeypatch) -> None:
+    """M23: fake-engine download bytes land under the test's own tmp_path."""
+    monkeypatch.setattr(FakeEngine, "tmp_root", tmp_path)
 
 
 def sha_ok(_path: Path) -> str:
