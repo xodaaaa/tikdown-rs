@@ -6,9 +6,7 @@ The text file ``<DATA_DIR>/download_archive.txt`` is the SOURCE OF TRUTH for
 yt-dlp ``--download-archive`` (append-only); the ``download_archive`` table is
 the queryable mirror. The parser recognizes BOTH line formats (``tiktok <id>``
 and bare ``<id>``): the ID is the LAST whitespace-separated token (T-DB-8:
-yt-dlp writes ``tiktok <id>`` while other writers may emit a bare id). The
-file reader skips a malformed final line without a trailing newline
-(T-DEPLOY-15: a crash mid-append must not poison parsing).
+yt-dlp writes ``tiktok <id>`` while other writers may emit a bare id).
 
 Methods are async because the project session factory is an
 ``async_sessionmaker`` over aiosqlite (§3.7): every method opens a short
@@ -53,7 +51,7 @@ class DownloadArchive:
 
         File first: the file is yt-dlp's source of truth. The mirror insert is
         best-effort: on failure the file entry is kept and only a warning is
-        logged (``sync_from_file`` can rebuild the row later).
+        logged (M10: the no-caller rebuild helper was retired, plan §0.3).
         """
         self.archive_path.parent.mkdir(parents=True, exist_ok=True)
         with self.archive_path.open("a", encoding="utf-8", newline="\n") as file:
@@ -82,24 +80,6 @@ class DownloadArchive:
                 .limit(1)
             )
         return found is not None
-
-    async def sync_from_file(self) -> int:
-        """Rebuild missing mirror rows from the file; returns the count added.
-
-        The mirror stays authoritative for runtime queries; this rebuild covers
-        mirror insert failures (add is best-effort) and is the parser's test
-        surface. Idempotent: already-mirrored ids are skipped.
-        """
-        added = 0
-        async with self._session_factory() as session:
-            existing = set(await session.scalars(select(DownloadArchiveRow.tiktok_id)))
-            for video_id in self._read_ids():
-                if video_id in existing:
-                    continue
-                session.add(DownloadArchiveRow(tiktok_id=video_id, created_at=_utcnow_iso()))
-                added += 1
-            await session.commit()
-        return added
 
     async def remove(self, video_id: str) -> bool:
         """Discard the entry from file AND mirror (4.5, T-ENGINE-18).
@@ -130,18 +110,3 @@ class DownloadArchive:
         except Exception:
             logger.warning("download_archive mirror delete failed for %s", video_id, exc_info=True)
         return removed
-
-    def _read_ids(self) -> list[str]:
-        """Parse the archive file (T-DB-8 last-token rule, T-DEPLOY-15 tail skip)."""
-        try:
-            text = self.archive_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return []
-        ids: list[str] = []
-        for line in text.splitlines(keepends=True):
-            if not line.endswith("\n"):
-                break  # T-DEPLOY-15: partial last line (no trailing newline), skip
-            parsed = self.parse_line(line)
-            if parsed is not None:
-                ids.append(parsed)
-        return ids

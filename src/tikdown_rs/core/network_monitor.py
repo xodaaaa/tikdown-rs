@@ -28,12 +28,10 @@ available' with one warning -- §0.2.3 lists the fail-fast critical config
 
 import asyncio
 import logging
-import random
 import time
 
 import httpx
 
-from tikdown_rs.core.backoff import backoff_seconds
 from tikdown_rs.core.notifications.events import (
     EVENT_NETWORK_OFFLINE,
     EVENT_NETWORK_ONLINE,
@@ -66,14 +64,12 @@ class NetworkMonitor:
         probe_fn=None,
         clock_fn=time.monotonic,
         on_event=None,
-        jitter_fn=random.uniform,
     ) -> None:
         # T-ENGINE-7: the caller creates and SETS this event; we only toggle it.
         self.network_available = network_available
         self._probe_fn = probe_fn if probe_fn is not None else _default_probe
         self._clock = clock_fn
         self._on_event = on_event
-        self._jitter_fn = jitter_fn
         self._probe_url = settings.network_probe_url
         if not self._probe_url:
             # B4: one warning, then 'assumed available' -- never probe ''. (§8.1)
@@ -121,25 +117,3 @@ class NetworkMonitor:
                 "network offline: %s consecutive probe failures", self._consecutive_failures
             )
         return False
-
-    async def _sleep(self, delay: float, stop_event: asyncio.Event) -> None:
-        """Bounded wait: wakes early on stop, never sleeps past ``delay``."""
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=delay)
-        except TimeoutError:
-            pass
-
-    async def run_forever(self, stop_event: asyncio.Event) -> None:
-        """Probe loop: healthy cadence = base, then x2 up to the 120 s ceiling,
-        +- jitter (8.1). Exits as soon as ``stop_event`` is set; every await
-        is bounded."""
-        while not stop_event.is_set():
-            await self.probe_once()
-            # 8.1: the backoff STARTS at 30 s after the FIRST failure
-            # (failures 1 -> 30 s, 2 -> 60 s, 3+ -> 120 s ceiling); with zero
-            # failures the base delay IS the healthy probe cadence.
-            delay = backoff_seconds(
-                max(self._consecutive_failures - 1, 0),
-                jitter_fn=self._jitter_fn,
-            )
-            await self._sleep(delay, stop_event)

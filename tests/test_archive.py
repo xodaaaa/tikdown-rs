@@ -1,11 +1,10 @@
 """DownloadArchive: text file source of truth + queryable mirror (3.6).
 
-Trampas neutralizadas: T-DB-8, T-DEPLOY-15. Regla: 3.6.
+Trampas neutralizadas: T-DB-8. Regla: 3.6.
 
 The text file is yt-dlp's source of truth (append-only); the mirror table is
 the queryable copy. The parser recognizes BOTH line formats ("tiktok <id>" and
-bare "<id>", last token wins, T-DB-8) and the file reader skips a partial last
-line without a trailing newline (T-DEPLOY-15). Deterministic: in-memory SQLite,
+bare "<id>", last token wins, T-DB-8). Deterministic: in-memory SQLite,
 tmp_path files, no network.
 """
 
@@ -114,40 +113,6 @@ async def test_contains_false_on_missing_file(archive: DownloadArchive) -> None:
 async def test_contains_false_on_empty_file(archive: DownloadArchive, archive_path: Path) -> None:
     archive_path.write_text("", encoding="utf-8")
     assert not await archive.contains("1")
-
-
-# --- file reader: partial last line skipped (T-DEPLOY-15) ---
-
-
-async def test_file_reader_skips_partial_last_line(
-    archive: DownloadArchive, archive_path: Path
-) -> None:
-    archive_path.write_text("tiktok 1\ntiktok 2", encoding="utf-8")  # no trailing newline
-    added = await archive.sync_from_file()
-    assert added == 1
-    assert await archive.contains("1")
-    assert not await archive.contains("2")
-
-
-# --- sync_from_file: rebuilds missing mirror rows, idempotent ---
-
-
-async def test_sync_from_file_adds_missing_rows_once(
-    archive: DownloadArchive, archive_path: Path
-) -> None:
-    archive_path.write_text("tiktok 1\ntiktok 2\n\n# kept comment\n", encoding="utf-8")
-    assert await archive.sync_from_file() == 2
-    assert await archive.sync_from_file() == 0  # idempotent
-    assert await archive.contains("1") and await archive.contains("2")
-
-
-async def test_sync_from_file_reconciles_with_preexisting_mirror_row(
-    archive: DownloadArchive, archive_path: Path
-) -> None:
-    await archive.add("1")
-    archive_path.write_text("tiktok 1\ntiktok 2\n", encoding="utf-8")
-    assert await archive.sync_from_file() == 1
-    assert await archive.contains("1") and await archive.contains("2")
 
 
 # --- remove: discard before a fallback retry (4.5, T-ENGINE-18) ---

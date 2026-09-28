@@ -4,9 +4,8 @@ Trampas covered: T-ENGINE-7 (the event is INJECTED and pre-set by the caller),
 T-BOT-14 (a blip never emits network.online), T-BACKFILL-17 (a network failure
 never reaches cookie validation state). Regla: 8.1.
 
-All doubles are deterministic: injected async probe fakes, an injectable
-monotonic clock, and an injectable jitter function. No real sleeps: the
-run_forever tests replace the bounded ``_sleep`` seam.
+All doubles are deterministic: injected async probe fakes and an injectable
+monotonic clock. No real sleeps.
 """
 
 import ast
@@ -249,61 +248,6 @@ async def test_default_probe_counts_connection_errors_as_failure(
 
     monkeypatch.setattr("tikdown_rs.core.network_monitor.httpx.AsyncClient", BoomClient)
     assert await _default_probe("https://probe.example.com/generate_204", 5) is False
-
-
-# --- run_forever: bounded awaits, backoff 30 -> 120 with jitter ---
-
-
-async def test_run_forever_exits_when_stop_event_set_and_respects_backoff() -> None:
-    monitor, calls, _ = make_monitor([True, False])
-    monitor._jitter_fn = lambda low, high: 1.0  # exact delays for assertion
-    recorded: list[float] = []
-    stop_event = asyncio.Event()
-
-    async def fake_sleep(delay: float, event: asyncio.Event) -> None:
-        recorded.append(delay)
-        if len(recorded) >= 2:
-            stop_event.set()
-
-    monitor._sleep = fake_sleep  # type: ignore[method-assign]
-
-    await asyncio.wait_for(monitor.run_forever(stop_event), timeout=1)
-
-    assert len(calls) == 2  # probed until the stop was observed
-    assert recorded == [30, 30]  # healthy cadence, then first backoff step
-
-
-async def test_run_forever_backoff_hits_the_120s_ceiling() -> None:
-    monitor, _, _ = make_monitor([False] * 6)
-    monitor._jitter_fn = lambda low, high: 1.0  # exact delays for assertion
-    recorded: list[float] = []
-    stop_event = asyncio.Event()
-
-    async def fake_sleep(delay: float, event: asyncio.Event) -> None:
-        recorded.append(delay)
-        if len(recorded) >= 5:
-            stop_event.set()
-
-    monitor._sleep = fake_sleep  # type: ignore[method-assign]
-
-    await asyncio.wait_for(monitor.run_forever(stop_event), timeout=1)
-    assert recorded == [30, 60, 120, 120, 120]
-
-
-async def test_run_forever_applies_jitter() -> None:
-    monitor, _, _ = make_monitor([True])
-    monitor._jitter_fn = lambda low, high: 1.1  # +10%
-    recorded: list[float] = []
-    stop_event = asyncio.Event()
-
-    async def fake_sleep(delay: float, event: asyncio.Event) -> None:
-        recorded.append(delay)
-        stop_event.set()
-
-    monitor._sleep = fake_sleep  # type: ignore[method-assign]
-
-    await asyncio.wait_for(monitor.run_forever(stop_event), timeout=1)
-    assert recorded == [pytest.approx(33.0)]
 
 
 # --- T-BACKFILL-17: a network failure never reaches cookie state ---
