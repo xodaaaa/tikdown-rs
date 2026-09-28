@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 import tikdown_rs.services.backfill as backfill_module
@@ -469,6 +469,28 @@ async def test_absent_upload_date_keeps_previous_cursor(factory) -> None:
     account = await get_account(factory, account_id)
     assert account.backfill_cursor == "20260102"  # B never NULLs it, never stale
     assert account.backfill_done == 2  # B counted as terminal
+
+
+# --- T-BACKFILL-3/M11: absent upload_date never persists NULL in the insert path ---
+
+
+async def test_entry_without_upload_date_gets_newest_date_fallback(factory) -> None:
+    """M11: the backfill insert path mirrors monitor's newest-date fallback —
+    a listing entry lacking upload_date gets the newest date of THIS listing,
+    never NULL ("never NULL, never stale")."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+    entries = [_entry("A", "20260102"), _entry("B", "")]  # newest first
+    engine = FakeEngine(entries)
+
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "completed"
+    async with factory() as session:
+        row = (
+            await session.execute(select(Video).where(Video.tiktok_video_id == "B"))
+        ).scalar_one()
+    assert row.upload_date == "20260102"
 
 
 # --- T-BACKFILL-7/8/10: cancel wins over the progress UPDATE ---

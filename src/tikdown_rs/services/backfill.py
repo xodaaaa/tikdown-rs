@@ -128,7 +128,7 @@ async def _persist_total(session_factory, account_id: int, total: int) -> bool:
 
 
 async def _get_or_create_pending_video(
-    session_factory, account_id: int, entry: dict
+    session_factory, account_id: int, entry: dict, newest_date: str = ""
 ) -> tuple[int, str | None]:
     """Idempotent pending-row INSERT (3.3, T-DATA-1); returns (row_id, existing_status).
 
@@ -156,7 +156,10 @@ async def _get_or_create_pending_video(
             title=entry.get("title"),
             description=entry.get("description"),
             duration=entry.get("duration"),
-            upload_date=entry.get("upload_date") or None,
+            # M11/T-BACKFILL-3: the fallback for an absent date is the newest
+            # known upload_date of THIS listing (feed is newest-first), never
+            # NULL — mirrors services/monitor.py's birth-path fallback.
+            upload_date=entry.get("upload_date") or newest_date or "",
             status="pending",
             created_at=now,
             updated_at=now,
@@ -435,6 +438,10 @@ async def run_backfill(
             )
             return "cancelled"
 
+        # M11/T-BACKFILL-3: newest-date fallback for absent entry dates (the
+        # feed is newest-first); mirrors services/monitor.py's insert path.
+        newest_date = max((e.get("upload_date") or "" for e in entries), default="")
+
         # T-BACKFILL-2: the SKIP comparison uses the SNAPSHOT taken before the
         # loop, never the moving cursor.
         async with session_factory() as session:
@@ -469,7 +476,7 @@ async def run_backfill(
                 break
 
             row_id, existing_status = await _get_or_create_pending_video(
-                session_factory, account_id, entry
+                session_factory, account_id, entry, newest_date
             )
             # 9.3 (B6): done counts videos reaching a terminal state IN THIS
             # RUN; re-walked terminal rows on a resume download nothing and
