@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "Self-hosted TikTok archive daemon: monitor accounts, backfill videos, expose status."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.13"
+requires-python = ">=3.13,<3.14"  # M6: ceiling mandated by the spec (no 3.14+).
+authors = [{ name = "PansitoDeMichi", email = "PansitoDeMichi@users.noreply.github.com" }]  # M22 (DR-14)
 dependencies = [
     "yt-dlp[default,pin-curl-cffi]==2026.9.16.232951.dev0",
     "sqlalchemy>=2.0.51,<2.1",
