@@ -16,6 +16,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -732,3 +733,66 @@ def test_cli_videos_integrity_is_real_not_stub(
     assert result.exit_code == 0, result.output
     assert "not implemented" not in result.output
     assert "checked=0" in result.output
+
+
+# --- T-ENGINE-33 (live round M6): ffprobe command construction ---
+
+
+class TestFfprobeCommand:
+    """The REAL command must work with the REAL ffprobe: options BEFORE the
+    ``--`` separator, the file LAST, and show_entries sections separated by
+    ':' (a comma glues the keys into the first section: ffprobe 7.1 silently
+    drops the streams section, every download degraded to failed/integrity).
+    Found in the M6 live round: 17 real downloads at 100%, all rows churned
+    failed/integrity because the probe always returned no video stream.
+    """
+
+    def test_command_separator_and_order(self):
+        from tikdown_rs.services.videos import _ffprobe_command
+
+        command = _ffprobe_command(Path("some/file.mp4"))
+        # the input file is the LAST argument, preceded by the -- separator
+        assert command[-2] == "--"
+        assert command[-1] == str(Path("some/file.mp4"))  # OS-normalized
+        # every ffprobe OPTION lives before the separator
+        before = command[:-2]
+        assert "-show_entries" in before
+        assert "-of" in before
+        assert "json" in before
+
+    def test_show_entries_sections_use_colon(self):
+        from tikdown_rs.services.videos import _ffprobe_command
+
+        command = _ffprobe_command(Path("f.mp4"))
+        entries = command[command.index("-show_entries") + 1]
+        # 'stream' is its OWN section: sections split on ':', keys on ','
+        assert ":" in entries
+        assert "format=duration" in entries
+        assert "stream=codec_name" in entries
+
+    @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
+    def test_real_ffprobe_parses_video_stream(self, tmp_path):
+        """Integration: the real binary parses a real mp4 (skips without ffprobe)."""
+        import subprocess
+
+        sample = tmp_path / "sample.mp4"
+        # 1s test pattern video with ffmpeg (same build family as ffprobe)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1:size=64x64:rate=10",
+                str(sample),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        from tikdown_rs.services.videos import _ffprobe_file, _probe_has_video
+
+        probe = _ffprobe_file(sample)
+        assert probe, "ffprobe returned {} — command construction broken"
+        assert _probe_has_video(probe) is True

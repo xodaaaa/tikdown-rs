@@ -211,26 +211,44 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _ffprobe_file(path: Path) -> dict:
-    """Step 3 (4.7): default ffprobe runner.
+def _ffprobe_command(path: Path) -> list[str]:
+    """ffprobe argv for the step-3 container check (4.7).
 
-    T-ENGINE-24: ``--`` BEFORE the path is mandatory -- a file name starting
-    with '-' would otherwise be parsed as an ffprobe option.
+    T-ENGINE-33 (live round M6, TWO real traps in one command):
+    1. ``--`` separates OPTIONS from INPUTS: every option token must precede
+       it and the file must be LAST. With ``--`` right after ``v:0``, the
+       trailing ``-show_entries``/``-of`` were parsed as INPUT FILENAMES and
+       ffprobe exited 1 → the caller got ``{}``.
+    2. ``-show_entries`` sections split on ``:`` (keys on ``,``):
+       ``format=duration,stream=codec_name`` silently glues ``stream=...``
+       into the format section's key list — the streams section is never
+       emitted, ``_probe_has_video`` always False, EVERY download degraded to
+       failed/integrity. Both traps are invisible to stubbed-ffprobe tests;
+       only the real binary exposes them.
     """
-    command = [
+    return [
         "ffprobe",
         "-v",
         "error",
         "-select_streams",
         "v:0",
-        "--",
-        str(path),
         "-show_entries",
-        "format=duration,stream=codec_name,width,height",
+        "format=duration:stream=codec_name,width,height",
         "-of",
         "json",
+        "--",
+        str(path),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+
+
+def _ffprobe_file(path: Path) -> dict:
+    """Step 3 (4.7): default ffprobe runner.
+
+    T-ENGINE-24: ``--`` BEFORE the path is mandatory -- a file name starting
+    with '-' would otherwise be parsed as an ffprobe option. The argv itself
+    is built by ``_ffprobe_command`` (T-ENGINE-33).
+    """
+    completed = subprocess.run(_ffprobe_command(path), capture_output=True, text=True, check=False)
     if completed.returncode != 0:
         return {}
     try:
