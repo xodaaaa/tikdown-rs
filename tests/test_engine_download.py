@@ -22,8 +22,12 @@ from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.db import create_db_engine, make_session_factory
 from tikdown_rs.core.download_engine import YtDlpEngine
-from tikdown_rs.core.download_engine.ytdlp_engine import DEFAULT_FORMAT, FALLBACK_FORMAT
-from tikdown_rs.core.errors import DownloadTimeoutError
+from tikdown_rs.core.download_engine.ytdlp_engine import (
+    DEFAULT_FORMAT,
+    FALLBACK_FORMAT,
+    parse_extractor_args,
+)
+from tikdown_rs.core.errors import ConfigurationError, DownloadTimeoutError
 from tikdown_rs.core.paths import outtmpl_for
 from tikdown_rs.models import Base
 
@@ -218,6 +222,63 @@ async def test_format_override_runs_alone_without_fallback(
     assert formats_seen == ["best[height<=720]"]
     assert fake_archive.removed == []
     assert captured[0]["download_archive"] == str(fake_archive.archive_path)
+
+
+# --- M1 (§11.1): operator env wiring — proxy + extractor args reach yt-dlp ---
+
+
+def test_extractor_args_parses_the_documented_grammar() -> None:
+    """YTDLP_EXTRACTOR_ARGS uses the yt-dlp --extractor-args grammar, entries
+    whitespace-separated: 'IE_KEY:arg=value,arg2=value2'."""
+    assert parse_extractor_args("tiktok:api_hostname=api22.tiktokv.com,device_id=123") == {
+        "tiktok": {"api_hostname": "api22.tiktokv.com", "device_id": "123"}
+    }
+
+
+def test_extractor_args_malformed_entry_raises() -> None:
+    with pytest.raises(ConfigurationError, match="EXTRACTOR:arg=value"):
+        parse_extractor_args("tiktok")
+    with pytest.raises(ConfigurationError, match="key=value"):
+        parse_extractor_args("tiktok:api_hostname")
+
+
+async def test_proxy_and_extractor_args_reach_download_and_listing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M1: an operator-set proxy must actually hide the IP — for downloads AND
+    feed listings; extractor args are the documented escape hatch."""
+    engine = make_engine(
+        tmp_path,
+        ytdlp_proxy_url="http://proxy:8080",
+        ytdlp_extractor_args="tiktok:api_hostname=api22.tiktokv.com,device_id=123",
+    )
+    filepath = tmp_path / "videos" / "user" / "123.mp4"
+    captured: list = []
+    patch_ydl(monkeypatch, captured, None, filepath)
+
+    await engine.download(CANONICAL, "123", "user")
+    engine.list_videos("user")
+
+    options_dicts = [item for item in captured if isinstance(item, dict)]
+    assert len(options_dicts) == 2  # one download attempt + one flat listing
+    for options in options_dicts:
+        assert options["proxy"] == "http://proxy:8080"
+        assert options["extractor_args"] == {
+            "tiktok": {"api_hostname": "api22.tiktokv.com", "device_id": "123"}
+        }
+
+
+async def test_empty_proxy_and_extractor_args_are_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine = make_engine(tmp_path)
+    captured: list = []
+    patch_ydl(monkeypatch, captured, None, tmp_path / "videos" / "user" / "123.mp4")
+
+    await engine.download(CANONICAL, "123", "user")
+
+    assert "proxy" not in captured[0]
+    assert "extractor_args" not in captured[0]
 
 
 # --- timeout: zombie thread accounting (T-ASYNC-8/14/15) ---

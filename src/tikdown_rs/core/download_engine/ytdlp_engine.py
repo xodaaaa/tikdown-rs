@@ -55,6 +55,30 @@ SOCKET_TIMEOUT = 20
 _UPLOAD_DATE_PARTS_RE = re.compile(r"[-/.]")
 
 
+def parse_extractor_args(value: str) -> dict[str, dict[str, str]]:
+    """Parse YTDLP_EXTRACTOR_ARGS (M1, §11.1): the yt-dlp ``--extractor-args``
+    grammar, entries whitespace-separated: ``IE_KEY:arg=value,arg2=value2``.
+
+    A malformed entry fails fast with ConfigurationError: an operator typo must
+    never degrade into a silently-ignored setting (T-DATA-5 spirit).
+    """
+    parsed: dict[str, dict[str, str]] = {}
+    for entry in value.split():
+        ie_key, sep, args = entry.partition(":")
+        if not sep or not ie_key:
+            raise ConfigurationError(
+                f"YTDLP_EXTRACTOR_ARGS entry {entry!r} must be 'EXTRACTOR:arg=value,...'"
+            )
+        pairs: dict[str, str] = {}
+        for arg in args.split(","):
+            key, eq, val = arg.partition("=")
+            if not eq or not key:
+                raise ConfigurationError(f"YTDLP_EXTRACTOR_ARGS arg {arg!r} must be 'key=value'")
+            pairs[key] = val
+        parsed[ie_key] = pairs
+    return parsed
+
+
 def normalize_upload_date(value: object) -> str:
     """Canonical YYYYMMDD (T-ENGINE-25); ``""`` when absent or unparseable.
 
@@ -128,6 +152,17 @@ class YtDlpEngine:
             )
         self._cookies_blob = cookies_blob
         self._settings = settings
+        # M1 (§11.1): operator env settings with real effect. The proxy is
+        # passed through on EVERY yt-dlp call (downloads AND flat listings —
+        # a listing also exposes the IP) only when non-empty; extractor args
+        # are the documented escape hatch. Parsed once, fail-fast at build.
+        self._operator_options: dict = {}
+        if settings.ytdlp_proxy_url:
+            self._operator_options["proxy"] = settings.ytdlp_proxy_url
+        if settings.ytdlp_extractor_args:
+            self._operator_options["extractor_args"] = parse_extractor_args(
+                settings.ytdlp_extractor_args
+            )
         # T-ASYNC-14/15: timed-out yt-dlp native threads that wait_for cannot
         # kill; the pacer/daemon expose this counter in daemon status later.
         self.zombie_threads = 0
@@ -247,7 +282,7 @@ class YtDlpEngine:
         """Blocking yt-dlp download; ALWAYS run inside ``asyncio.to_thread`` (T-ASYNC-8)."""
         tmp_path = write_canonical_netscape_tempfile(self._cookies_blob.decode("utf-8"))
         try:
-            options = {**options, "cookiefile": str(tmp_path)}
+            options = {**options, **self._operator_options, "cookiefile": str(tmp_path)}  # M1
             with yt_dlp.YoutubeDL(options) as ydl:
                 return ydl.extract_info(page_url, download=True)
         finally:
@@ -349,7 +384,7 @@ class YtDlpEngine:
         """
         tmp_path = write_canonical_netscape_tempfile(self._cookies_blob.decode("utf-8"))
         try:
-            options = {**options, "cookiefile": str(tmp_path)}
+            options = {**options, **self._operator_options, "cookiefile": str(tmp_path)}  # M1
             with yt_dlp.YoutubeDL(options) as ydl:
                 return ydl.extract_info(url, download=False)
         finally:
