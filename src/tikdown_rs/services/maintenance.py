@@ -206,9 +206,12 @@ async def create_backup(
     only toggles the read-only flag, so a PermissionError is logged and
     swallowed instead of failing an otherwise complete backup.
 
-    Same-second invocations collide on the timestamped name and VACUUM INTO
-    refuses an existing target file, so the stale file is unlinked first:
-    deterministic overwrite, one snapshot per second.
+    Same-second invocations collide on the timestamped name: the new snapshot
+    is staged as ``*.db.tmp`` (a name that never matches the retention
+    pattern) and published with ``os.replace`` (atomic). A collision
+    deterministically overwrites WITHOUT ever unlinking the previous snapshot
+    before its replacement is complete (R3-001/R4-001), and retention only
+    ever sees complete final-name snapshots (R4-002).
 
     Retention keeps the newest ``settings.system_backup_retain_count`` files
     matching the snapshot pattern; nothing else in the directory is deleted.
@@ -220,15 +223,28 @@ async def create_backup(
     directory = settings.data_dir / "backups"
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"tikdown-rs-{now:%Y%m%dT%H%M%S}Z.db"
-    target.unlink(missing_ok=True)  # same-second collision: overwrite
-    async with session_factory() as session:  # short session (T-DB-15)
-        # VACUUM cannot run inside a transaction: AUTOCOMMIT from the start
-        # (before autobegin) keeps the implicit BEGIN out of the way.
-        connection = await session.connection(execution_options={"isolation_level": "AUTOCOMMIT"})
-        await connection.execute(text("VACUUM INTO :path"), {"path": str(target)})
+    # R3-001/R4-001: stage the VACUUM output and publish atomically. The
+    # final-name file is only ever replaced by a COMPLETE new snapshot, so a
+    # failed or interrupted run can never destroy the last known-good
+    # snapshot, and a same-second collision overwrites without an
+    # unlink-first window.
+    tmp = target.with_name(target.name + ".tmp")  # never matches _SNAPSHOT_RE
+    tmp.unlink(missing_ok=True)  # leftover from a previous crashed run
     try:
-        os.chmod(target, 0o600)  # 15.2 rule 2; best-effort on Windows
-    except PermissionError:
-        logger.info("backup chmod 0600 skipped (not permitted): %s", target)
+        async with session_factory() as session:  # short session (T-DB-15)
+            # VACUUM cannot run inside a transaction: AUTOCOMMIT from the start
+            # (before autobegin) keeps the implicit BEGIN out of the way.
+            connection = await session.connection(
+                execution_options={"isolation_level": "AUTOCOMMIT"}
+            )
+            await connection.execute(text("VACUUM INTO :path"), {"path": str(tmp)})
+        try:
+            os.chmod(tmp, 0o600)  # 15.2 rule 2; best-effort on Windows
+        except PermissionError:
+            logger.info("backup chmod 0600 skipped (not permitted): %s", tmp)
+        os.replace(tmp, target)  # atomic publish (R3-001/R4-001)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # clean the stage; previous snapshots intact
+        raise
     deleted = _apply_retention(directory, settings.system_backup_retain_count)
     return target, deleted
