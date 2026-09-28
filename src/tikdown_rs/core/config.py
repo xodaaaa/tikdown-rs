@@ -59,8 +59,10 @@ class Settings(BaseSettings):
 
     # Download engine
     max_concurrent_downloads: int = Field(default=1, ge=1)
-    global_download_cooldown_min_seconds: int = Field(default=30, gt=0)
-    global_download_cooldown_max_seconds: int = Field(default=120, gt=0)
+    # M16: 0/0 = the disabled-cooldown mode pacing._disabled supports; the
+    # max>=min validator below still guards inversion.
+    global_download_cooldown_min_seconds: int = Field(default=30, ge=0)
+    global_download_cooldown_max_seconds: int = Field(default=120, ge=0)
     download_timeout_seconds: int = Field(default=600, gt=0)
     download_format: str = ""
     # DR-17: YTDLP_ANTIBOT_BACKOFF_BASE/CEILING_SECONDS retired from config until
