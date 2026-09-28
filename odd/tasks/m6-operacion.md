@@ -100,6 +100,26 @@ TELEGRAM_BOT_TOKEN (el usuario eligió ronda solo-CLI). Ciclo de monitor con vid
 observado (la cuenta no publicó durante la ronda; el listado real ya quedó validado por el
 backfill).
 
+## Verificación empírica de recuperación de polling (M5 §6.5) — COMPLETADA 2026-09-28
+
+Token real (@tik_cli_bot), chat real del usuario (42867075), PTB 22.8 real, `getUpdates` manual
+usado SOLO como herramienta de prueba documentada (T-BOT-2: nunca en producción).
+
+1. **Arranque real del bot en el daemon**: `getMe` 200 → `initialize/start/start_polling(25)` →
+   `polling started (supervised)`. Los 2 `/start` pendientes fueron RE-ENTREGADOS por PTB al
+   arrancar (T-BOT-4) y respondidos dos veces (idempotencia verificada en vivo).
+2. **Conflicto 409** (sesión manual de `getUpdates` en paralelo, 40 s): el polling del bot recibió
+   `Conflict: terminated by other getUpdates request`; el supervisor (healthcheck `getMe`) siguió
+   200 — **el diseño §6.5 no detecta un 409 con API viva**, y PTB **se auto-recuperó** al cesar el
+   conflicto (409 en 01:24:18 → 200 en 01:24:44, sin intervención). Conclusión: el caso 409 se
+   auto-resuelve por reintento de PTB; el supervisor cubre la caída observable por `getMe`.
+3. **Recuperación del supervisor verificada** (fallo inyectado SOLO en el healthcheck, lo que el
+   supervisor observa; todo lo demás real): 2 fallos consecutivos de `get_me` → `bot unhealthy...
+   restarting bot` → `stop()` + `start()` reales (T-BOT-1) → `restarting=False`, contador en 0
+   (reset por éxito), `getMe` real 200, `sendMessage` real entregado al chat del usuario.
+
+**Criterio de aceptación M5: CUMPLIDO.** Con esto el plan M0-M6 está completo.
+
 ## Notas
 
 - `/monitor` y `/check` del bot siguen pendientes de la ronda de listado real (T-ENGINE-19);
