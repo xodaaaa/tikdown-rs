@@ -120,6 +120,30 @@ usado SOLO como herramienta de prueba documentada (T-BOT-2: nunca en producción
 
 **Criterio de aceptación M5: CUMPLIDO.** Con esto el plan M0-M6 está completo.
 
+## Review nativo encadenado M5+M6 (2026-09-28, en curso)
+
+El candidato completo (6819 líneas, 22 commits desde `1c3d342`) excede el presupuesto de contexto
+(`lens_context_budget_exceeded`, sin autoridad creada — stop terminal del provider). Plan: revisión
+encadenada por cortes en el worktree temporal `<repo-root>/../tikdown-rs-review`
+(rama `review-chained`), avanzando HEAD por corte, cada corte = 1 lineage nuevo con 4 lentes.
+
+| Corte | Rango (baseRef..HEAD del worktree) | Líneas | Estado |
+|---|---|---|---|
+| 1 | `1c3d342..2804775` (prereq + security + paginación) | 697 | **APPROVED 4/4** — lineage `review-b807aefa95bdb6b8`, acknowledge quemado. 11 hallazgos informativos (2 WARNING: allowlist vacía fail-open en security.py:95-96; clamp de paginación pagination.py:103-104). Un relay fallido ("Stream ended without finish_reason") resuelto a slot en reintento. |
+| 2 | `2804775..0459ef6` (dispatcher core T5a) | 1071 | pendiente |
+| 3 | `0459ef6..7c74ea4` (mutadores + upload T5b) | 667 | pendiente |
+| 4 | `7c74ea4..d648475` (supervisión + daemon T6/T7) | 682 | pendiente |
+| 5 | `d648475..77c8b8c` (docs M5 + services/status) | ~1138 | pendiente |
+| 6 | `77c8b8c..15d31e7` (videos last/export + /last bot) | 574 | pendiente |
+| 7 | `15d31e7..3084c72` (integrity + backup) | 734 | pendiente |
+| 8 | `3084c72..f51a403` (static site + stats) | 1213 | pendiente (si excede: dividir) |
+| 9 | `f51a403..63ab74d` (README + M20 + fixes en vivo + docs) | 547 | pendiente |
+
+Receta por corte (probada en el corte 1): `git -C <worktree> checkout <head-del-corte>` →
+`gentle_review inspect` (workspaceRoot=worktree) con `{"baseRef": "<base-del-corte>",
+"committedOnly": true}` → START ordinary + idempotencia fresca → STATUS → capturas slot a slot
+(forecast + ack) → acknowledge-approved verbatim. NUNCA reusar bindings.
+
 ## Notas
 
 - `/monitor` y `/check` del bot siguen pendientes de la ronda de listado real (T-ENGINE-19);
