@@ -1,5 +1,62 @@
 """Settings tests: env parity, fail-fast validation, unknown-var warning.
 
+Trampas neutralizadas: T-DEPLOY-8, T-DATA-5, T-DEPLOY-9. Regla: 11.1, 13.1.
+"""
+
+import inspect
+import logging
+import sqlite3
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from tikdown_rs.core import config as config_module
+from tikdown_rs.core.config import Settings, warn_unknown_env
+from tikdown_rs.core.errors import ConfigurationError
+from tikdown_rs.core.migrations import run_migrations
+from tikdown_rs.core.pacing import DownloadPacer
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+ENV_EXAMPLE_PATH = REPO_ROOT / ".env.example"
+
+
+@pytest.fixture(autouse=True)
+def clean_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove every Settings-related variable so tests inject their own (plan 13.1)."""
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+
+
+def _env_example_keys() -> set[str]:
+    keys: set[str] = set()
+    for raw_line in ENV_EXAMPLE_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        keys.add(line.split("=", 1)[0].strip())
+    return keys
+
+
+def test_env_example_keys_match_settings_fields() -> None:
+    """Bi-directional parity guard between .env.example and Settings (T-DEPLOY-9)."""
+    file_keys = _env_example_keys()
+    field_names = {name.upper() for name in Settings.model_fields}
+    missing = field_names - file_keys
+    undocumented = file_keys - field_names
+    assert not missing, f"Settings fields missing from .env.example: {sorted(missing)}"
+    assert not undocumented, (
+        f".env.example variables without a Settings field: {sorted(undocumented)}"
+    )
+
+
+def test_cooldown_max_below_min_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GLOBAL_DOWNLOAD_COOLDOWN_MAX_SECONDS", "5")
+    monkeypatch.setenv("GLOBAL_DOWNLOAD_COOLDOWN_MIN_SECONDS", "30")
+    with pytest.raises(ValidationError, match="(?i)cooldown"):
+        Settings()
+
+
 def test_zero_monitor_interval_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MONITOR_INTERVAL_MINUTES", "0")
     with pytest.raises(ValidationError, match="(?i)monitor_interval_minutes"):
@@ -69,66 +126,6 @@ def test_minimal_env_builds_valid_settings(tmp_path: Path, monkeypatch: pytest.M
     settings.validate_for_daemon()  # writable DATA_DIR passes
 
 
-Trampas neutralizadas: T-DEPLOY-8, T-DATA-5, T-DEPLOY-9. Regla: 11.1, 13.1.
-"""
-
-import inspect
-import logging
-import sqlite3
-from pathlib import Path
-
-import pytest
-from pydantic import ValidationError
-
-from tikdown_rs.core import config as config_module
-from tikdown_rs.core.config import Settings, warn_unknown_env
-from tikdown_rs.core.errors import ConfigurationError
-from tikdown_rs.core.migrations import run_migrations
-from tikdown_rs.core.pacing import DownloadPacer
-
-# M15: the migration-PRAGMA test lives here because the review-fix batch only
-# allows this file set; thematically it belongs to alembic/env.py.
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-ENV_EXAMPLE_PATH = REPO_ROOT / ".env.example"
-
-
-@pytest.fixture(autouse=True)
-def clean_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove every Settings-related variable so tests inject their own (plan 13.1)."""
-    for name in Settings.model_fields:
-        monkeypatch.delenv(name.upper(), raising=False)
-
-
-def _env_example_keys() -> set[str]:
-    keys: set[str] = set()
-    for raw_line in ENV_EXAMPLE_PATH.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        keys.add(line.split("=", 1)[0].strip())
-    return keys
-
-
-def test_env_example_keys_match_settings_fields() -> None:
-    """Bi-directional parity guard between .env.example and Settings (T-DEPLOY-9)."""
-    file_keys = _env_example_keys()
-    field_names = {name.upper() for name in Settings.model_fields}
-    missing = field_names - file_keys
-    undocumented = file_keys - field_names
-    assert not missing, f"Settings fields missing from .env.example: {sorted(missing)}"
-    assert not undocumented, (
-        f".env.example variables without a Settings field: {sorted(undocumented)}"
-    )
-
-
-def test_cooldown_max_below_min_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GLOBAL_DOWNLOAD_COOLDOWN_MAX_SECONDS", "5")
-    monkeypatch.setenv("GLOBAL_DOWNLOAD_COOLDOWN_MIN_SECONDS", "30")
-    with pytest.raises(ValidationError, match="(?i)cooldown"):
-        Settings()
-
-
 def test_zero_zero_cooldowns_allowed_and_pacer_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -158,4 +155,3 @@ def test_migrations_apply_runtime_pragmas(tmp_path: Path) -> None:
     finally:
         connection.close()
     assert mode == "wal"
-
