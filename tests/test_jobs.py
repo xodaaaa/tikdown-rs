@@ -326,6 +326,34 @@ async def _account_status(factory, username: str) -> str | None:
         return account.backfill_status if account is not None else None
 
 
+# --- T-DEPLOY-24: lazy engine rebuild (§14.2 loads cookies after daemon start) ---
+
+
+async def test_backfill_collect_builds_engine_when_cookie_appears_after_startup(
+    tmp_path, monkeypatch
+) -> None:
+    """Daemon started without cookies (the order §14.2 itself prescribes:
+    container up -> cookies add) stayed degraded (no engine) until a manual
+    restart: the engine is built once in 5.1 step 5 and never again (found
+    live in the Docker round). The next backfill-collect beat must rebuild
+    the engine from the DB cookie and run the queued backfill."""
+    components, db_engine = await make_components(tmp_path, engine=None)
+    lazy_engine = FakeEngine(entries=[])
+    monkeypatch.setattr(daemon_run, "YtDlpEngine", lambda blob, settings: lazy_engine)
+    try:
+        await _add_account(components.session_factory, backfill_status="queued")
+        await _add_valid_cookie(components.session_factory)
+        await _backfill_collect_job(components)
+        assert components.engine is lazy_engine  # built lazily from the DB cookie
+
+        async def _completed() -> bool:
+            return await _account_status(components.session_factory, "acct") == "completed"
+
+        await _wait_until(_completed)
+    finally:
+        await db_engine.dispose()
+
+
 async def test_backfill_collect_slot_busy_skips_with_log(tmp_path, caplog) -> None:
     components, db_engine = await make_components(tmp_path)
     try:

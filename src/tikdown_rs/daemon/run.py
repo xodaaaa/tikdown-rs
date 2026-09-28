@@ -229,12 +229,32 @@ async def _monitor_cycle(components: DaemonComponents) -> None:
     )
 
 
+async def ensure_engine(components: DaemonComponents) -> object | None:
+    """Rebuild the shared engine when a working cookie appears after startup.
+
+    T-DEPLOY-24 (found live in the Docker round of §14.2): the engine is built
+    ONCE in 5.1 step 5, so a daemon started before `cookies add` stayed
+    degraded (no engine) until a manual restart even with a valid cookie in
+    the DB. Engine-dependent jobs call this first; YtDlpEngine holds no
+    persistent resources, so no dispose is needed beyond shutdown.
+    """
+    if components.engine is not None:
+        return components.engine
+    cookie = await get_working_cookie(components.session_factory)
+    if cookie is None:
+        return None
+    components.engine = YtDlpEngine(cookie.cookie_blob, components.settings)
+    logger.info("engine built lazily: working cookie appeared after startup")
+    return components.engine
+
+
 async def _maybe_start_monitor_cycle(components: DaemonComponents) -> None:
     """Hot monitor start (5.3, T-CLI-6): monitor_running is RE-READ every beat."""
     async with components.session_factory() as session:
         state = await read_status(session)
     if state is None or not state.monitor_running:
         return
+    await ensure_engine(components)  # T-DEPLOY-24: rebuild if a cookie appeared
     if components.engine is None:
         logger.warning("job.heartbeat: monitor cycle skipped (degraded: no engine)")
         return
@@ -350,6 +370,7 @@ async def _backfill_collect_job(components: DaemonComponents) -> None:
         engine_factory_fn=lambda account: None,  # unused by the real runner
         network_online_fn=lambda: components.network_available.is_set(),
     )
+    await ensure_engine(components)  # T-DEPLOY-24: rebuild if a cookie appeared
     launched = 0
     for username in collected:
         if components.engine is None:
@@ -377,6 +398,7 @@ async def _cookies_validate_job(components: DaemonComponents) -> None:
     if not settings.cookie_validation_url:
         logger.warning("job.cookies-validate: skipped (COOKIE_VALIDATION_URL not configured)")
         return
+    await ensure_engine(components)  # T-DEPLOY-24: rebuild if a cookie appeared
     if components.engine is None:
         logger.warning("job.cookies-validate: skipped (degraded: no working cookie to probe)")
         return
@@ -398,6 +420,7 @@ async def _cookies_validate_job(components: DaemonComponents) -> None:
 
 async def _profile_refresh_job(components: DaemonComponents) -> None:
     """48 h profile refresh (5.3, 3.1). Trace: profile.refreshed events + log."""
+    await ensure_engine(components)  # T-DEPLOY-24: rebuild if a cookie appeared
     if components.engine is None:
         logger.warning("job.profile-refresh: skipped (degraded: no engine)")
         return
