@@ -798,7 +798,7 @@ class TestFfprobeCommand:
         assert _probe_has_video(probe) is True
 
 
-# --- T-CLI-10 (live round M6): exports are DATA, written as UTF-8 ---
+# --- T-CLI-11 (live round M6): exports are DATA, written as UTF-8 ---
 
 
 class TestExportPayloadEncoding:

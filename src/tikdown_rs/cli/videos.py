@@ -71,7 +71,7 @@ def export(
 def _echo_payload(payload: str) -> None:
     """Write export DATA as explicit UTF-8, never the console codepage.
 
-    T-CLI-10 (live round M6): Windows legacy consoles run cp1252 and real
+    T-CLI-11 (live round M6): Windows legacy consoles run cp1252 and real
     TikTok titles carry emoji/unicode — ``typer.echo`` raises
     ``UnicodeEncodeError`` and the export crashes with a traceback. Exports
     are data: UTF-8 bytes on ``sys.stdout.buffer`` (redirection yields valid
