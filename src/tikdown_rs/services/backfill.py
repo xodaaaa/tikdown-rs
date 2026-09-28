@@ -209,6 +209,27 @@ async def _pause_for_breaker(session_factory, account_id: int) -> str:
     return "paused" if result.rowcount == 1 else "cancelled"
 
 
+async def _pause_for_network(
+    session_factory: async_sessionmaker[AsyncSession],
+    account_id: int,
+) -> bool:
+    """M3: network-outage pause, the SAME machinery the cancel path uses
+    (paused + backfill_pause_reason='network', 9.1/9.6); conditional CAS on
+    'backfilling' so a concurrent cancel still wins. The caller emits the
+    pause event. Returns False when a concurrent state change won the row."""
+    async with session_factory() as session:
+        result = await session.execute(
+            text(
+                "UPDATE monitored_accounts SET backfill_status = 'paused',"
+                " backfill_pause_reason = 'network', updated_at = :now"
+                " WHERE id = :id AND backfill_status = 'backfilling'"
+            ),
+            {"now": _utcnow_iso(), "id": account_id},
+        )
+        await session.commit()
+    return result.rowcount == 1
+
+
 async def transition_to_monitor_after_backfill(
     session_factory: async_sessionmaker[AsyncSession], account_id: int
 ) -> bool:
@@ -462,6 +483,25 @@ async def run_backfill(
                     on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
                 )
                 return "cancelled"
+
+            # M3: mid-run outage gate, consulted EVERY video BEFORE any work.
+            # An offline probe pauses with the existing 'network' reason and
+            # stops RESUMABLY: the current entry was never attempted and the
+            # cursor/done from the previous iteration stay as persisted, so
+            # nothing is burned (collect requeues when the probe recovers).
+            if network_online_fn is not None and not network_online_fn():
+                if await _pause_for_network(session_factory, account_id):
+                    _emit_event(
+                        on_event,
+                        EVENT_BACKFILL_PAUSED,
+                        account_id=account_id,
+                        username=username,
+                        reason="network",
+                    )
+                    return "paused"
+                # A concurrent cancel/state change won the row: the next
+                # iteration's re-read surfaces it (T-BACKFILL-10).
+                continue
 
             upload_date = entry.get("upload_date") or ""
             # T-BACKFILL-2: the boundary uses the SNAPSHOT taken before the

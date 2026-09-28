@@ -12,7 +12,6 @@ ffprobe/sha fakes. No network, no yt-dlp, no real cookie probing.
 import asyncio
 import hashlib
 import json
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -59,12 +58,17 @@ class FakeEngine:
     decide the outcome (4.7).
     """
 
+    # M23: per-test root injected by the autouse fixture (pytest tmp_path);
+    # no tempfile.mkdtemp leak that outlives the test.
+    tmp_root: Path = Path(".")
+
     def __init__(self, entries: list[dict], fail: dict[str, str] | None = None) -> None:
         self.entries = entries
         self.fail = fail or {}
         self.list_calls = 0
         self.download_order: list[str] = []
-        self.download_dir = Path(tempfile.mkdtemp(prefix="tikdown_fake_engine_"))
+        self.download_dir = self.tmp_root / "fake_engine_downloads"
+        self.download_dir.mkdir(parents=True, exist_ok=True)
 
     def list_videos(self, username: str, max_entries: int | None = None) -> list[dict]:
         self.list_calls += 1
@@ -150,6 +154,12 @@ def make_kwargs(engine: FakeEngine, pacer: FakePacer) -> dict:
         "ffprobe_fn": ffprobe_ok,
         "sha256_fn": sha_ok,
     }
+
+
+@pytest.fixture(autouse=True)
+def _engine_tmp_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """M23: fake-engine download bytes land under the test's own tmp_path."""
+    monkeypatch.setattr(FakeEngine, "tmp_root", tmp_path)
 
 
 @pytest.fixture(autouse=True)
@@ -600,6 +610,48 @@ async def test_cancelled_mid_listing_without_cause_requeues(factory) -> None:
     assert account.backfill_status == "queued"
     assert account.backfill_pause_reason is None
     assert await slot_owner(factory) is None
+
+
+# --- M3: a mid-run network outage pauses resumably (9.1/9.6 pause machinery) ---
+
+
+async def test_network_outage_mid_run_pauses_with_network_reason(factory) -> None:
+    """M3: network_online_fn is consulted EVERY video; when the probe reports
+    offline the account pauses with the existing 'network' pause reason and
+    the run stops BEFORE the un-attempted entries (cursor never advances past
+    them; collect requeues it when the probe recovers)."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+    engine = FakeEngine([_entry("1", "20260103"), _entry("2", "20260102"), _entry("3", "20260101")])
+    events = Recorder()
+    probes = {"n": 0}
+
+    def offline_after_first_video() -> bool:
+        probes["n"] += 1
+        return probes["n"] <= 1  # online while video 1 runs, offline afterwards
+
+    status = await run_backfill(
+        factory,
+        account_id,
+        on_event=events,
+        network_online_fn=offline_after_first_video,
+        **make_kwargs(engine, FakePacer()),
+    )
+
+    assert status == "paused"
+    account = await get_account(factory, account_id)
+    assert account.backfill_status == "paused"
+    assert account.backfill_pause_reason == "network"
+    assert engine.download_order == ["1"]  # the outage gate stopped before entry 2
+    assert await slot_owner(factory) is None  # slot released in the pause branch too
+    paused = [e for e in events.events if e["event"] == "backfill.paused"]
+    assert paused and paused[-1]["reason"] == "network"
+    # Un-processed entries never reach the DB (nothing burned, resumable):
+    async with factory() as session:
+        statuses = dict((await session.execute(select(Video.tiktok_video_id, Video.status))).all())
+    assert statuses == {"1": "downloaded"}
+    # ... and the existing resume gating picks the account back up when online:
+    assert await collect_queued_backfills(factory, lambda a: None, network_online_fn=lambda: True)
 
 
 # --- 9.6 circuit breaker ---
