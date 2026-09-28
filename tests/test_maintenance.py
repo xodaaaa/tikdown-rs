@@ -249,6 +249,23 @@ async def test_refresh_all_profiles_isolates_failing_account(factory) -> None:
     assert row.profile_last_refreshed is not None
 
 
+async def test_refresh_all_profiles_preserves_absent_counters(factory) -> None:
+    """M13: ProfileData only carries followers/video_count, so a profile dict
+    lacking following_count/total_likes means 'not fetched' — the existing
+    column values are preserved, never overwritten with NULL."""
+    account_id = await add_account(
+        factory, "carol", mode="monitor", following_count=11, total_likes=22
+    )
+    engine = FakeProfileEngine({"carol": {"username": "carol", "followers": 5, "video_count": 3}})
+    refreshed = await refresh_all_profiles(factory, engine=engine)
+    assert refreshed == 1
+    row = await get_account(factory, account_id)
+    assert row.follower_count == 5
+    assert row.video_count == 3
+    assert row.following_count == 11  # preserved
+    assert row.total_likes == 22  # preserved
+
+
 # --- create_backup (14.5: VACUUM INTO snapshot + retention, 15.2 rule 2) ---
 
 SNAPSHOT_RE = re.compile(r"^tikdown-rs-\d{8}T\d{6}Z\.db$")
