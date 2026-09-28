@@ -12,6 +12,9 @@ healthcheck is getMe, NEVER getUpdates), clean task cancellation.
 import asyncio
 import contextlib
 
+import pytest
+
+from tikdown_rs.bot import supervision as supervision_mod
 from tikdown_rs.bot.supervision import (
     GET_ME_TIMEOUT_CAP_SECONDS,
     POLLING_TIMEOUT_SECONDS,
@@ -257,3 +260,43 @@ def test_supervision_never_calls_get_updates():
     source = inspect.getsource(supervision)
     assert "get_updates" not in source
     assert "get_me" in source  # healthcheck is getMe (T-BOT-2)
+
+
+# --- R3-001/R3-003: lifecycle stages are deadline-bounded ---------------------
+
+
+async def test_start_stage_timeout_raises_instead_of_wedging(monkeypatch):
+    """R3-003: a hung startup stage raises; daemon startup is never blocked."""
+
+    async def hang():
+        await asyncio.sleep(60)
+
+    class HungInitializeApp(StubApplication):
+        async def initialize(self):
+            self.calls.append(("initialize", {}))
+            await hang()
+
+    monkeypatch.setattr(supervision_mod, "LIFECYCLE_STAGE_TIMEOUT_SECONDS", 0.05)
+    with pytest.raises(RuntimeError, match="timed out"):
+        await start_bot_polling(HungInitializeApp())
+
+
+async def test_stop_sequence_hung_stage_is_cancelled_and_skipped(monkeypatch):
+    """R3-001: a hung stop stage is bounded; remaining stages still run."""
+
+    async def hang():
+        await asyncio.sleep(60)
+
+    class HungStopApp(StubApplication):
+        async def stop(self):
+            self.calls.append(("app.stop", {}))
+            await hang()
+
+    monkeypatch.setattr(supervision_mod, "LIFECYCLE_STAGE_TIMEOUT_SECONDS", 0.05)
+    app = HungStopApp()
+    await stop_bot_polling(app)  # must NOT wedge
+    assert [name for name, _ in app.calls] == [
+        "updater.stop",
+        "app.stop",
+        "app.shutdown",
+    ]

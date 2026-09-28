@@ -670,16 +670,29 @@ async def _start_bot(components: DaemonComponents) -> TikDownBot:
     T-BOT-1: initialize -> start -> updater.start_polling(25); NEVER
     run_polling on the daemon's live loop. The §6.5 supervision loop runs as a
     supervised task (5.5) so shutdown drains it together with the bot stop.
+    R3-002: startup is failure-atomic — a partially started app (initialize/
+    start done, a later stage or wiring failed) is stopped before re-raising,
+    so the caller's log-and-continue never leaks a live bot without a stored
+    reference (and thus without shutdown cleanup).
     """
     bot = TikDownBot(components.settings, components.session_factory)
     bot.register_handlers()
-    await start_bot_polling(bot.application)
-    supervisor = PollingSupervisor(
-        bot.application,
-        interval=components.settings.polling_healthcheck_interval,
-        max_failures=components.settings.polling_healthcheck_max_failures,
-    )
-    create_supervised_task(supervisor.run(), name="bot-polling-supervision")
+    try:
+        await start_bot_polling(bot.application)
+        supervisor = PollingSupervisor(
+            bot.application,
+            interval=components.settings.polling_healthcheck_interval,
+            max_failures=components.settings.polling_healthcheck_max_failures,
+        )
+        create_supervised_task(supervisor.run(), name="bot-polling-supervision")
+    except Exception:
+        # R3-002: best-effort strict stop, per-stage tolerant; cleanup failures
+        # must not mask the original startup error.
+        try:
+            await stop_bot_polling(bot.application)
+        except Exception:
+            logger.exception("daemon.bot: cleanup after failed startup also failed")
+        raise
     return bot
 
 
