@@ -183,3 +183,33 @@ Tres lecciones más (cortes 4-8):
   fuera de alcance M6 salvo que la ronda en vivo los habilite.
 - Los 4 archivos del panel se escriben en cada regeneración; JS cliente filtra/ordena (§10.3
   regla de admisión).
+
+## Cierre de proyecto (2026-09-28, sesión final)
+
+Estado de entrega: **M0–M6 completos, review RDD 12/12 candidates APPROVED, backlog de mejoras cerrado.**
+
+- **Review encadenado M5+M6**: 9/9 cortes APPROVED con acknowledge quemado (corte 9 re-review
+  con candidato `f51a403..e4475f6`, lineage `review-88516330b1f72919`; el fix T-CLI-11 resolvió
+  la pared del admission con paths con espacios).
+- **Fixes de review mergeados a master**: `ee098d9` (corte 4) y `5c168ae` (corte 7). Ramas de
+  review eliminadas; worktree de review removido.
+- **Auditoría del backlog M1–M23** (subagente read-only): 2 ya resueltas de facto (M12, M18),
+  3 confirmadas cerradas (M5/M8/M20), 1 obsoleta (M14), y **17 corregidas en dos lotes**:
+  - Lote 1 (base `275615a`, lineage `review-538d7c685ea5723c`): M16, M6, M22, M7, M15, M11, M13
+    + T-DEPLOY-24 (engine perezoso, hallazgo Docker) + compose nginx.
+  - Lote 2 (base `2a9a624`, lineage `review-91e0af0ef288948b`): M1 (proxy/extractor-args),
+    M3 (gate de red en backfill), M9 (contadores en daemon_state + migración 0003),
+    M10+M14 (código muerto retirado), M21 (flags adoptados a §10.1), M23 (higiene de tests).
+  - Quedan abiertas SOLO las 3 decisiones de diseño del dueño: M2 (rotación de cookies),
+    M4 (healthcheck vs runtime cookies), M19 (stop-window residual §5.2).
+- **Prueba Docker §14.2 completa contra TikTok real**: build, selfcheck, cookie valid, backfill
+  17/17 con integridad 17/17, transición --then-monitor, T-DEPLOY-13 (stop limpio sin restart),
+  site render 4 archivos. Hallazgo documentado como **T-DEPLOY-24** (Apéndice A).
+- **Stack de pruebas**: docker compose (daemon + nginx sitio en :8080) con datos desechables en
+  `tikdown-rs-trash/docker-data`; verificación de feed en vivo (17/17, cero videos nuevos).
+  Contenedores detenidos al cierre por decisión del operador; imagen y datos se conservan.
+- **Entorno local**: `tikdown-rs-trash/tikdown.cmd` (DATA_DIR=live-data, token desde txt,
+  ffmpeg en PATH); daemon del host lanzable con PowerShell `Start-Process`.
+- Suite al cierre: **790 passed, 2 skipped, 1 deselected**; ruff check + format limpios.
+  Flake documentado: `test_daemon_lifecycle` bajo contención (estable en serial).
+- Métricas finales: ~22.9k líneas de Python (9.5k src / 13.4k tests), master `627c5fb`.
