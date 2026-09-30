@@ -41,7 +41,7 @@ Constraints decided with the user:
       centered header with badges + nav, GFM alerts (`[!CAUTION]`, `[!IMPORTANT]`, `[!TIP]`),
       features bullets, deploy quickstart verified against the real CLI, trimmed Operation
       section, docs table, image credit kept at bottom. CLI paths re-checked against
-      `src/tikdown_rs/cli/` before publishing. Commit: pending
+      `src/tikdown_rs/cli/` before publishing. Commit: 305bbe0
 
 ## Pendientes para el momento de publicar (decisión del usuario, no hago nada automático)
 
