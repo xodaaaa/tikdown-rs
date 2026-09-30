@@ -61,3 +61,20 @@ Branch: `fix/audit-phase-a` (from main @ bef122e).
   in repeated full runs. Pre-existing, not caused by these fixes.
 - Owner decisions still open: notifications layer (Noop in production) and
   download_archive mirror table (write-only).
+
+
+## Review receipt (RDD)
+
+- Lineage `review-50867d232fc7f9fa`, target sha256:1f880a41..., base bef122e (full
+  sha) -> candidate HEAD of fix/audit-phase-a. Consent granted by the owner
+  (risk high: 12 files / 374 lines, process_boundary signal).
+- 4/4 lenses submitted via pi host relay; state **approved** with zero blocking
+  findings; acknowledgement burned (consumed revision
+  sha256:112ea995ed9f41b315780c0f6bd157ae9aa6b3ba0635b9919d78602c2ed3a781).
+- Non-blocking informational findings (separate later work, do NOT reopen this
+  review):
+  - R2-audit-trail-contradiction (SUGGESTION, odd/tasks/audit-fix-phase-a.md:57)
+  - R2-engine-sentinel-order (WARNING, src/tikdown_rs/daemon/run.py:197)
+  - R2-healthcheck-state-drift (WARNING, src/tikdown_rs/cli/daemon.py:153)
+  - R3-001 (WARNING, src/tikdown_rs/daemon/run.py:250-253)
+  - R4-engine-rotation-race (WARNING, src/tikdown_rs/daemon/run.py:249-263)
