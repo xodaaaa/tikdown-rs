@@ -79,3 +79,19 @@ Branch: `fix/audit-phase-c` (from main @ 7d0335e).
 - Informational follow-ups: R3-CHAT-ID-STARTUP (run.py:231), R3-DAEMON-WIRING-UNPROVED
   (the full-daemon wiring path is not e2e-tested), R3-FALLBACK-BYPASS,
   R3-HTML-ESCAPE-UNPROVED (SUGGESTION) — logged as future work.
+
+
+## Chain 3a evidence (retry after escalation)
+
+- Attempt 1 (commit bff0f55, all dead code incl. backoff.py + engine validate_cookie):
+  ESCALATED (lineage review-de378bb3bc472d26, cause unknown_causality: R3-1/R3-2
+  inferential, downgraded at admission as unverified_location). Reverted in f3f5afd.
+- Attempt 2 (commit 3b404c3): gentler — only _open_engine, JOB_IDS,
+  BACKFILL_STATUSES, unreachable maintenance branches; backoff.py KEPT with a
+  truthful docstring (owner decision pending network-probe epic); engine
+  validate_cookie retained + tests kept. Review review-10369ebb8b7bb1e1:
+  APPROVED 1/1, ack burned (revision 60e89b32...). Informational follow-ups:
+  R3-COOKIE-VALIDATION-COVERAGE, R3-PROFILE-COUNTER-PERSISTENCE.
+- Lesson: deletion candidates escalate when 1) ver los docstrings viejos mentirosos
+  (R3-2 chinchilla), 2) tests borrados en vez de migrados (R3-1). Fix num: truthful
+  docstrings FIRST, migrate-not-delete.

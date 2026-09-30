@@ -1,8 +1,9 @@
 """Minimal exponential backoff with jitter and a ceiling (8.1).
 
-Regla: 8.1 (network probe backoff 30 s -> 120 s ceiling, +- jitter);
-11.2 fixes the generic backoff ceiling at 30 minutes, but this module only
-carries what a consumer uses today (YAGNI: grow when the retry epic lands).
+Status: NO current callers. Retained by owner decision pending the
+network-probe stability epic, which will consume this (30 s base, 120 s
+ceiling, +- jitter) per spec rule 8.1. Delete it there if the epic never
+takes it.
 """
 
 import random
