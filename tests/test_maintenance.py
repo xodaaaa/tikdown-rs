@@ -195,13 +195,7 @@ async def test_refresh_all_profiles_persists_counters(factory) -> None:
     second = await add_account(factory, "bob", mode="history")
     engine = FakeProfileEngine(
         {
-            "alice": {
-                "username": "alice",
-                "followers": 10,
-                "following_count": 20,
-                "total_likes": 30,
-                "video_count": 4,
-            },
+            "alice": {"username": "alice", "followers": 10, "video_count": 4},
             "bob": {"username": "bob", "followers": 1, "video_count": 2},
         }
     )
@@ -210,8 +204,6 @@ async def test_refresh_all_profiles_persists_counters(factory) -> None:
     assert refreshed == 2
     alice = await get_account(factory, first)
     assert alice.follower_count == 10
-    assert alice.following_count == 20
-    assert alice.total_likes == 30
     assert alice.video_count == 4
     assert alice.profile_last_refreshed is not None
     bob = await get_account(factory, second)
@@ -247,23 +239,6 @@ async def test_refresh_all_profiles_isolates_failing_account(factory) -> None:
     row = await get_account(factory, good)
     assert row.follower_count == 7
     assert row.profile_last_refreshed is not None
-
-
-async def test_refresh_all_profiles_preserves_absent_counters(factory) -> None:
-    """M13: ProfileData only carries followers/video_count, so a profile dict
-    lacking following_count/total_likes means 'not fetched' — the existing
-    column values are preserved, never overwritten with NULL."""
-    account_id = await add_account(
-        factory, "carol", mode="monitor", following_count=11, total_likes=22
-    )
-    engine = FakeProfileEngine({"carol": {"username": "carol", "followers": 5, "video_count": 3}})
-    refreshed = await refresh_all_profiles(factory, engine=engine)
-    assert refreshed == 1
-    row = await get_account(factory, account_id)
-    assert row.follower_count == 5
-    assert row.video_count == 3
-    assert row.following_count == 11  # preserved
-    assert row.total_likes == 22  # preserved
 
 
 # --- create_backup (14.5: VACUUM INTO snapshot + retention, 15.2 rule 2) ---

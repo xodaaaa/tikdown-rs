@@ -130,15 +130,6 @@ PROFILE_REFRESH_INTERVAL_SECONDS = 48 * 3600
 SELFCHECK_INTERVAL_SECONDS = 24 * 3600
 
 HEARTBEAT_JOB_ID = "heartbeat"
-JOB_IDS = (
-    "heartbeat",
-    "disk-check",
-    "network-probe",
-    "backfill-collect",
-    "cookies-validate",
-    "profile-refresh",
-    "selfcheck",
-)
 
 
 def _notification_on_event(service: NotificationService) -> Callable[[dict], None]:
