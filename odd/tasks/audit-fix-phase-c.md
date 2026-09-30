@@ -17,7 +17,7 @@ mirror drop happens FIRST, before any further archive.py touching.
       only, `remove()` drops the mirror DELETE block; `contains()` dies — it was
       mirror-only, test-consumers removed); spec §3.6 amended (file = single
       source of truth); tests updated. Est. ~−200 lines.
-- [ ] Chain 2 — Wire notifications. Real `TelegramNotificationService` using the
+- [x] Chain 2 — Wire notifications. Real `TelegramNotificationService` using the
       started bot's application (html render via existing templates; direct
       send, catch-and-log per event; event backlog/spool stays out of scope
       per §17.1 deferral). Noop when no bot/token. Injected after bot start;
@@ -65,3 +65,17 @@ Branch: `fix/audit-phase-c` (from main @ 7d0335e).
 - Process note: my temp redirect files in the repo root kept polluting the
   eligible-untracked inventory ("cr.json") — temporal redirects must live
   outside the repo (/tmp).
+
+
+## Chain 2 evidence
+
+- Worker run (TDD RED->GREEN). Commit 23157ef: TelegramNotificationService
+  (render via catalog, supervised fire-and-forget sends, send-failure = drop+log,
+  no spool per §17.1 deferral), daemon wiring `_notify_service_for` (identity-based:
+  injected services never replaced; Noop stays without bot/chat_id), 7 tests.
+  Gate: 810 passed, ruff clean.
+- Review review-398f4abe75ce14a9 (medium, consent granted): lens reliability,
+  APPROVED 1/1 with NO correction. Ack burned (revision abbec20f...).
+- Informational follow-ups: R3-CHAT-ID-STARTUP (run.py:231), R3-DAEMON-WIRING-UNPROVED
+  (the full-daemon wiring path is not e2e-tested), R3-FALLBACK-BYPASS,
+  R3-HTML-ESCAPE-UNPROVED (SUGGESTION) — logged as future work.
