@@ -132,3 +132,55 @@ async def test_remove_discards_file_line_and_mirror_row(
 async def test_remove_missing_entry_is_noop(archive: DownloadArchive, archive_path: Path) -> None:
     assert await archive.remove("404") is False
     assert not archive_path.exists()
+    assert list(archive_path.parent.iterdir()) == []  # T-DB-16: nothing created
+
+
+async def test_remove_leaves_no_temp_files_and_file_stays_parseable(
+    archive: DownloadArchive, archive_path: Path
+) -> None:
+    """T-DB-16: the rewrite stages an fsynced temp, then rewrites IN PLACE (no
+    os.replace of a live-append file); the staged temp is removed on success
+    and the source of truth stays parseable."""
+    await archive.add("55")
+    await archive.add("66")
+
+    assert await archive.remove("55") is True
+
+    assert archive_path.exists()
+    assert archive_path.read_text(encoding="utf-8") == "tiktok 66\n"
+    assert list(archive_path.parent.iterdir()) == [archive_path]  # no tmp-* leftovers
+
+
+async def test_remove_crash_mid_write_recovers_from_staged_temp(
+    archive: DownloadArchive, archive_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-DB-16 regression + R3-001: a crash between staging and the in-place
+    write leaves the staged temp as the recovery marker, and the next
+    DownloadArchive construction publishes it. No os.replace of a live-append
+    file: yt-dlp's open O_APPEND descriptors are never stranded on a dead
+    inode, and racing appends keep landing on the real archive."""
+    await archive.add("55")
+    await archive.add("66")
+
+    real_open = Path.open
+
+    def crashing_open(self: Path, mode: str = "r", *args: object, **kwargs: object):
+        if "w" in mode and self == archive_path:
+            raise RuntimeError("crash before in-place write")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", crashing_open)
+
+    with pytest.raises(RuntimeError, match="crash before in-place write"):
+        await archive.remove("55")
+    monkeypatch.undo()
+
+    # The staged temp survived as the recovery marker (kept content only).
+    staged = archive_path.with_name(archive_path.name + ".tmp")
+    assert staged.exists()
+    assert staged.read_text(encoding="utf-8") == "tiktok 66\n"
+
+    # A fresh construction publishes the staged content (crash recovery).
+    DownloadArchive(archive_path, archive._session_factory)
+    assert archive_path.read_text(encoding="utf-8") == "tiktok 66\n"
+    assert not staged.exists()

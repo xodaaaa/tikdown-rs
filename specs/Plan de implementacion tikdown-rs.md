@@ -1652,6 +1652,7 @@ por decisión propia están en A.10.
 | T-DB-13 | Mutación de `daemon_state` sin commit → rollback silencioso | helpers mutadores que commitean internamente | §3.7 [real] |
 | T-DB-14 | El contador de contención leído desde el proceso CLI siempre da 0 | listener + persistencia en heartbeat + lectura desde `daemon_state` | §5.6 [real] |
 | T-DB-15 | Sesión SQLite abierta durante una llamada de red | leer blob → cerrar sesión → validar → reabrir | §7 [real] |
+| T-DB-16 | `archive.remove` reescribía el archivo fuente de verdad con `open("w")` mientras yt-dlp agregaba líneas concurrentemente: un crash a mitad de escritura truncaba el historial (ventana de truncate sin recuperación) | archivo temporal hermano + `os.replace` (swap atómico, sin ventana de truncate, limpieza best-effort del temp) + I/O de archivo en `to_thread` | §3.6 [raz] |
 
 ### A.4 Motor, listado de feeds y formato
 
@@ -1690,6 +1691,7 @@ por decisión propia están en A.10.
 | T-ENGINE-31 | `accounts add` acepta la URL del perfil y la persiste verbatim; `list_videos`/`extract_profile` hacen `lstrip("@")` y arman `https://www.tiktok.com/@https://www.tiktok.com/@user` — TikTok redirige a `/foryou?lang=en` y con `ignoreerrors` el listado vuelve VACÍO y silencioso (backfill `completed total=0` en una cuenta con vídeos; hallado en la ronda en vivo M6) | normalizar el handle en el MOTOR (`normalize_handle`: acepta URL/`@user`/`user`, rechaza no parseable con `ValueError`) — un guard cubre los 3 consumidores (backfill, monitor, refresh de perfil) | §4.6 [real] |
 | T-ENGINE-32 | yt-dlp SALTA el download cuando el archivo final ya existe en disco (`has already been downloaded`) y devuelve `requested_downloads` vacío; el motor lo trataba como fallo de integridad — `retry-failed` de filas cuyo archivo sobrevivió no convergía jamás (ronda en vivo M6: 17 archivos en disco, 17 filas churneando `failed/integrity`) | adoptar el archivo por glob-by-id en `_resolve_downloaded_path` (nunca `.part`); sin archivo en disco, el fallo se surfaced como siempre | §4.7 [real] |
 | T-ENGINE-33 | El argv de ffprobe tenía DOS trampas reales: (1) `--` inmediatamente tras `v:0` dejaba `-show_entries`/`-of` DESPUÉS del separador → ffprobe los parseaba como archivos de entrada y salía 1 → `{}`; (2) las secciones de `-show_entries` se separaban con `,` en vez de `:` → la sección `streams` nunca se emitía. Resultado: `has_video` SIEMPRE False — con ffprobe instalado, TODO download degradaba a `failed/integrity` (ronda en vivo M6: 17 descargas al 100%, 17 filas falladas). Invisible a los tests: el ffprobe estaba stubbeado (punto ciego del mock) | argv construido por `_ffprobe_command` puro: opciones antes de `--`, archivo al final, secciones con `:` (`format=duration:stream=codec_name,width,height`); test de construcción + test de integración real skipif sin ffprobe | §4.7 [real] |
+| T-ENGINE-34 | El clasificador casaba marcadores literales por substring sobre el mensaje completo: un ID de vídeo de TikTok (19 dígitos, ~2% contienen "404") embebido en un mensaje de error transitorio (timeout, webpage) volcaba la categoría a `definitive` | redactar corridas de dígitos >= 15 (placeholder fijo) antes del matching de reglas; orden de reglas, marcadores y recorrido de `__cause__` intactos | §4.4 [real] |
 
 ### A.5 Cookies
 
@@ -1729,6 +1731,7 @@ por decisión propia están en A.10.
 | T-BACKFILL-19 | No existe forma de re-encolar un backfill terminado sin resetear la base a mano | `--queue` re-encola `completed`/`failed` y rechaza `backfilling` | §9.6 [real] |
 | T-BACKFILL-20 | Coordinación por instancia/proceso: sin coordinación real cross-proceso | slot y reloj persistidos en SQLite con `RETURNING` atómico | §3.5/§9.1 [real] |
 | T-BACKFILL-21 | Rutas relativas de vídeos → fuera del volumen en Docker | todo deriva de `DATA_DIR` vía `core/paths.py` | §4.5 [real] |
+| T-BACKFILL-22 | El breaker de auth contaba fallos "consecutivos" pero `record()` solo se invocaba en la rama de fallo: los éxitos nunca reseteaban la racha, 5 fallos de auth NO consecutivos (separados por descargas exitosas) pausaban cuentas sanas con `needs_review` | la racha se resetea en todo resultado terminal exitoso (`downloaded`/`skipped`) del loop por vídeo (`BackfillBreaker.reset()`); la semántica de disparo no cambia | §9.6 [real] |
 
 ### A.7 Bot de Telegram y notificaciones
 

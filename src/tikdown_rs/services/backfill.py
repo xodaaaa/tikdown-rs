@@ -2,7 +2,7 @@
 
 Trampas neutralizadas: T-BACKFILL-2, T-BACKFILL-3, T-BACKFILL-5, T-BACKFILL-6,
 T-BACKFILL-7, T-BACKFILL-8, T-BACKFILL-10, T-BACKFILL-11, T-BACKFILL-13,
-T-BACKFILL-14, T-BACKFILL-18. Reglas: 9.1-9.6, 4.5, 4.6, 4.7.
+T-BACKFILL-14, T-BACKFILL-18, T-BACKFILL-22. Reglas: 9.1-9.6, 4.5, 4.6, 4.7.
 
 Layering (4.8): nothing here imports cli/, daemon/ or yt_dlp. The engine, pacer
 and concurrency semaphore arrive INJECTED; ``handle_download_result`` remains
@@ -69,8 +69,10 @@ class BackfillBreaker:
     """Per-account in-process auth breaker (9.6).
 
     Only definitive failures WITH auth markers count; transient/local/info
-    failures reset the count. The counter lives in the process (reset on
-    restart); the pauses it triggers persist in the database.
+    failures reset the count, and so does every successful terminal download
+    (audit 2.5, T-BACKFILL-22): only failures consecutive WITHOUT an
+    intervening success trip the breaker. The counter lives in the process
+    (reset on restart); the pauses it triggers persist in the database.
     """
 
     def __init__(self, threshold: int = _BREAKER_THRESHOLD) -> None:
@@ -86,6 +88,10 @@ class BackfillBreaker:
         else:
             self.consecutive_auth_failures = 0
         return self.consecutive_auth_failures >= self.threshold
+
+    def reset(self) -> None:
+        """A successful terminal download resets the streak (T-BACKFILL-22)."""
+        self.consecutive_auth_failures = 0
 
 
 # Process-wide breaker state per account (9.6: counter in the process,
@@ -576,6 +582,12 @@ async def run_backfill(
                             breaker.threshold,
                         )
                         return await _pause_for_breaker(session_factory, account_id)
+                else:
+                    # T-BACKFILL-22 (audit 2.5): no exception in the try block,
+                    # so handle_download_result reached a successful terminal
+                    # state (downloaded/skipped): the auth-failure streak
+                    # resets — 'consecutive' includes successes.
+                    breaker.reset()
 
             # Terminal only (9.2/9.3): downloaded/failed/skipped advance the
             # MOVING cursor (T-BACKFILL-3: an absent date keeps the previous

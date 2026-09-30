@@ -720,6 +720,34 @@ async def test_breaker_transient_resets_consecutive_count(factory) -> None:
     assert account.needs_review is False
 
 
+async def test_breaker_success_resets_streak_split_auth_failures_complete(factory) -> None:
+    """Audit 2.5: 'consecutive' must include successes — a successful terminal
+    download resets the auth-failure streak. 4 auth failures + 1 success +
+    4 more auth failures = 2 streaks of 4: the breaker must NOT trip."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+    entries = [
+        _entry("a1", "20260109"),
+        _entry("a2", "20260108"),
+        _entry("a3", "20260107"),
+        _entry("a4", "20260106"),
+        _entry("ok", "20260105"),  # the success splits the streak
+        _entry("a5", "20260104"),
+        _entry("a6", "20260103"),
+        _entry("a7", "20260102"),
+        _entry("a8", "20260101"),
+    ]
+    engine = FakeEngine(entries, fail={f"a{i}": "requiring login" for i in range(1, 9)})
+
+    status = await run_backfill(factory, account_id, **make_kwargs(engine, FakePacer()))
+
+    assert status == "completed"  # pre-fix: 'paused' (success never reset the streak)
+    account = await get_account(factory, account_id)
+    assert account.backfill_status == "completed"
+    assert account.needs_review is False
+    assert engine.download_order == [e["id"] for e in entries]  # all 9 attempted
+
+
 # --- 9.5 same-transaction transition ---
 
 

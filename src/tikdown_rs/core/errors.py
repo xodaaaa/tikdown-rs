@@ -1,7 +1,8 @@
 """Shared exception types for configuration and runtime failures.
 
 Trampas neutralizadas: T-DEPLOY-8 (fail-fast con mensajes accionables),
-T-ENGINE-1, T-ENGINE-2, T-ENGINE-3, T-ENGINE-27, T-DATA-3. Reglas: 4.4, 11.1, 5.1.
+T-ENGINE-1, T-ENGINE-2, T-ENGINE-3, T-ENGINE-27, T-ENGINE-34, T-DATA-3.
+Reglas: 4.4, 11.1, 5.1.
 """
 
 import re
@@ -52,6 +53,12 @@ def _unknown_nonzero_status_code(haystack: str) -> bool:
 
 
 _STATUS_CODE_RE = re.compile(r"status code (\d+)")
+
+# T-ENGINE-34 (audit 2.4): literal substring matching over the FULL message
+# collides with TikTok video IDs (19 digits, ~2% contain "404") embedded in
+# transient error texts, flipping them to definitive. Long digit runs are
+# redacted before rule matching; no marker legitimately needs them.
+_LONG_DIGIT_RUN_RE = re.compile(r"\d{15,}")
 
 # The FULL 4.4 table in MANDATORY evaluation order: evaluated top to bottom,
 # never as a set. Order facts (4.4 header):
@@ -133,6 +140,9 @@ def classify_error(exc_or_message: str | BaseException) -> str:
         haystack = " \n".join(parts).lower()
     else:
         haystack = exc_or_message.lower()
+    # T-ENGINE-34 (audit 2.4): redact digit runs >= 15 BEFORE rule matching;
+    # rule order, markers and the cause walk stay untouched.
+    haystack = _LONG_DIGIT_RUN_RE.sub("<id>", haystack)
     for rule_name, matches, category in _ERROR_RULES:
         if matches(haystack):
             return category
