@@ -41,6 +41,11 @@ from tikdown_rs.core.errors import classify_error
         ("HTTP Error 404: Not Found", "definitive"),
         ("this video has been removed", "definitive"),
         ("video not available, status code 7", "definitive"),
+        # T-ENGINE-34 (audit 2.4): a 19-digit TikTok video ID containing "404"
+        # inside a transient message must NOT flip the category to definitive;
+        # digit runs >= 15 are redacted before rule matching.
+        ("ERROR: [tiktok] 7345404041234567890: Unable to download webpage", "transient"),
+        ("download of 7345404041234567890 exceeded download_timeout_seconds=600", "transient"),
         # Rule 5 beats rule 4 (T-ENGINE-3): degraded anti-bot response, NOT missing content.
         ("video not available, status code 0", "transient"),
         ("Video Not Available, Status Code 0", "transient"),
