@@ -10,10 +10,13 @@ needs is exactly what hid that bug. Naming is unambiguous: ``DownloadEngine``
 (yt-dlp) vs SQLAlchemy's ``db_engine`` (T-ENGINE-17), never a bare ``engine``.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, TypedDict, runtime_checkable
 
 from tikdown_rs.core.archive import DownloadArchive
+
+ProbeFn = Callable[[bytes, str, int], list[dict]]
 
 
 class VideoData(TypedDict):
@@ -68,4 +71,8 @@ class DownloadEngine(Protocol):
 
     def list_videos(self, username: str, max_entries: int | None = None) -> list[VideoData]:
         """Normalized feed listing (4.6 rules)."""
+        ...
+
+    def validate_cookie(self, probe_fn: ProbeFn | None = None) -> str:
+        """Three-state cookie verdict: 'valid' | 'invalid' | 'inconclusive'."""
         ...

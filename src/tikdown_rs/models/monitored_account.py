@@ -9,6 +9,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from tikdown_rs.models import Base
 
+BACKFILL_STATUSES = (
+    "idle",
+    "queued",
+    "backfilling",
+    "paused",
+    "completed",
+    "failed",
+    "cancelled",
+)
+
 
 class MonitoredAccount(Base):
     """A TikTok account the daemon monitors or backfills."""

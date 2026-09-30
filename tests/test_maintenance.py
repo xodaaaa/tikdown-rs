@@ -195,7 +195,13 @@ async def test_refresh_all_profiles_persists_counters(factory) -> None:
     second = await add_account(factory, "bob", mode="history")
     engine = FakeProfileEngine(
         {
-            "alice": {"username": "alice", "followers": 10, "video_count": 4},
+            "alice": {
+                "username": "alice",
+                "followers": 10,
+                "following_count": 20,
+                "total_likes": 30,
+                "video_count": 4,
+            },
             "bob": {"username": "bob", "followers": 1, "video_count": 2},
         }
     )
@@ -204,6 +210,8 @@ async def test_refresh_all_profiles_persists_counters(factory) -> None:
     assert refreshed == 2
     alice = await get_account(factory, first)
     assert alice.follower_count == 10
+    assert alice.following_count == 20
+    assert alice.total_likes == 30
     assert alice.video_count == 4
     assert alice.profile_last_refreshed is not None
     bob = await get_account(factory, second)

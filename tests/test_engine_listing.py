@@ -211,6 +211,45 @@ def test_extract_profile_uses_flat_first_page(
     assert profile["video_count"] == 87
 
 
+def test_validate_cookie_composes_probe_primitives() -> None:
+    # 4.8 layering: core composes core.verify primitives; services/* stays
+    # importable only from above. The injected probe_fn replaces yt-dlp here.
+    calls: list[tuple[bytes, str, int]] = []
+
+    def probe_fn(blob: bytes, url: str, max_entries: int) -> list[dict]:
+        calls.append((blob, url, max_entries))
+        if url == "first":
+            raise RuntimeError("HTTP Error 403: Forbidden")  # transient: try next
+        return [{"url": CANONICAL, "duration": 30.5}]
+
+    settings = Settings(cookie_validation_url="first,second")
+    powered = YtDlpEngine(cookies_blob=b"blob", settings=settings)
+    assert powered.validate_cookie(probe_fn=probe_fn) == "valid"
+    assert len(calls) == 2
+    assert calls[0][1] == "first" and calls[1][1] == "second"
+
+
+def test_validate_cookie_definitive_failure_is_invalid() -> None:
+    def probe_fn(blob: bytes, url: str, max_entries: int) -> list[dict]:
+        raise RuntimeError("this content is requiring login")
+
+    settings = Settings(cookie_validation_url="first,second")
+    powered = YtDlpEngine(cookies_blob=b"blob", settings=settings)
+    assert powered.validate_cookie(probe_fn=probe_fn) == "invalid"
+
+
+def test_validate_cookie_all_candidates_without_video_is_inconclusive() -> None:
+    settings = Settings(cookie_validation_url="first,second")
+    powered = YtDlpEngine(cookies_blob=b"blob", settings=settings)
+    # T-COOKIES-2: slideshow-only feed (no video entries) on every candidate.
+    assert (
+        powered.validate_cookie(
+            probe_fn=lambda blob, url, max_entries: [{"url": "/photo/", "duration": 0}]
+        )
+        == "inconclusive"
+    )
+
+
 class TestHandleNormalizationLiveRound:
     """Live-round regression (M6, Apéndice A row): `accounts add` stores the
     profile URL verbatim; every engine consumer passes `account.username`

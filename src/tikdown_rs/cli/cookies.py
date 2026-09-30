@@ -21,6 +21,11 @@ from tikdown_rs.services.cookies import add_cookie, list_cookies, remove_cookie,
 app = typer.Typer(help="Cookie store management.")
 
 
+def _open_engine():
+    settings = load_settings()
+    return create_db_engine(sqlite_url_for(settings.data_dir))
+
+
 @app.command()
 def add(
     path: str = typer.Argument(..., help="Path to the cookies file."),

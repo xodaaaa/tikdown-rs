@@ -20,7 +20,7 @@ from tikdown_rs.core.download_engine import DownloadEngine, YtDlpEngine
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.core.paths import outtmpl_for, videos_root
 
-PROTOCOL_METHODS = ("download", "extract_profile", "list_videos")
+PROTOCOL_METHODS = ("download", "extract_profile", "list_videos", "validate_cookie")
 
 
 class FullSignatureDouble:
@@ -41,6 +41,9 @@ class FullSignatureDouble:
 
     def list_videos(self, *args, **kwargs):
         return []
+
+    def validate_cookie(self, *args, **kwargs):
+        return "inconclusive"
 
 
 @pytest.fixture
