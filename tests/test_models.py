@@ -15,7 +15,6 @@ from tikdown_rs.core.migrations import run_migrations
 from tikdown_rs.models import (
     BackfillSlot,
     Cookie,
-    DownloadArchive,
     DownloadPacingState,
     MonitoredAccount,
     Video,
@@ -234,20 +233,6 @@ async def test_daemon_state_singleton_rejects_second_row(migrated_factory) -> No
         session.add(DaemonState(id=2))
         with pytest.raises(IntegrityError):
             await session.commit()
-
-
-# --- 3.6 download_archive mirror table ---
-
-
-async def test_download_archive_mirror_row(migrated_factory) -> None:
-    account_id = await add_account(migrated_factory)
-    async with migrated_factory() as session:
-        session.add(DownloadArchive(tiktok_id="7312345678901", account_id=account_id))
-        session.add(DownloadArchive(tiktok_id="7312345678902", account_id=None))
-        await session.commit()
-    async with migrated_factory() as session:
-        count = (await session.execute(text("SELECT COUNT(*) FROM download_archive"))).scalar()
-    assert count == 2
 
 
 # --- Migration is pure DDL: no singleton rows pre-inserted ---

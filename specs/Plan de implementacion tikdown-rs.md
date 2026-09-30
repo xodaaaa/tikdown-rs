@@ -314,9 +314,12 @@ ver §15.2), `expiration_date`, `last_validated_at` (solo se actualiza con `vali
 
 ### 3.6 `download_archive`
 
-Tabla espejo consultable del archivo de texto `<DATA_DIR>/download_archive.txt` (append-only, para
-`--download-archive` de yt-dlp). El parser reconoce **ambos formatos de línea** (`tiktok <id>` y `<id>`
-pelado): el ID es el **último token** (T-DB-8, T-DEPLOY-15).
+Archivo de texto `<DATA_DIR>/download_archive.txt` (append-only, para
+`--download-archive` de yt-dlp): **única fuente de verdad**. El parser reconoce
+**ambos formatos de línea** (`tiktok <id>` y `<id>` pelado): el ID es el
+**último token** (T-DB-8, T-DEPLOY-15). La tabla espejo consultable fue
+eliminada (migración `0004_drop_download_archive`); no existe réplica en base
+de datos.
 
 ### 3.7 Invariantes de acceso a datos
 

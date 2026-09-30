@@ -138,7 +138,7 @@ def _real_stack(tmp_path: Path, factory: async_sessionmaker[AsyncSession]) -> di
         min_seconds=0,
         max_seconds=0,  # T-ENGINE-8: both 0 -> cooldown disabled
     )
-    archive = DownloadArchive(tmp_path / "download_archive.txt", factory)
+    archive = DownloadArchive(tmp_path / "download_archive.txt")
     notifications = InMemoryNotificationService()
 
     def on_event(payload: dict) -> None:  # SYNC, never awaited
@@ -249,8 +249,7 @@ async def test_birth_to_download_end_to_end(tmp_path, factory) -> None:
     account = await _get_account(factory, account_id)
     assert account.total_disk_bytes == len(VIDEO_BYTES)
 
-    # 3.6: the REAL archive contains the video id (file + mirror).
-    assert await stack["archive"].contains(VIDEO_ID) is True
+    # 3.6: the REAL archive file contains the video id (single source of truth).
     assert "tiktok 777" in (tmp_path / "download_archive.txt").read_text(encoding="ascii")
 
     # Full event trail, in order: discovered -> downloaded (6.2).
@@ -296,7 +295,7 @@ async def test_birth_to_download_with_backfill_queue_alternative(tmp_path, facto
     assert video.file_hash == VIDEO_SHA256
     account = await _get_account(factory, account_id)
     assert account.total_disk_bytes == len(VIDEO_BYTES)
-    assert await stack["archive"].contains(VIDEO_ID) is True
+    assert "tiktok 777" in (tmp_path / "download_archive.txt").read_text(encoding="ascii")
     # Both funnels emit the SAME terminal event through the one truth point.
     assert "download.downloaded" in _event_names(notifications=stack["notifications"])
     assert "backfill.completed" in _event_names(notifications=stack["notifications"])
@@ -335,7 +334,9 @@ async def test_birth_skipped_slideshow(tmp_path, factory) -> None:
     assert video.error_category is None
     assert video.retry_count == 0  # NO retries for an expected slideshow
     assert engine.download_order == [VIDEO_ID]  # exactly one download attempt
-    assert await stack["archive"].contains(VIDEO_ID) is True  # dedupe add (3.3)
+    assert "tiktok 777" in (tmp_path / "download_archive.txt").read_text(
+        encoding="ascii"
+    )  # dedupe add (3.3)
     assert _event_names(notifications) == [
         "monitor.video_discovered",
         "download.skipped",

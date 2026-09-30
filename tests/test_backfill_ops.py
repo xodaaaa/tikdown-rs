@@ -95,8 +95,8 @@ async def get_video(factory, video_row_id: int) -> Video:
         return await session.get(Video, video_row_id)
 
 
-def make_archive(tmp_path: Path, factory) -> DownloadArchive:
-    return DownloadArchive(tmp_path / "download_archive.txt", factory)
+def make_archive(tmp_path: Path) -> DownloadArchive:
+    return DownloadArchive(tmp_path / "download_archive.txt")
 
 
 # --- queue_backfill (T-BACKFILL-19) ---
@@ -189,7 +189,7 @@ async def test_retry_failed_resets_transient_and_integrity_only(factory, tmp_pat
     t = await add_failed_video(factory, account_id, "v1", "transient", retry_count=2)
     i = await add_failed_video(factory, account_id, "v2", "integrity")
     d = await add_failed_video(factory, account_id, "v3", "definitive")
-    archive = make_archive(tmp_path, factory)
+    archive = make_archive(tmp_path)
     await archive.add("v2", account_id)  # T-ENGINE-18: the entry to discard
 
     count = await retry_failed(factory, "acct", False, archive=archive)
@@ -200,7 +200,7 @@ async def test_retry_failed_resets_transient_and_integrity_only(factory, tmp_pat
     assert (await get_video(factory, i)).status == "pending"
     assert (await get_video(factory, d)).status == "failed"  # permanent
     assert (await get_video(factory, d)).error_category == "definitive"
-    assert not await archive.contains("v2")  # discarded from file + mirror
+    assert (tmp_path / "download_archive.txt").read_text(encoding="utf-8") == ""  # discarded
 
 
 async def test_retry_failed_all_accounts(factory, tmp_path) -> None:
@@ -208,24 +208,24 @@ async def test_retry_failed_all_accounts(factory, tmp_path) -> None:
     a2 = await add_account(factory, username="acct2", backfill_status="failed")
     await add_failed_video(factory, a1, "w1", "transient")
     await add_failed_video(factory, a2, "w2", "integrity")
-    archive = make_archive(tmp_path, factory)
+    archive = make_archive(tmp_path)
     count = await retry_failed(factory, None, True, archive=archive)
     assert count == 2
 
 
 async def test_retry_failed_neither_user_nor_all(factory, tmp_path) -> None:
     with pytest.raises(ConfigurationError, match="--all"):
-        await retry_failed(factory, None, False, archive=make_archive(tmp_path, factory))
+        await retry_failed(factory, None, False, archive=make_archive(tmp_path))
 
 
 async def test_retry_failed_both_user_and_all(factory, tmp_path) -> None:
     with pytest.raises(ConfigurationError, match="--all"):
-        await retry_failed(factory, "acct", True, archive=make_archive(tmp_path, factory))
+        await retry_failed(factory, "acct", True, archive=make_archive(tmp_path))
 
 
 async def test_retry_failed_unknown_user(factory, tmp_path) -> None:
     with pytest.raises(ConfigurationError, match="nobody"):
-        await retry_failed(factory, "nobody", False, archive=make_archive(tmp_path, factory))
+        await retry_failed(factory, "nobody", False, archive=make_archive(tmp_path))
 
 
 # --- backfill_status_view (9.3) ---

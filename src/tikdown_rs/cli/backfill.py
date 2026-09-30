@@ -90,7 +90,7 @@ def _run(user: str, queue: bool) -> None:
                 engine=YtDlpEngine(cookie.cookie_blob, settings),
                 pacer=DownloadPacer(factory, settings),
                 semaphore=DownloadSemaphore(settings.max_concurrent_downloads),
-                archive=DownloadArchive(Path(settings.data_dir) / "download_archive.txt", factory),
+                archive=DownloadArchive(Path(settings.data_dir) / "download_archive.txt"),
             )
             view = await backfill_status_view(factory, user)
             typer.echo(
@@ -168,7 +168,7 @@ def _retry_failed(user: str | None, all_accounts: bool) -> None:
         engine = create_db_engine(sqlite_url_for(settings.data_dir))
         try:
             factory = make_session_factory(engine)
-            archive = DownloadArchive(Path(settings.data_dir) / "download_archive.txt", factory)
+            archive = DownloadArchive(Path(settings.data_dir) / "download_archive.txt")
             count = await retry_failed(factory, user, all_accounts, archive=archive)
         finally:
             await engine.dispose()

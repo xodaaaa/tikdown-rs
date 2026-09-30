@@ -167,9 +167,8 @@ async def test_retry_zero_keeps_plain_outtmpl(
 async def test_fallback_discards_archive_entry_before_second_attempt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    session_factory,
 ) -> None:
-    archive = DownloadArchive(tmp_path / "download_archive.txt", session_factory)
+    archive = DownloadArchive(tmp_path / "download_archive.txt")
     await archive.add("123")
     formats_seen: list[str] = []
     archive_text_at_fallback: list[str] = []
@@ -194,7 +193,8 @@ async def test_fallback_discards_archive_entry_before_second_attempt(
     assert formats_seen == [DEFAULT_FORMAT, FALLBACK_FORMAT]
     # T-ENGINE-18: discarded BEFORE attempt 2, or yt-dlp answers 'already downloaded'.
     assert archive_text_at_fallback == [""]
-    assert not await archive.contains("123")
+    # T-DB-16/mirror-removal: nothing left in the file either.
+    assert (tmp_path / "download_archive.txt").read_text(encoding="utf-8") == ""
     # T-ENGINE-18 both-calls rule: the SAME archive file path on BOTH attempts.
     options_dicts = [item for item in captured if isinstance(item, dict)]
     assert len(options_dicts) == 2

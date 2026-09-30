@@ -1,44 +1,29 @@
-"""download_archive: text file source of truth + queryable mirror (§3.6).
+"""download_archive: append-only text file, single source of truth (§3.6).
 
-Trampas neutralizadas: T-DB-8, T-DB-16, T-DEPLOY-15. Regla: §3.6.
+Trampas neutralizadas: T-DB-8, T-DB-16. Regla: §3.6.
 
-The text file ``<DATA_DIR>/download_archive.txt`` is the SOURCE OF TRUTH for
-yt-dlp ``--download-archive`` (append-only); the ``download_archive`` table is
-the queryable mirror. The parser recognizes BOTH line formats (``tiktok <id>``
-and bare ``<id>``): the ID is the LAST whitespace-separated token (T-DB-8:
-yt-dlp writes ``tiktok <id>`` while other writers may emit a bare id).
-
-Methods are async because the project session factory is an
-``async_sessionmaker`` over aiosqlite (§3.7): every method opens a short
-session (T-DB-15) and commits internally (T-DB-13).
+The text file ``<DATA_DIR>/download_archive.txt`` is the SINGLE SOURCE OF
+TRUTH for yt-dlp ``--download-archive`` (append-only). The former queryable
+mirror table was removed (plan §3.6 amendment, migration
+``0004_drop_download_archive``): no database replica exists anymore. The
+parser recognizes BOTH line formats (``tiktok <id>`` and bare ``<id>``):
+the ID is the LAST whitespace-separated token (T-DB-8: yt-dlp writes
+``tiktok <id>`` while other writers may emit a bare id).
 """
 
 import asyncio
 import logging
 import os
-from datetime import UTC, datetime
 from pathlib import Path
-
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-
-from tikdown_rs.models.download_archive import DownloadArchive as DownloadArchiveRow
 
 logger = logging.getLogger(__name__)
 
 
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="milliseconds")
-
-
 class DownloadArchive:
-    """Append-only archive file (source of truth) + queryable mirror (§3.6)."""
+    """Append-only archive file (single source of truth) (§3.6)."""
 
-    def __init__(
-        self, archive_path: Path, session_factory: async_sessionmaker[AsyncSession]
-    ) -> None:
+    def __init__(self, archive_path: Path) -> None:
         self.archive_path = Path(archive_path)
-        self._session_factory = session_factory
         self._recover_staged_rewrite()
 
     def _staged_tmp_path(self) -> Path:
@@ -66,11 +51,11 @@ class DownloadArchive:
         return stripped.split()[-1]
 
     async def add(self, video_id: str, account_id: int | None = None) -> None:
-        """Append ``tiktok <id>`` to the file FIRST, then mirror it (§3.6).
+        """Append ``tiktok <id>`` to the file (§3.6).
 
-        File first: the file is yt-dlp's source of truth. The mirror insert is
-        best-effort: on failure the file entry is kept and only a warning is
-        logged (M10: the no-caller rebuild helper was retired, plan §0.3).
+        The file is the single source of truth. ``account_id`` is kept in the
+        signature for caller compatibility; with the mirror table removed it is
+        no longer persisted anywhere.
         """
         self.archive_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -80,37 +65,12 @@ class DownloadArchive:
 
         # T-ASYNC-8: file I/O never runs on the event loop.
         await asyncio.to_thread(_append)
-        try:
-            async with self._session_factory() as session:
-                session.add(
-                    DownloadArchiveRow(
-                        tiktok_id=video_id, account_id=account_id, created_at=_utcnow_iso()
-                    )
-                )
-                await session.commit()
-        except Exception:
-            logger.warning(
-                "download_archive mirror insert failed for %s; file entry kept",
-                video_id,
-                exc_info=True,
-            )
-
-    async def contains(self, video_id: str) -> bool:
-        """Mirror-table query (§3.6); an empty or missing file means not contained."""
-        async with self._session_factory() as session:
-            found = await session.scalar(
-                select(DownloadArchiveRow.id)
-                .where(DownloadArchiveRow.tiktok_id == video_id)
-                .limit(1)
-            )
-        return found is not None
 
     async def remove(self, video_id: str) -> bool:
-        """Discard the entry from file AND mirror (4.5, T-ENGINE-18).
+        """Discard the entry from the file (4.5, T-ENGINE-18).
 
         Called BEFORE a fallback download attempt: without this yt-dlp answers
-        'already downloaded'. File first (source of truth), mirror best-effort
-        with a logged warning. Returns True when the file contained the entry.
+        'already downloaded'. Returns True when the file contained the entry.
 
         T-DB-16 + R3-001: NO ``os.replace`` of the archive itself — it strands
         yt-dlp's open ``O_APPEND`` descriptors on the old inode and discards
@@ -151,13 +111,4 @@ class DownloadArchive:
             staged.unlink(missing_ok=True)
             return True
 
-        removed = await asyncio.to_thread(_rewrite)
-        try:
-            async with self._session_factory() as session:
-                await session.execute(
-                    delete(DownloadArchiveRow).where(DownloadArchiveRow.tiktok_id == video_id)
-                )
-                await session.commit()
-        except Exception:
-            logger.warning("download_archive mirror delete failed for %s", video_id, exc_info=True)
-        return removed
+        return await asyncio.to_thread(_rewrite)

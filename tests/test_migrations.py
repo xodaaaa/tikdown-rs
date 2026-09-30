@@ -248,7 +248,6 @@ def test_two_revision_chain_migrates_marker_stamped_db(tmp_path: Path) -> None:
         "cookies",
         "backfill_slot",
         "download_pacing_state",
-        "download_archive",
     }
     connection = sqlite3.connect(tmp_path / "tikdown-rs.db")
     try:
@@ -264,4 +263,9 @@ def test_two_revision_chain_migrates_marker_stamped_db(tmp_path: Path) -> None:
     run_migrations(tmp_path)
     tables = table_names(tmp_path)
     assert business_tables <= tables
+    # 0004 retired the mirror table from the live namespace (plan §3.6
+    # amendment): renamed, not dropped — its rows (account attribution,
+    # created_at) survive as download_archive_removed_0004.
+    assert "download_archive" not in tables
+    assert "download_archive_removed_0004" in tables
     assert query(tmp_path, "SELECT version_num FROM alembic_version") == [(_head_revision(),)]
