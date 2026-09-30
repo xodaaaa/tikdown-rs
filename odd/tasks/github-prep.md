@@ -15,16 +15,39 @@ Constraints decided with the user:
 
 ## Tasks
 
-- [ ] T1 — Cleanup: remove `.tmp-docker-data;C` (empty local dir), add `/data/`
+- [x] T1 — Cleanup: remove `.tmp-docker-data;C` (empty local dir), add `/data/`
       to `.gitignore` (compose mounts `./data` on host; `/app/data/` only covers
-      in-container).
-- [ ] T2 — Sanitize personal path in `odd/tasks/m6-operacion.md`.
-- [ ] T3 — Sensitivity audit: tracked tree + git history (tokens, paths, emails).
-- [ ] T4 — Docker deployment guide in `docs/deployment-docker.md`, written from
-      the real `Dockerfile` and `docker-compose.yml`, not generic.
-- [ ] T5 — Project guide in `docs/project-guide.md`: evolution of the project,
-      project-level decisions and inconveniences, derived from the specs plan
-      and the git log.
-- [ ] T6 — Final verification: clean `git status`, tests, lint, report.
+      in-container). Commit: 90fd292
+- [x] T2 — Sanitize personal path in `odd/tasks/m6-operacion.md`
+      (`$HOME/...` → generic worktree path). Commit: 90fd292
+- [x] T3 — Sensitivity audit: tracked tree + git history. Findings: no
+      tokens/secrets; emails are GitHub noreply only. One polluted string (the Windows
+      username in `odd/tasks/m6-operacion.md`) existed in history commits `b08c96a`
+      and `90fd292^` — tracked tree is clean; history rewrite recorded as upload-time
+      pending decision (see section below). Commit: 90fd292
+- [x] T4 — Docker deployment guide `docs/deployment-docker.md` (es): build pattern,
+      compose walkthrough (every hardening option explained), first boot, cookies,
+      backfill, stop semantics, dashboard, updates/yt-dlp bump protocol, backup/restore,
+      first-boot symptoms. Written from the real Dockerfile/docker-compose.yml. Commit: 6ca4658
+- [x] T5 — Project guide `docs/project-guide.md` (es): evolution by milestone M0-M6,
+      project-level inconveniences and decisions, live-round bugs, review results,
+      final state, lessons. Derived from specs Apéndices A/C + git log + odd ledgers. Commit: 6ca4658
+- [x] T6 — Final verification via `gentle-ai-verify`: pytest exit 0 (only the 2
+      `live` markers skipped), `ruff check` + `ruff format --check` clean,
+      `git status` shows exactly the two new docs, tracked tree greps clean of
+      personal paths, both docs valid UTF-8. Commit: —
+
+## Pendientes para el momento de publicar (decisión del usuario, no hago nada automático)
+
+- Revisar alcance público de `odd/` y `specs/` (hoy quedan; pueden salir o
+  depurarse). Si deciden salir del repo, la historia del path de Windows importa
+  menos.
+- La historia de git contiene el nombre de usuario de Windows en
+  `odd/tasks/m6-operacion.md` (commits `b08c96a` en adelante, corregido en el
+  árbol desde `90fd292`). Opciones antes de publicar: `git filter-repo` sobre ese
+  archivo, o publish con otra historia (squash). No hay remote ni push todavía,
+  así que no urge — es decisión del momento de publicar.
+- Re-verificar `.env`/cookies/db fuera del árbol al crear el repo en GitHub
+  (apuntando al repo remote correcto, no copiar el local).
 
 Branch: `feat/github-prep`
