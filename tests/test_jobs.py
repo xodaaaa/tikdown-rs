@@ -169,7 +169,7 @@ async def make_components(
         engine=FakeEngine() if engine is ... else engine,
         pacer=FakePacer(),
         semaphore=FakeSemaphore(),
-        archive=DownloadArchive(tmp_path / "download_archive.txt", session_factory),
+        archive=DownloadArchive(tmp_path / "download_archive.txt"),
         network_monitor=network_monitor,
         network_available=network_available,
         notifications=notifications,

@@ -1,36 +1,18 @@
-"""DownloadArchive: text file source of truth + queryable mirror (3.6).
+"""DownloadArchive: append-only text file, single source of truth (3.6).
 
 Trampas neutralizadas: T-DB-8. Regla: 3.6.
 
-The text file is yt-dlp's source of truth (append-only); the mirror table is
-the queryable copy. The parser recognizes BOTH line formats ("tiktok <id>" and
-bare "<id>", last token wins, T-DB-8). Deterministic: in-memory SQLite,
-tmp_path files, no network.
+The text file is yt-dlp's single source of truth (append-only); the mirror
+table was removed (plan §3.6 amendment). The parser recognizes BOTH line
+formats ("tiktok <id>" and bare "<id>", last token wins, T-DB-8).
+Deterministic: tmp_path files, no network.
 """
 
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.archive import DownloadArchive
-from tikdown_rs.core.db import create_db_engine, make_session_factory
-from tikdown_rs.models import Base
-from tikdown_rs.models.download_archive import DownloadArchive as DownloadArchiveRow
-from tikdown_rs.models.monitored_account import MonitoredAccount
-
-IN_MEMORY_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest.fixture
-async def session_factory() -> async_sessionmaker[AsyncSession]:
-    """In-memory engine via core/db.py with the schema created (3.7)."""
-    engine = create_db_engine(IN_MEMORY_URL)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
-    yield make_session_factory(engine)
-    await engine.dispose()
 
 
 @pytest.fixture
@@ -39,21 +21,8 @@ def archive_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def archive(archive_path: Path, session_factory) -> DownloadArchive:
-    return DownloadArchive(archive_path, session_factory)
-
-
-class BrokenSessionFactory:
-    """Factory whose sessions always fail (mirror insert/delete best-effort)."""
-
-    def __call__(self):
-        return self
-
-    async def __aenter__(self):
-        raise RuntimeError("db down")
-
-    async def __aexit__(self, *exc: object) -> bool:
-        return False
+def archive(archive_path: Path) -> DownloadArchive:
+    return DownloadArchive(archive_path)
 
 
 # --- parser (T-DB-8: ID is the LAST token; blank/comment -> None) ---
@@ -75,58 +44,32 @@ def test_parse_line_last_token_rule(line: str, expected: str | None) -> None:
     assert DownloadArchive.parse_line(line) == expected
 
 
-# --- add: file line FIRST (source of truth), mirror row second ---
+# --- add: append to the file (single source of truth) ---
 
 
-async def test_add_appends_tiktok_line_and_mirrors(
-    archive: DownloadArchive, archive_path: Path, session_factory
+async def test_add_appends_tiktok_line(archive: DownloadArchive, archive_path: Path) -> None:
+    await archive.add("123")
+    assert archive_path.read_text(encoding="utf-8") == "tiktok 123\n"
+
+
+async def test_add_creates_parent_dirs_and_accepts_account_id(
+    tmp_path: Path,
 ) -> None:
-    # FK parent: download_archive.account_id references monitored_accounts (3.7 FKs ON).
-    async with session_factory() as session:
-        session.add(MonitoredAccount(id=7, username="user", backfill_status="idle"))
-        await session.commit()
+    archive = DownloadArchive(tmp_path / "nested" / "download_archive.txt")
     await archive.add("123", account_id=7)
-    assert archive_path.read_text(encoding="utf-8") == "tiktok 123\n"
-    assert await archive.contains("123")
-    async with session_factory() as session:
-        row = await session.scalar(
-            select(DownloadArchiveRow).where(DownloadArchiveRow.tiktok_id == "123")
-        )
-    assert row is not None and row.account_id == 7
-
-
-async def test_add_keeps_file_entry_when_mirror_fails(
-    archive_path: Path,
-) -> None:
-    broken = DownloadArchive(archive_path, BrokenSessionFactory())
-    await broken.add("123")  # must NOT raise: the file entry survives
-    assert archive_path.read_text(encoding="utf-8") == "tiktok 123\n"
-
-
-# --- contains: mirror query; empty/missing file -> False ---
-
-
-async def test_contains_false_on_missing_file(archive: DownloadArchive) -> None:
-    assert not await archive.contains("999")
-
-
-async def test_contains_false_on_empty_file(archive: DownloadArchive, archive_path: Path) -> None:
-    archive_path.write_text("", encoding="utf-8")
-    assert not await archive.contains("1")
+    assert (tmp_path / "nested" / "download_archive.txt").read_text(
+        encoding="utf-8"
+    ) == "tiktok 123\n"
 
 
 # --- remove: discard before a fallback retry (4.5, T-ENGINE-18) ---
 
 
-async def test_remove_discards_file_line_and_mirror_row(
-    archive: DownloadArchive, archive_path: Path
-) -> None:
+async def test_remove_discards_file_line(archive: DownloadArchive, archive_path: Path) -> None:
     await archive.add("55")
     await archive.add("66")
     assert await archive.remove("55") is True
     assert archive_path.read_text(encoding="utf-8") == "tiktok 66\n"
-    assert not await archive.contains("55")
-    assert await archive.contains("66")
 
 
 async def test_remove_missing_entry_is_noop(archive: DownloadArchive, archive_path: Path) -> None:
@@ -181,6 +124,6 @@ async def test_remove_crash_mid_write_recovers_from_staged_temp(
     assert staged.read_text(encoding="utf-8") == "tiktok 66\n"
 
     # A fresh construction publishes the staged content (crash recovery).
-    DownloadArchive(archive_path, archive._session_factory)
+    DownloadArchive(archive_path)
     assert archive_path.read_text(encoding="utf-8") == "tiktok 66\n"
     assert not staged.exists()

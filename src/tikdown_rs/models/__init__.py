@@ -14,7 +14,6 @@ from tikdown_rs.models.backfill_slot import (
 )
 from tikdown_rs.models.cookie import Cookie
 from tikdown_rs.models.daemon_state import DaemonState, ensure_daemon_state_row
-from tikdown_rs.models.download_archive import DownloadArchive
 from tikdown_rs.models.download_pacing_state import (
     DownloadPacingState,
     reserve_download_slot,
@@ -27,7 +26,6 @@ __all__ = [
     "Base",
     "Cookie",
     "DaemonState",
-    "DownloadArchive",
     "DownloadPacingState",
     "MonitoredAccount",
     "Video",

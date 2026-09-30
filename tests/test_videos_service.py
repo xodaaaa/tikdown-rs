@@ -233,7 +233,7 @@ async def test_slideshow_is_skipped_archived_and_never_retried(
     downloaded = tmp_path / "videos" / "acct" / "slide1.mp4"
     downloaded.parent.mkdir(parents=True)
     downloaded.write_bytes(VIDEO_BYTES)
-    archive = DownloadArchive(tmp_path / "download_archive.txt", migrated_factory)
+    archive = DownloadArchive(tmp_path / "download_archive.txt")
     events = Recorder()
 
     result = await handle_download_result(
@@ -249,7 +249,9 @@ async def test_slideshow_is_skipped_archived_and_never_retried(
     )
 
     assert (result.outcome, result.error_category) == ("skipped", None)
-    assert await archive.contains("slide1")  # dedupe entry ADDED
+    assert "tiktok slide1\n" in (tmp_path / "download_archive.txt").read_text(
+        encoding="utf-8"
+    )  # dedupe entry ADDED
     async with migrated_factory() as session:
         video = await session.get(Video, row_id)
     assert video.status == "skipped"
@@ -272,7 +274,7 @@ async def test_degraded_discards_archive_entry_and_fails_integrity(
     downloaded = tmp_path / "videos" / "acct" / "123.mp4"
     downloaded.parent.mkdir(parents=True)
     downloaded.write_bytes(b"audio only")
-    archive = DownloadArchive(tmp_path / "download_archive.txt", migrated_factory)
+    archive = DownloadArchive(tmp_path / "download_archive.txt")
     await archive.add("123")
     events = Recorder()
 
@@ -288,7 +290,9 @@ async def test_degraded_discards_archive_entry_and_fails_integrity(
     )
 
     assert (result.outcome, result.error_category) == ("failed", "integrity")
-    assert not await archive.contains("123")  # entry discarded for retry-failed
+    assert (tmp_path / "download_archive.txt").read_text(
+        encoding="utf-8"
+    ) == ""  # entry discarded for retry-failed
     async with migrated_factory() as session:
         video = await session.get(Video, row_id)
     assert video.status == "failed"

@@ -663,7 +663,7 @@ async def start_daemon(
         get_cookie = get_cookie_fn or get_working_cookie
         cookie = await get_cookie(session_factory)
         engine = YtDlpEngine(cookie.cookie_blob, settings) if cookie is not None else None
-        archive = DownloadArchive(settings.data_dir / "download_archive.txt", session_factory)
+        archive = DownloadArchive(settings.data_dir / "download_archive.txt")
         pacer = DownloadPacer(session_factory, settings)
         semaphore = DownloadSemaphore(settings.max_concurrent_downloads)
         network_available = asyncio.Event()
