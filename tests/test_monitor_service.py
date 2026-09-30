@@ -405,6 +405,25 @@ async def test_download_pendings_failure_does_not_abort_batch(factory) -> None:
     assert videos["2"].status == "failed"
 
 
+async def test_download_pendings_raising_download_emits_failed_event(factory) -> None:
+    """Audit 2.3: the EXCEPTION path (engine.download raises) must emit
+    download.failed like every other terminal outcome (T-DATA-3)."""
+    await add_monitor_account(factory)
+    await add_valid_cookie(factory)
+    engine = FakeEngine([_entry("1")], fail={"1": "boom"})
+    await discover_new_videos(factory, "acct", engine=engine)
+    recorder = Recorder()
+    counts = await download_pendings(
+        factory,
+        "acct",
+        engine=engine,
+        on_event=recorder,
+        **_download_kwargs(engine),
+    )
+    assert counts["failed"] == 1
+    assert "download.failed" in recorder.names()
+
+
 async def test_download_pendings_global_pause_returns_immediately(factory) -> None:
     await add_monitor_account(factory)
     await add_valid_cookie(factory)
