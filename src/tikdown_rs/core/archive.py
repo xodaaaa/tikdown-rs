@@ -1,6 +1,6 @@
 """download_archive: text file source of truth + queryable mirror (§3.6).
 
-Trampas neutralizadas: T-DB-8, T-DEPLOY-15. Regla: §3.6.
+Trampas neutralizadas: T-DB-8, T-DB-16, T-DEPLOY-15. Regla: §3.6.
 
 The text file ``<DATA_DIR>/download_archive.txt`` is the SOURCE OF TRUTH for
 yt-dlp ``--download-archive`` (append-only); the ``download_archive`` table is
@@ -13,9 +13,12 @@ Methods are async because the project session factory is an
 session (T-DB-15) and commits internally (T-DB-13).
 """
 
+import asyncio
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -54,8 +57,13 @@ class DownloadArchive:
         logged (M10: the no-caller rebuild helper was retired, plan §0.3).
         """
         self.archive_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.archive_path.open("a", encoding="utf-8", newline="\n") as file:
-            file.write(f"tiktok {video_id}\n")
+
+        def _append() -> None:
+            with self.archive_path.open("a", encoding="utf-8", newline="\n") as file:
+                file.write(f"tiktok {video_id}\n")
+
+        # T-ASYNC-8: file I/O never runs on the event loop.
+        await asyncio.to_thread(_append)
         try:
             async with self._session_factory() as session:
                 session.add(
@@ -87,20 +95,41 @@ class DownloadArchive:
         Called BEFORE a fallback download attempt: without this yt-dlp answers
         'already downloaded'. File first (source of truth), mirror best-effort
         with a logged warning. Returns True when the file contained the entry.
+
+        T-DB-16: the rewrite goes through a sibling temp file + ``os.replace``
+        (the same atomic pattern as services/maintenance.py) — yt-dlp appends
+        to this file concurrently, and an in-place ``open("w")`` rewrite had a
+        truncate window that destroyed the history on a mid-write crash. The
+        whole read+write+replace block runs in ``to_thread`` (T-ASYNC-8).
         """
-        removed = False
-        if self.archive_path.exists():
+
+        def _rewrite() -> bool:
+            if not self.archive_path.exists():
+                return False
             lines = self.archive_path.read_text(encoding="utf-8").splitlines(keepends=True)
             kept: list[str] = []
+            found = False
             for index, line in enumerate(lines):
                 complete = line.endswith("\n") or index < len(lines) - 1
                 if complete and self.parse_line(line) == video_id:
-                    removed = True
+                    found = True
                     continue
                 kept.append(line)
-            if removed:
-                with self.archive_path.open("w", encoding="utf-8", newline="\n") as file:
-                    file.writelines(kept)
+            if found:
+                tmp = self.archive_path.with_name(
+                    f"{self.archive_path.name}.tmp-{os.getpid()}-{uuid4().hex[:8]}"
+                )
+                try:
+                    with tmp.open("w", encoding="utf-8", newline="\n") as file:
+                        file.writelines(kept)
+                    # Atomic swap: readers/appenders never see a truncate window.
+                    os.replace(tmp, self.archive_path)
+                except BaseException:
+                    tmp.unlink(missing_ok=True)  # best-effort temp cleanup
+                    raise
+            return found
+
+        removed = await asyncio.to_thread(_rewrite)
         try:
             async with self._session_factory() as session:
                 await session.execute(

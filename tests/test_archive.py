@@ -132,3 +132,49 @@ async def test_remove_discards_file_line_and_mirror_row(
 async def test_remove_missing_entry_is_noop(archive: DownloadArchive, archive_path: Path) -> None:
     assert await archive.remove("404") is False
     assert not archive_path.exists()
+    assert list(archive_path.parent.iterdir()) == []  # T-DB-16: nothing created
+
+
+async def test_remove_leaves_no_temp_files_and_file_stays_parseable(
+    archive: DownloadArchive, archive_path: Path
+) -> None:
+    """T-DB-16: the rewrite goes through a sibling temp file + os.replace; the
+    source of truth is never truncated in place and no tmp files linger."""
+    await archive.add("55")
+    await archive.add("66")
+
+    assert await archive.remove("55") is True
+
+    assert archive_path.exists()
+    assert archive_path.read_text(encoding="utf-8") == "tiktok 66\n"
+    assert list(archive_path.parent.iterdir()) == [archive_path]  # no tmp-* leftovers
+
+
+async def test_remove_crash_mid_write_keeps_history_intact(
+    archive: DownloadArchive, archive_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T-DB-16 regression: open('w') truncated the source of truth BEFORE the
+    write, so a crash mid-rewrite destroyed the archive history (while yt-dlp
+    keeps appending to it). The tmp-sibling + os.replace swap must leave the
+    original file intact on a mid-write crash."""
+    await archive.add("55")
+    await archive.add("66")
+
+    real_open = Path.open
+
+    def crashing_open(self: Path, mode: str = "r", *args: object, **kwargs: object):
+        handle = real_open(self, mode, *args, **kwargs)  # 'w' truncates HERE
+        if "w" in mode:
+            handle.close()
+            raise RuntimeError("crash mid-write")
+        return handle
+
+    monkeypatch.setattr(Path, "open", crashing_open)
+
+    with pytest.raises(RuntimeError, match="crash mid-write"):
+        await archive.remove("55")
+
+    # The source of truth survived the crash (pre-fix: truncated to empty).
+    assert archive_path.read_text(encoding="utf-8") == "tiktok 55\ntiktok 66\n"
+    # Best-effort temp cleanup: no tmp-* orphans left behind.
+    assert list(archive_path.parent.iterdir()) == [archive_path]
