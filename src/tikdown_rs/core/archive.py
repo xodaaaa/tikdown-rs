@@ -18,7 +18,6 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -40,6 +39,23 @@ class DownloadArchive:
     ) -> None:
         self.archive_path = Path(archive_path)
         self._session_factory = session_factory
+        self._recover_staged_rewrite()
+
+    def _staged_tmp_path(self) -> Path:
+        """Deterministic staging name: the crash marker for T-DB-16 recovery."""
+        return self.archive_path.with_name(self.archive_path.name + ".tmp")
+
+    def _recover_staged_rewrite(self) -> None:
+        """T-DB-16 crash recovery: a leftover staged temp means the previous
+        remove() crashed between staging and the in-place write. The temp holds
+        the kept content, so publish it (no yt-dlp writer can hold the archive
+        open at construction time — the engine is built after this)."""
+        staged = self._staged_tmp_path()
+        if staged.exists():
+            try:
+                os.replace(staged, self.archive_path)
+            except OSError:
+                logger.warning("download_archive staged rewrite recovery failed", exc_info=True)
 
     @staticmethod
     def parse_line(line: str) -> str | None:
@@ -96,11 +112,14 @@ class DownloadArchive:
         'already downloaded'. File first (source of truth), mirror best-effort
         with a logged warning. Returns True when the file contained the entry.
 
-        T-DB-16: the rewrite goes through a sibling temp file + ``os.replace``
-        (the same atomic pattern as services/maintenance.py) — yt-dlp appends
-        to this file concurrently, and an in-place ``open("w")`` rewrite had a
-        truncate window that destroyed the history on a mid-write crash. The
-        whole read+write+replace block runs in ``to_thread`` (T-ASYNC-8).
+        T-DB-16 + R3-001: NO ``os.replace`` of the archive itself — it strands
+        yt-dlp's open ``O_APPEND`` descriptors on the old inode and discards
+        appends that land between the read and the swap. Instead: stage the
+        kept content in an fsynced deterministic temp, then rewrite IN PLACE
+        (open descriptors keep working, same as the pre-audit code). A crash
+        between staging and the in-place write leaves the temp as the recovery
+        marker; the next ``__init__`` publishes it. The whole block runs in
+        ``to_thread`` (T-ASYNC-8).
         """
 
         def _rewrite() -> bool:
@@ -115,19 +134,22 @@ class DownloadArchive:
                     found = True
                     continue
                 kept.append(line)
-            if found:
-                tmp = self.archive_path.with_name(
-                    f"{self.archive_path.name}.tmp-{os.getpid()}-{uuid4().hex[:8]}"
-                )
-                try:
-                    with tmp.open("w", encoding="utf-8", newline="\n") as file:
-                        file.writelines(kept)
-                    # Atomic swap: readers/appenders never see a truncate window.
-                    os.replace(tmp, self.archive_path)
-                except BaseException:
-                    tmp.unlink(missing_ok=True)  # best-effort temp cleanup
-                    raise
-            return found
+            if not found:
+                return False
+            staged = self._staged_tmp_path()
+            # No try/except around the staging: a crash KEEPS the staged temp
+            # on purpose — it is the crash-recovery marker (__init__ restores
+            # it). Success deletes it below.
+            with staged.open("w", encoding="utf-8", newline="\n") as file:
+                file.writelines(kept)
+                file.flush()
+                os.fsync(file.fileno())
+            with self.archive_path.open("w", encoding="utf-8", newline="\n") as file:
+                file.writelines(kept)
+                file.flush()
+                os.fsync(file.fileno())
+            staged.unlink(missing_ok=True)
+            return True
 
         removed = await asyncio.to_thread(_rewrite)
         try:

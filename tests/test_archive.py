@@ -138,8 +138,9 @@ async def test_remove_missing_entry_is_noop(archive: DownloadArchive, archive_pa
 async def test_remove_leaves_no_temp_files_and_file_stays_parseable(
     archive: DownloadArchive, archive_path: Path
 ) -> None:
-    """T-DB-16: the rewrite goes through a sibling temp file + os.replace; the
-    source of truth is never truncated in place and no tmp files linger."""
+    """T-DB-16: the rewrite stages an fsynced temp, then rewrites IN PLACE (no
+    os.replace of a live-append file); the staged temp is removed on success
+    and the source of truth stays parseable."""
     await archive.add("55")
     await archive.add("66")
 
@@ -150,31 +151,36 @@ async def test_remove_leaves_no_temp_files_and_file_stays_parseable(
     assert list(archive_path.parent.iterdir()) == [archive_path]  # no tmp-* leftovers
 
 
-async def test_remove_crash_mid_write_keeps_history_intact(
+async def test_remove_crash_mid_write_recovers_from_staged_temp(
     archive: DownloadArchive, archive_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """T-DB-16 regression: open('w') truncated the source of truth BEFORE the
-    write, so a crash mid-rewrite destroyed the archive history (while yt-dlp
-    keeps appending to it). The tmp-sibling + os.replace swap must leave the
-    original file intact on a mid-write crash."""
+    """T-DB-16 regression + R3-001: a crash between staging and the in-place
+    write leaves the staged temp as the recovery marker, and the next
+    DownloadArchive construction publishes it. No os.replace of a live-append
+    file: yt-dlp's open O_APPEND descriptors are never stranded on a dead
+    inode, and racing appends keep landing on the real archive."""
     await archive.add("55")
     await archive.add("66")
 
     real_open = Path.open
 
     def crashing_open(self: Path, mode: str = "r", *args: object, **kwargs: object):
-        handle = real_open(self, mode, *args, **kwargs)  # 'w' truncates HERE
-        if "w" in mode:
-            handle.close()
-            raise RuntimeError("crash mid-write")
-        return handle
+        if "w" in mode and self == archive_path:
+            raise RuntimeError("crash before in-place write")
+        return real_open(self, mode, *args, **kwargs)
 
     monkeypatch.setattr(Path, "open", crashing_open)
 
-    with pytest.raises(RuntimeError, match="crash mid-write"):
+    with pytest.raises(RuntimeError, match="crash before in-place write"):
         await archive.remove("55")
+    monkeypatch.undo()
 
-    # The source of truth survived the crash (pre-fix: truncated to empty).
-    assert archive_path.read_text(encoding="utf-8") == "tiktok 55\ntiktok 66\n"
-    # Best-effort temp cleanup: no tmp-* orphans left behind.
-    assert list(archive_path.parent.iterdir()) == [archive_path]
+    # The staged temp survived as the recovery marker (kept content only).
+    staged = archive_path.with_name(archive_path.name + ".tmp")
+    assert staged.exists()
+    assert staged.read_text(encoding="utf-8") == "tiktok 66\n"
+
+    # A fresh construction publishes the staged content (crash recovery).
+    DownloadArchive(archive_path, archive._session_factory)
+    assert archive_path.read_text(encoding="utf-8") == "tiktok 66\n"
+    assert not staged.exists()
