@@ -7,6 +7,7 @@
 # Runtime state
 *.db*
 /app/data/
+/data/
 videos/
 /cookies*
 .migrate.lock

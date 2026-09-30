@@ -124,7 +124,7 @@ usado SOLO como herramienta de prueba documentada (T-BOT-2: nunca en producción
 
 El candidato completo (6819 líneas, 22 commits desde `1c3d342`) excede el presupuesto de contexto
 (`lens_context_budget_exceeded`, sin autoridad creada — stop terminal del provider). Plan: revisión
-encadenada por cortes en el worktree temporal `<repo-root>/../tikdown-rs-review`
+encadenada por cortes en el worktree temporal `<repo-root>/../tikdown-rs-review` (worktree temporal)
 (rama `review-chained`), avanzando HEAD por corte, cada corte = 1 lineage nuevo con 4 lentes.
 
 | Corte | Rango (baseRef..HEAD del worktree) | Líneas | Estado |
