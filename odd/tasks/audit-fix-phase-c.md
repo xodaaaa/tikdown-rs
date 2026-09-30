@@ -22,7 +22,7 @@ mirror drop happens FIRST, before any further archive.py touching.
       send, catch-and-log per event; event backlog/spool stays out of scope
       per §17.1 deferral). Noop when no bot/token. Injected after bot start;
       `daemon.started` and later events become observable. Est. ~+250 lines.
-- [ ] Chain 3 — Dead code + seams. Delete: `core/backoff.py`, `JOB_IDS`,
+- [~] Chain 3 (split: 3a done; 3b - test-only seams - pending) — Dead code + seams. Delete: `core/backoff.py`, `JOB_IDS`,
       `BACKFILL_STATUSES`, `cli/cookies._open_engine`, dead branches in
       `services/maintenance.py` (ProfileData carries no following_count /
       total_likes), `YtDlpEngine.validate_cookie` + `ProbeFn` (the service in
@@ -95,3 +95,14 @@ Branch: `fix/audit-phase-c` (from main @ 7d0335e).
 - Lesson: deletion candidates escalate when 1) ver los docstrings viejos mentirosos
   (R3-2 chinchilla), 2) tests borrados en vez de migrados (R3-1). Fix num: truthful
   docstrings FIRST, migrate-not-delete.
+
+
+## Session close state (2026-09-30)
+
+Merged to main + pushed: chain 1 (mirror retired, 1574042), chain 2 (notifications
+wired, 36baae3), chain 3a (gentle cleanup, b7a3d36). Pending on this branch/next
+session: chain 3b (test-only seams: set_stop_requested, seconds_until_expiry,
+is_online, restarting, reset_contention_window, _format_status_lines - move to
+tests/ or delete per grep) and chain 4 (HELP_TEXT real, strip internal tags from
+user strings, prepare_invocation double parse, _utcnow_iso dedup x9). Each with
+its own review cycle. Final full gate + push at the end.
