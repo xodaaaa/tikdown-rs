@@ -88,6 +88,59 @@ def test_bot_enabled_without_chat_id_fails_fast(
         settings.validate_for_daemon()
 
 
+# --- Audit 2.8b: strict numeric Telegram ids when the bot token is set ---
+
+
+def _seed_telegram_env(
+    monkeypatch: pytest.MonkeyPatch, token: str | None, chat: str, user: str
+) -> None:
+    if token is None:
+        monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", chat)
+    monkeypatch.setenv("TELEGRAM_USER_ID", user)
+
+
+def test_telegram_numeric_ids_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_telegram_env(monkeypatch, "abc", "123456", "111, 222")
+    Settings().validate_for_daemon()  # no raise
+
+
+def test_telegram_negative_chat_id_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_telegram_env(monkeypatch, "abc", "-1001234", "111")
+    Settings().validate_for_daemon()  # no raise
+
+
+def test_telegram_non_numeric_chat_id_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_telegram_env(monkeypatch, "abc", "not-a-number", "111")
+    with pytest.raises(ConfigurationError, match="TELEGRAM_CHAT_ID"):
+        Settings().validate_for_daemon()
+
+
+def test_telegram_non_numeric_user_id_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_telegram_env(monkeypatch, "abc", "123", "111,abc")
+    with pytest.raises(ConfigurationError, match="TELEGRAM_USER_ID"):
+        Settings().validate_for_daemon()
+
+
+def test_telegram_token_unset_skips_numeric_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No token: no Telegram validation at all (6.1)."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    _seed_telegram_env(monkeypatch, None, "not-a-number", "abc")
+    Settings().validate_for_daemon()  # no raise
+
+
 def test_unknown_env_var_warns_from_model_fields(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
