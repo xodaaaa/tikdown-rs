@@ -155,15 +155,6 @@ async def refresh_all_profiles(
         async with session_factory() as session:  # short session (T-DB-15)
             account = await session.get(MonitoredAccount, account_id)
             account.follower_count = profile.get("followers")
-            # M13: ProfileData only carries followers/video_count; None here
-            # means 'not fetched', so PRESERVE the existing column value
-            # instead of overwriting it with NULL.
-            following_count = profile.get("following_count")
-            if following_count is not None:
-                account.following_count = following_count
-            total_likes = profile.get("total_likes")
-            if total_likes is not None:
-                account.total_likes = total_likes
             account.video_count = profile.get("video_count")
             account.profile_last_refreshed = _utcnow_iso()
             await session.commit()

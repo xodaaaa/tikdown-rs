@@ -14,12 +14,6 @@ Cookies (4.3, T-BACKFILL-12): the engine REQUIRES a cookies blob; loading
 cookies is the entry point's responsibility and there is no silent default.
 The blob is materialized through the canonical Netscape tempfile writer
 (T-COOKIES-1/6/7) around each extraction and deleted in ``finally``.
-
-Layering (4.8): ``validate_cookie`` composes the M1 primitives
-``core.verify.probe_profile`` + ``core.verify.entries_have_video`` directly;
-core must not import services, so services/cookies.validate_cookie (which
-persists state) stays the caller-facing path and the engine only exposes the
-probe composition with the same three-state semantics (T-COOKIES-2/3).
 """
 
 import asyncio
@@ -34,10 +28,9 @@ import yt_dlp
 from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.config import Settings
 from tikdown_rs.core.cookie_parser import write_canonical_netscape_tempfile
-from tikdown_rs.core.download_engine.protocol import ProbeFn, ProfileData, VideoData
-from tikdown_rs.core.errors import ConfigurationError, DownloadTimeoutError, classify_error
+from tikdown_rs.core.download_engine.protocol import ProfileData, VideoData
+from tikdown_rs.core.errors import ConfigurationError, DownloadTimeoutError
 from tikdown_rs.core.paths import outtmpl_for, videos_root
-from tikdown_rs.core.verify import entries_have_video, probe_profile
 
 logger = logging.getLogger("tikdown_rs.core.download_engine")
 
@@ -328,34 +321,6 @@ class YtDlpEngine:
                 )
             )
         return videos
-
-    def validate_cookie(self, probe_fn: ProbeFn | None = None) -> str:
-        """Three-state verdict composing the M1 probe primitives (4.8).
-
-        Candidates come from ``settings.cookie_validation_url`` in order. Only
-        an auth-CONFIRMED failure (classify_error -> 'definitive', 4.4 rule 2)
-        returns 'invalid'; any other failure or a feed without video entries
-        (T-COOKIES-2: the first entry may be a slideshow) tries the next
-        candidate; exhausting all candidates returns 'inconclusive' without
-        any state change (T-COOKIES-3: a broken probe never invalidates).
-
-        ``probe_fn(blob, url, max_entries) -> list[dict]`` is injectable for
-        tests; the default is ``core.verify.probe_profile`` and the result is
-        evaluated with ``core.verify.entries_have_video``. services/cookies
-        .validate_cookie stays the persistence path on top of this composition.
-        """
-        probe = probe_fn or probe_profile
-        max_entries = self._settings.cookie_probe_max_entries
-        for url in self._settings.cookie_validation_url:
-            try:
-                entries = probe(self._cookies_blob, url, max_entries)
-            except Exception as exc:  # noqa: BLE001 - any failure is classified
-                if classify_error(exc) == "definitive":
-                    return "invalid"  # auth confirmed against a probe candidate
-                continue  # transient: try the next candidate URL
-            if entries_have_video(entries):
-                return "valid"
-        return "inconclusive"
 
     def _flat_options(self, max_entries: int | None) -> dict:
         """Mandatory 4.6 listing options; shared by list_videos/extract_profile."""
