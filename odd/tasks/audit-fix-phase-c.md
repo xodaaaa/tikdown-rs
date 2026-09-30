@@ -11,7 +11,7 @@ mirror drop happens FIRST, before any further archive.py touching.
 
 ## Chains
 
-- [ ] Chain 1 — Drop the mirror table. Migration `0004_drop_download_archive`
+- [x] Chain 1 — Drop the mirror table. Migration `0004_drop_download_archive`
       (alembic chain over 0003); delete `models/download_archive.py` + its
       import in `models/__init__.py`; simplify `core/archive.py` (`add()` appends
       only, `remove()` drops the mirror DELETE block; `contains()` dies — it was
@@ -47,3 +47,21 @@ TDD where behavior changes; deletions verified by grep before removing (audit
 lifecycle (RDD) before merge to main.
 
 Branch: `fix/audit-phase-c` (from main @ 7d0335e).
+
+
+## Chain 1 evidence
+
+- Worker run (surface-corrected mid-flight: constructor cascade to daemon/run.py +
+  cli/backfill.py authorized by parent). Commit 8afdc5f: migration 0004 + model
+  removal + archive simplification + tests (803 passed, 51 mirror/sessión tests retirados).
+- Review review-fbf3555fc8210fff (risk high, 16 files / 373 lines, consent granted):
+  lens risk found **R1-ARCHIVE-DESTRUCTIVE-MIGRATION CRITICAL (introduced)**: drop_table
+  destruye metadatos que el .txt no conserva y el downgrade no puede recuperarlos.
+- Correction (37/187 lines): DROP -> RENAME a download_archive_removed_0004
+  (rows survive; downgrade = reverse rename; operator drops manually later).
+  Targeted validator: original_criteria PASSED, correction_regression PASSED
+  (verified from frozen trees). STATE APPROVED, acknowledgement burned
+  (revision f0619b37...).
+- Process note: my temp redirect files in the repo root kept polluting the
+  eligible-untracked inventory ("cr.json") — temporal redirects must live
+  outside the repo (/tmp).
