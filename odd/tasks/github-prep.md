@@ -37,6 +37,12 @@ Constraints decided with the user:
       `git status` shows exactly the two new docs, tracked tree greps clean of
       personal paths, both docs valid UTF-8. Commit: —
 
+- [x] T7 — README restructured following Azure Samples / sinedied README patterns:
+      centered header with badges + nav, GFM alerts (`[!CAUTION]`, `[!IMPORTANT]`, `[!TIP]`),
+      features bullets, deploy quickstart verified against the real CLI, trimmed Operation
+      section, docs table, image credit kept at bottom. CLI paths re-checked against
+      `src/tikdown_rs/cli/` before publishing. Commit: pending
+
 ## Pendientes para el momento de publicar (decisión del usuario, no hago nada automático)
 
 - Revisar alcance público de `odd/` y `specs/` (hoy quedan; pueden salir o
