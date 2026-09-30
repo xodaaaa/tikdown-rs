@@ -10,39 +10,54 @@ fixed bug updates the spec (§16 rule 10) and the related review-ledger entry.
 
 ## Tasks
 
-- [ ] T1 — Fix 2.1: unify "cookie usable". `daemon healthcheck` currently counts
+- [x] T1 — Fix 2.1: unify "cookie usable". `daemon healthcheck` currently counts
       only `validation_state == 'valid'` (`cli/daemon.py:151,199-202`) while
       `get_working_cookie` accepts `valid` OR `inconclusive`
       (`services/cookies.py:186-191`, T-COOKIES-4). Fix: healthcheck counts the
       SAME usable set (valid + inconclusive, i.e. != 'invalid'), messages
       updated; regression test: default config (cookie born 'inconclusive') →
       healthcheck passes. Spec §10.1 threshold text amended to match.
-- [ ] T2 — Fix 2.2: `ensure_engine` (`daemon/run.py:232-247`) rebuilds only when
+- [x] T2 — Fix 2.2: `ensure_engine` (`daemon/run.py:232-247`) rebuilds only when
       `engine is None`, so cookie rotation never reaches the engine
       (`ytdlp_engine.py:106` freezes the blob at `__init__`). Fix: track the
       cookie id the engine was built with (`DaemonComponents.engine_cookie_id`);
       rebuild (or drop to degraded) when the working cookie id changes.
       Preserves test seams: an injected engine with NO tracked id keeps working.
       Regression tests: rotate → engine rebuilt with new blob; remove → degraded.
-- [ ] T3 — Fix 2.3: `persist_download_failure` is called without `on_event`
+- [x] T3 — Fix 2.3: `persist_download_failure` is called without `on_event`
       (`services/monitor.py:333`, `services/backfill.py:562`) so exception-path
       downloads never emit `download.failed`/`disk.paused`. Fix: pass the
       components event channel at both call sites; test: raising download emits
       `download.failed`.
-- [ ] T4 — Fix 2.8(b): `validate_for_daemon` only rejects token-without-chat-id
+- [x] T4 — Fix 2.8(b): `validate_for_daemon` only rejects token-without-chat-id
       (`core/config.py:126-133`); a non-numeric `TELEGRAM_CHAT_ID` passes
       startup and the bot denies EVERYONE silently with `-1`
       (`bot/dispatcher.py:166-173,343-345`). Fix: strict numeric validation of
       `TELEGRAM_CHAT_ID` (and `TELEGRAM_USER_ID` entries) when the token is
       set → `ConfigurationError` at startup. Tests for both failing and
       passing shapes (negative chat ids like `-100...` must pass).
-- [ ] T5 — Spec/docs sync: amend `specs/Plan de implementacion tikdown-rs.md`
+- [x] T5 — Spec/docs sync: amend `specs/Plan de implementacion tikdown-rs.md`
       §10.1 healthcheck threshold wording (cookie clause), note in
       `odd/tasks/review-hallazgos.md` that audit finding M4 (healthcheck
       definition) is now resolved; Apéndice A row for the stale-cookie engine
       trap (new T-DEPLOY-25).
-- [ ] T6 — Verification: full gate green (`pytest`, `ruff check`,
+- [x] T6 — Verification: full gate green (`pytest`, `ruff check`,
       `ruff format --check`), clean `git status`, per-task work-unit commits with
       evidence recorded here.
 
 Branch: `fix/audit-phase-a` (from main @ bef122e).
+
+
+## Evidence (closing record)
+
+- Implemented via delegated `gentle-ai-worker` (TDD: 7 RED tests observed pre-fix,
+  all GREEN after). Parent re-ran the full gate: pytest green (793/793, 2 live skips),
+  `ruff check` clean, `ruff format` clean (4 files the worker drifted were
+  reformatted before committing).
+- Commits: 453332f (T1+T2, daemon), ef83a87 (T3, services), 25d753b (T4, config),
+  d9e2a50 (T5, docs/ledger). Branch fix/audit-phase-a.
+- Known flake: tests/test_daemon_lifecycle.py::test_full_lifecycle_stops_on_stop_requested
+  failed once during one full-suite run (timing under load), passes in isolation and
+  in repeated full runs. Pre-existing, not caused by these fixes.
+- Owner decisions still open: notifications layer (Noop in production) and
+  download_archive mirror table (write-only).
