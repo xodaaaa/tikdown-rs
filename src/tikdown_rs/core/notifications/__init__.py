@@ -25,6 +25,7 @@ from .events import (
     EVENT_MONITOR_STOPPED,
     EVENT_NETWORK_OFFLINE,
     EVENT_NETWORK_ONLINE,
+    EVENT_PROFILE_REFRESHED,
     EVENT_SELFCHECK_FAILED,
     EVENT_SELFCHECK_OK,
     EVENTS,
@@ -36,6 +37,7 @@ from .service import (
     InMemoryNotificationService,
     NoopNotificationService,
     NotificationService,
+    TelegramNotificationService,
 )
 
 __all__ = [
@@ -58,6 +60,7 @@ __all__ = [
     "EVENT_MONITOR_STOPPED",
     "EVENT_NETWORK_OFFLINE",
     "EVENT_NETWORK_ONLINE",
+    "EVENT_PROFILE_REFRESHED",
     "EVENT_SELFCHECK_FAILED",
     "EVENT_SELFCHECK_OK",
     "EmittedEvent",
@@ -65,5 +68,6 @@ __all__ = [
     "InMemoryNotificationService",
     "NoopNotificationService",
     "NotificationService",
+    "TelegramNotificationService",
     "render",
 ]

@@ -95,6 +95,7 @@ from tikdown_rs.core.notifications import (
     EVENT_SELFCHECK_OK,
     NoopNotificationService,
     NotificationService,
+    TelegramNotificationService,
 )
 from tikdown_rs.core.pacing import DownloadPacer, DownloadSemaphore
 from tikdown_rs.core.tasks import create_supervised_task, drain_supervised_tasks, supervised_tasks
@@ -208,6 +209,27 @@ class DaemonRuntime:
 
 
 # --- job bodies (5.3): every job re-reads its flags per execution (T-ASYNC-16) ---
+
+# The DEFAULT channel instance: identity (not isinstance) is what marks the
+# "not injected" state, so a test-injected Noop is never replaced.
+_DEFAULT_NOTIFICATIONS = NoopNotificationService()
+
+
+def _notify_service_for(components: DaemonComponents, bot: object | None) -> NotificationService:
+    """Post-bot-start notification wiring: default Noop -> Telegram once live.
+
+    Pure and testable. An explicitly injected service (tests, T-DEPLOY-21) is
+    NEVER replaced; without a live bot or chat_id the default Noop stays
+    (every Noop behavior kept when no bot/token, 6.2). The returned service
+    sends as supervised background tasks, so shutdown stays bounded by the
+    existing supervised-task drain (no extra wait).
+    """
+    if components.notifications is not _DEFAULT_NOTIFICATIONS:
+        return components.notifications  # injected: untouched
+    settings = components.settings
+    if bot is None or not settings.telegram_chat_id:
+        return components.notifications
+    return TelegramNotificationService(bot.application.bot, int(settings.telegram_chat_id))
 
 
 async def _monitor_cycle(components: DaemonComponents) -> None:
@@ -669,7 +691,7 @@ async def start_daemon(
         network_available = asyncio.Event()
         network_available.set()  # T-ENGINE-7: created PRE-SET
         network_monitor = NetworkMonitor(settings, network_available)
-        notifications = notifications if notifications is not None else NoopNotificationService()
+        notifications = notifications if notifications is not None else _DEFAULT_NOTIFICATIONS
         components = DaemonComponents(
             settings=settings,
             session_factory=session_factory,
@@ -721,6 +743,11 @@ async def start_daemon(
         if settings.telegram_bot_token:
             try:
                 components.bot = await _start_bot(components)
+                # Chain 2: once the bot is live, the default Noop channel is
+                # replaced so all later emissions (daemon.started below,
+                # jobs, shutdown) reach Telegram.
+                components.notifications = _notify_service_for(components, components.bot)
+                components.on_event = _notification_on_event(components.notifications)
                 logger.info("daemon.bot: polling started (supervised)")
             except Exception:
                 logger.exception("daemon.bot: startup failed; daemon continues WITHOUT bot")
@@ -736,7 +763,7 @@ async def start_daemon(
         create_supervised_task(
             _watch_stop_requested(session_factory, stop_event), name="stop-watcher"
         )
-        notifications.emit(
+        components.notifications.emit(
             EVENT_DAEMON_STARTED,
             {"pid": os.getpid(), "data_dir": str(settings.data_dir)},
         )
