@@ -43,6 +43,15 @@ Constraints decided with the user:
       section, docs table, image credit kept at bottom. CLI paths re-checked against
       `src/tikdown_rs/cli/` before publishing. Commit: 305bbe0
 
+## Nota post-saneamiento de historia
+
+La historia fue reescrita con `git-filter-repo --replace-text` (sanitize del host
+path personal) antes del primer push a GitHub: los IDs de commit citados en este
+ledger (90fd292, 6ca4658, 5c14850, 305bbe0, 26f8877) son los **pre-saneamiento**; los
+equivalentes post-saneamiento cambian (e.g., 26f8877 → 8ea67e2). Contenido idéntico,
+solo cambian los hashes. Backup local pre-rewrite: `../tikdown-rs-pre-fr.first-push.bundle`
+(al 8ea67e2; borrarlo es una decisión del operador).
+
 ## Pendientes para el momento de publicar (decisión del usuario, no hago nada automático)
 
 - Revisar alcance público de `odd/` y `specs/` (hoy quedan; pueden salir o
