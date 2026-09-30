@@ -124,12 +124,29 @@ class Settings(BaseSettings):
             raise ConfigurationError(
                 f"DATA_DIR is not creatable or writable: {self.data_dir} ({exc})"
             ) from exc
-        if self.telegram_bot_token and not self.telegram_chat_id:
-            raise ConfigurationError(
-                "TELEGRAM_BOT_TOKEN is set but TELEGRAM_CHAT_ID is empty: "
-                "set TELEGRAM_CHAT_ID to receive notifications, "
-                "or unset TELEGRAM_BOT_TOKEN"
-            )
+        if self.telegram_bot_token:
+            if not self.telegram_chat_id:
+                raise ConfigurationError(
+                    "TELEGRAM_BOT_TOKEN is set but TELEGRAM_CHAT_ID is empty: "
+                    "set TELEGRAM_CHAT_ID to receive notifications, "
+                    "or unset TELEGRAM_BOT_TOKEN"
+                )
+            # Audit 2.8b: the dispatcher falls back to -1 on a non-numeric id
+            # (silent deny-all), so the daemon must fail fast instead.
+            try:
+                int(self.telegram_chat_id)
+            except ValueError:
+                raise ConfigurationError(
+                    f"TELEGRAM_CHAT_ID must be an integer "
+                    f"(got {self.telegram_chat_id!r}; negatives like -1001234 are valid)"
+                ) from None
+            for entry in _split_csv(self.telegram_user_id):
+                try:
+                    int(entry)
+                except ValueError:
+                    raise ConfigurationError(
+                        f"TELEGRAM_USER_ID entries must be comma-separated integers (got {entry!r})"
+                    ) from None
 
 
 def warn_unknown_env(env: Mapping[str, str] | None = None) -> None:

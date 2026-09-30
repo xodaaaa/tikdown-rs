@@ -304,6 +304,22 @@ async def test_gate_configuration_errors_still_raise(factory) -> None:
     assert account.backfill_status == "completed"  # untouched
 
 
+async def test_raising_download_emits_failed_event(factory) -> None:
+    """Audit 2.3: the EXCEPTION path (engine.download raises) must emit
+    download.failed like every other terminal outcome (T-DATA-3)."""
+    await add_valid_cookie(factory)
+    account_id = await add_account(factory)
+    engine = FakeEngine([_entry("1", "20260101")], fail={"1": "boom"})
+    events = Recorder()
+
+    status = await run_backfill(
+        factory, account_id, on_event=events, **make_kwargs(engine, FakePacer())
+    )
+
+    assert status == "completed"
+    assert "download.failed" in [e["event"] for e in events.events]
+
+
 # --- B7 (JD-A-003/JD-B-005): backfill slideshows are SKIPPED, not integrity ---
 
 

@@ -925,7 +925,10 @@ zombis de yt-dlp, contador de contención (leído de `daemon_state`), cookies po
 errores derivados de la tabla `videos` (**sin tabla nueva**).
 
 `daemon healthcheck` (para `HEALTHCHECK` de Docker) es **ligero y sin red**: frescura de heartbeat
-(≤ 3× intervalo) + umbrales binarios de cookies/disco. **No ejecuta migraciones ni toma el lock**.
+(≤ 3× intervalo) + umbrales binarios de cookies/disco. **No ejecuta migraciones ni toma el lock**. El
+umbral de cookies cuenta el MISMO conjunto usable que el runtime: `valid` OR `inconclusive` (solo
+`invalid` excluye), espejo exacto de `get_working_cookie` (T-COOKIES-4) — un umbral más estricto
+deja el contenedor unhealthy para siempre cuando la sonda es `inconclusive`.
 
 ### 10.2 Implementación
 
@@ -1793,6 +1796,7 @@ por decisión propia están en A.10.
 | T-DEPLOY-22 | Un assert compara `str(Path)` (con `\` en Windows) contra una cadena con `/` | comparar objetos `Path`, nunca strings con separador fijo | §13.1 [real] |
 | T-DEPLOY-23 | `COPY` con destino relativo `./` ejecutado antes de `WORKDIR /app` en el stage runtime: los archivos caen en `/` y el primer arranque muere con `alembic.ini not found` aunque las capas COPY existan en `docker history` | `WORKDIR /app` antes de todo COPY con destino relativo; test estático que exige `WORKDIR` precediendo a los COPY de alembic | §14.1 [real] |
 | T-DEPLOY-24 | El orden de primer arranque que prescribe el propio §14.2 (contenedor arriba → `cookies add` después) deja al daemon `degraded (no engine)` para siempre: el engine se construye UNA vez en el paso 5 de §5.1 y ningún job lo reconstruye; el backfill encolado no se lanza hasta que el operador reinicie a mano (ronda Docker 2026-09-28: `job.backfill-collect: degraded (no engine); collected=1 launched=0`) | `ensure_engine` en `daemon/run.py`: los 4 jobs que usan el engine (backfill-collect, ciclo de monitor, cookies-validate, profile-refresh) lo reconstruyen perezosamente desde la cookie válida en DB en su próximo beat; `YtDlpEngine` no retiene recursos, no hay dispose extra | §14.2, §5.1 [real] |
+| T-DEPLOY-25 | `YtDlpEngine` congela el blob de cookies capturado en `__init__`: la rotación de cookies en DB es invisible para el engine vivo hasta reiniciar el daemon | el engine debe quedar asociado a la identidad de la cookie que lo construyó (`engine_cookie_id` en `DaemonComponents`): `ensure_engine` detecta el cambio de cookie usable y reconstruye desde el blob nuevo; cookie usable eliminada → engine `None` (degradado) | §5.1, §14.2 [real] |
 
 ### A.10 Clases de fallo que este diseño evita por decisión propia
 

@@ -370,8 +370,27 @@ def test_daemon_status_prints_m0_keys_and_exit_codes(tmp_path, monkeypatch) -> N
 
 
 @pytest.mark.timeout(60)
-def test_healthcheck_rejects_without_valid_cookie(tmp_path, monkeypatch) -> None:
-    """§10.1 binary cookie threshold: zero VALID cookies -> unhealthy (strict)."""
+def test_healthcheck_passes_with_inconclusive_cookie(tmp_path, monkeypatch) -> None:
+    """Audit 2.1: the healthcheck counts the SAME usable set as the runtime
+    (get_working_cookie, T-COOKIES-4): valid OR inconclusive, never 'invalid'."""
+    from typer.testing import CliRunner
+
+    from tikdown_rs.cli.main import app
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(shutil, "disk_usage", _mock_disk_usage(50.0))
+    run_migrations(tmp_path)
+    _sqlite_write_heartbeat(tmp_path, age_seconds=0.0)
+    _sqlite_insert_cookie(tmp_path, "inconclusive")
+
+    result = CliRunner().invoke(app, ["daemon", "healthcheck"])
+    assert result.exit_code == 0, _all_output(result)
+
+
+@pytest.mark.timeout(60)
+def test_healthcheck_rejects_when_all_cookies_invalid(tmp_path, monkeypatch) -> None:
+    """Audit 2.1: only 'invalid' is excluded from the usable set; when every
+    cookie is invalid there is nothing usable -> unhealthy."""
     from typer.testing import CliRunner
 
     from tikdown_rs.cli.main import app
@@ -381,7 +400,7 @@ def test_healthcheck_rejects_without_valid_cookie(tmp_path, monkeypatch) -> None
     run_migrations(tmp_path)
     _sqlite_write_heartbeat(tmp_path, age_seconds=0.0)
     _sqlite_insert_cookie(tmp_path, "invalid")
-    _sqlite_insert_cookie(tmp_path, "inconclusive")
+    _sqlite_insert_cookie(tmp_path, "invalid")
 
     result = CliRunner().invoke(app, ["daemon", "healthcheck"])
     assert result.exit_code == 1
@@ -629,6 +648,116 @@ async def test_startup_without_cookies_degraded_but_alive(tmp_path, monkeypatch)
         row = await _read_row(tmp_path)
         assert row is not None
         assert "cookies: none working" in (row.degraded_reason or "")
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_ensure_engine_rebuilds_on_cookie_rotation(tmp_path, monkeypatch) -> None:
+    """Audit 2.2 (T-DEPLOY-25): the engine freezes its cookie blob at __init__;
+    ensure_engine must track the cookie identity and REBUILD on rotation."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        components = runtime.components
+        first_engine = components.engine
+        assert first_engine is not None
+        assert components.engine_cookie_id == 1
+        # Rotate: cookie 1 goes invalid, a NEW row (new blob) becomes usable.
+        engine = create_db_engine(sqlite_url_for(tmp_path))
+        try:
+            async with make_session_factory(engine)() as session:
+                from tikdown_rs.models import Cookie
+
+                stale = await session.get(Cookie, 1)
+                stale.validation_state = "invalid"
+                now = datetime.now(UTC).isoformat()
+                session.add(
+                    Cookie(
+                        label="rotated",
+                        cookie_blob=b"netscape-rotated",
+                        validation_state="valid",
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+        rebuilt = await daemon_run.ensure_engine(components)
+
+        assert rebuilt is not first_engine
+        assert rebuilt._cookies_blob == b"netscape-rotated"  # built from the NEW blob
+        assert components.engine_cookie_id == 2
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_ensure_engine_degrades_when_working_cookie_removed(tmp_path, monkeypatch) -> None:
+    """Audit 2.2: the last usable cookie gone -> engine is None (degraded);
+    the existing lazy path rebuilds when a cookie reappears."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    await _seed_valid_cookie(tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        assert runtime.components.engine is not None
+        engine = create_db_engine(sqlite_url_for(tmp_path))
+        try:
+            async with make_session_factory(engine)() as session:
+                from sqlalchemy import delete
+
+                from tikdown_rs.models import Cookie
+
+                await session.execute(delete(Cookie))
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+        result = await daemon_run.ensure_engine(runtime.components)
+
+        assert result is None
+        assert runtime.components.engine is None
+    finally:
+        await daemon_run.shutdown_daemon(runtime)
+
+
+@pytest.mark.timeout(30)
+async def test_ensure_engine_keeps_injected_engine_without_cookie_id(tmp_path, monkeypatch) -> None:
+    """Audit 2.2: legacy injected engines (engine_cookie_id=None) are never
+    rebuilt, even when a working cookie exists."""
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    await asyncio.to_thread(run_migrations, tmp_path)
+    settings = load_settings()
+    runtime = await daemon_run.start_daemon(
+        settings,
+        impersonation_fn=lambda: (True, "private-api", 3),
+        which_fn=_fake_which(),
+    )
+    try:
+        sentinel = object()  # injected engine double; ensure_engine never uses it
+        runtime.components.engine = sentinel
+        runtime.components.engine_cookie_id = None
+        await _seed_valid_cookie(tmp_path)
+
+        result = await daemon_run.ensure_engine(runtime.components)
+
+        assert result is sentinel
+        assert runtime.components.engine is sentinel
     finally:
         await daemon_run.shutdown_daemon(runtime)
 

@@ -143,17 +143,19 @@ def _healthcheck() -> None:
             try:
                 async with make_session_factory(engine)() as session:
                     row = await read_status(session)
-                    # 10.1 binary cookie threshold: strict, >= 1 VALID cookie.
-                    valid_cookies = (
+                    # 10.1 cookie threshold over the RUNTIME usable set
+                    # (get_working_cookie, T-COOKIES-4): valid OR inconclusive;
+                    # only 'invalid' is excluded (audit 2.1).
+                    usable_cookies = (
                         await session.execute(
                             select(func.count())
                             .select_from(Cookie)
-                            .where(Cookie.validation_state == "valid")
+                            .where(Cookie.validation_state != "invalid")
                         )
                     ).scalar_one()
             except OperationalError:
                 row = None
-                valid_cookies = 0
+                usable_cookies = 0
         finally:
             await engine.dispose()
 
@@ -172,9 +174,9 @@ def _healthcheck() -> None:
                 f"healthcheck failed: daemon degraded ({row.degraded_reason}); "
                 "run 'tikdown-rs daemon selfcheck' for details"
             )
-        if valid_cookies < 1:
+        if usable_cookies < 1:
             raise ConfigurationError(
-                "healthcheck failed: cookies unhealthy (no cookie with validation_state='valid')"
+                "healthcheck failed: cookies unhealthy (no usable cookie (valid or inconclusive))"
             )
         if not disk.is_disk_ok(settings.data_dir, settings.disk_warning_free_percent):
             free = disk.free_percent(settings.data_dir)

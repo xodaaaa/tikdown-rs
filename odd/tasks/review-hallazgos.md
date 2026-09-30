@@ -28,7 +28,7 @@ Veredicto JD original: ESCALATED (0 rondas de corrección — los fixes se aprob
 | M1 | `YTDLP_PROXY_URL` / `YTDLP_EXTRACTOR_ARGS` sin consumidor: el operador cree ocultar su IP y va directo. Cablear o retirar | §11.1, T-DEPLOY-9, T-ENGINE-29 | B |
 | M2 | Motor con blob de cookies fijo: sin rotación round-robin (§4.3); cookie muerta → cuentas sanas en `needs_review` | §4.3, §6.1 | B |
 | M3 | Backfill sin gate de red en flujo normal: una caída quema el feed y avanza el cursor | §8.1, T-BACKFILL-17 | B |
-| M4 | `healthcheck` exige `valid` pero el runtime acepta `inconclusive` (T-COOKIES-4): instalación sin `COOKIE_VALIDATION_URL` = contenedor unhealthy para siempre | §10.1, T-COOKIES-4 | B+C1 |
+| M4 | `healthcheck` exige `valid` pero el runtime acepta `inconclusive` (T-COOKIES-4): instalación sin `COOKIE_VALIDATION_URL` = contenedor unhealthy para siempre → **RESUELTO** en `fix/audit-phase-a` | §10.1, T-COOKIES-4 | B+C1 |
 | M6 | `requires-python = ">=3.13"` sin techo `<3.14` | §2 [N], B.3 | C1+A |
 | M7 | `run_or_exit` solo atrapa `ConfigurationError`: errores de negocio/DB salen como traceback | §10.2, T-CLI-8/4 | C1 |
 | M8 | Lógica de status/healthcheck en la capa CLI; no hay `services/status.py` del árbol §12 | §10.2, §16.1 | C1 |

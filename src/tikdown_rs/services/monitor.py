@@ -330,7 +330,9 @@ async def download_pendings(
             )
             counts[result.outcome] += 1
         except Exception as exc:  # noqa: BLE001 - T-DATA-1: one failure, batch continues
-            failure = await persist_download_failure(session_factory, row.id, exc)
+            failure = await persist_download_failure(
+                session_factory, row.id, exc, on_event=on_event
+            )
             counts["failed"] += 1
             logger.warning(
                 "monitor video %s failed (%s): %s",

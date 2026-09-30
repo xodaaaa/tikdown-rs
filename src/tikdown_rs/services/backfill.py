@@ -559,7 +559,9 @@ async def run_backfill(
                     # T-BACKFILL-11: one failed video NEVER aborts the feed;
                     # asyncio.CancelledError is a BaseException and passes
                     # through to the handler below untouched.
-                    failure = await persist_download_failure(session_factory, row_id, exc)
+                    failure = await persist_download_failure(
+                        session_factory, row_id, exc, on_event=on_event
+                    )
                     logger.warning(
                         "backfill video %s failed (%s): %s",
                         entry["id"],
