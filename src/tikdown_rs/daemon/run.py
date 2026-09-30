@@ -191,6 +191,10 @@ class DaemonComponents:
     last_contention_count: int = 0
     # M5 (6.1): the TikDownBot when TELEGRAM_BOT_TOKEN is set; None otherwise.
     bot: object | None = None
+    # Audit 2.2 (T-DEPLOY-25): the cookie id the engine was built from; the
+    # engine freezes its blob at __init__, so rotation must be detected here.
+    # None with a live engine = legacy injected engine: never rebuilt.
+    engine_cookie_id: int | None = None
 
 
 @dataclass
@@ -230,20 +234,38 @@ async def _monitor_cycle(components: DaemonComponents) -> None:
 
 
 async def ensure_engine(components: DaemonComponents) -> object | None:
-    """Rebuild the shared engine when a working cookie appears after startup.
+    """Rebuild the shared engine when the working cookie appears OR rotates.
 
     T-DEPLOY-24 (found live in the Docker round of §14.2): the engine is built
     ONCE in 5.1 step 5, so a daemon started before `cookies add` stayed
     degraded (no engine) until a manual restart even with a valid cookie in
-    the DB. Engine-dependent jobs call this first; YtDlpEngine holds no
+    the DB. Audit 2.2 (T-DEPLOY-25): YtDlpEngine freezes its cookie blob at
+    __init__, so the engine is keyed to the cookie identity
+    (``engine_cookie_id``): a NEW usable cookie row rebuilds it; the last
+    usable cookie gone drops it (degraded; the lazy path rebuilds). An
+    injected engine with ``engine_cookie_id=None`` (legacy test seam) is kept
+    untouched. Engine-dependent jobs call this first; YtDlpEngine holds no
     persistent resources, so no dispose is needed beyond shutdown.
     """
-    if components.engine is not None:
-        return components.engine
     cookie = await get_working_cookie(components.session_factory)
+    if components.engine is not None:
+        if components.engine_cookie_id is None:
+            return components.engine  # legacy injected engine: untouched
+        if cookie is not None and cookie.id == components.engine_cookie_id:
+            return components.engine
+        if cookie is None:
+            components.engine = None
+            components.engine_cookie_id = None
+            logger.warning("engine dropped: no usable cookie left (degraded)")
+            return None
+        components.engine = YtDlpEngine(cookie.cookie_blob, components.settings)
+        components.engine_cookie_id = cookie.id
+        logger.info("engine rebuilt: cookie changed")
+        return components.engine
     if cookie is None:
         return None
     components.engine = YtDlpEngine(cookie.cookie_blob, components.settings)
+    components.engine_cookie_id = cookie.id
     logger.info("engine built lazily: working cookie appeared after startup")
     return components.engine
 
@@ -652,6 +674,7 @@ async def start_daemon(
             settings=settings,
             session_factory=session_factory,
             engine=engine,
+            engine_cookie_id=cookie.id if cookie is not None else None,
             pacer=pacer,
             semaphore=semaphore,
             archive=archive,
