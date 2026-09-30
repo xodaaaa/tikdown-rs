@@ -21,7 +21,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from typer.testing import CliRunner
 
-from tikdown_rs.cli.daemon import _format_status_lines
 from tikdown_rs.cli.main import app
 from tikdown_rs.core.daemon_state import read_status, record_selfcheck, write_heartbeat
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
@@ -33,6 +32,7 @@ from tikdown_rs.core.notifications.events import (
 )
 from tikdown_rs.models import Cookie, DaemonState, MonitoredAccount, Video
 from tikdown_rs.services.monitor_state import start_monitor, stop_monitor
+from tikdown_rs.services.status import format_status_lines, status_from_row
 
 runner = CliRunner()
 
@@ -255,9 +255,14 @@ def test_status_shows_contention_recent_errors_and_honest_counters(data_dir, fac
 
 
 def test_status_formatter_shows_real_counts_when_injected() -> None:
-    """T-ASYNC-14 seam: a caller holding the live objects prints real counts."""
+    """T-ASYNC-14: a caller holding the live objects prints real counts.
+
+    Via the production pair services.status (status_from_row + format_status_lines)
+    -- the same path cli/daemon._status renders, no test-only seam.
+    """
     row = DaemonState(id=1, monitor_running=True, db_busy_count_5min=2)
-    lines = _format_status_lines(row, {}, supervised_count=3, zombie_count=2)
+    status = status_from_row(row, {}, supervised_tasks=3, ytdlp_zombie_threads=2)
+    lines = format_status_lines(status)
     assert "supervised_tasks: 3" in lines
     assert "ytdlp_zombie_threads: 2" in lines
 

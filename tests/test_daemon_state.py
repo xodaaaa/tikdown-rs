@@ -8,13 +8,13 @@ from datetime import datetime
 import pytest
 
 from tikdown_rs.core.daemon_state import (
+    _upsert,
     clear_stop_requested,
     read_status,
     read_stop_requested,
     record_selfcheck,
     register_daemon_start,
     request_daemon_stop,
-    set_stop_requested,
     write_heartbeat,
 )
 from tikdown_rs.core.db import create_db_engine, make_session_factory
@@ -53,9 +53,11 @@ async def test_write_heartbeat_persists_iso_utc_and_commits(session_factory) -> 
 
 
 async def test_set_and_clear_stop_requested_round_trip(session_factory) -> None:
+    """stop_requested set/clear round trip (set path = upsert, as the in-process writer)."""
     async with session_factory() as session:
         assert not await read_stop_requested(session)
-        await set_stop_requested(session)
+        await session.execute(_upsert({"stop_requested": True}))
+        await session.commit()
         assert await read_stop_requested(session)
         await clear_stop_requested(session)
         assert not await read_stop_requested(session)

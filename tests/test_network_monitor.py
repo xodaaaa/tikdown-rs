@@ -88,7 +88,7 @@ async def test_empty_probe_url_assumes_online_and_never_probes() -> None:
     monitor.network_available.set()  # T-ENGINE-7: caller creates it pre-set
     assert await monitor.probe_once() is True
     assert boom is False  # no probe call: an empty URL must never be probed
-    assert monitor.is_online
+    assert not monitor._offline
     assert monitor.network_available.is_set()
     assert monitor.offline_since is None
 
@@ -105,7 +105,7 @@ async def test_fresh_monitor_does_not_clear_the_pre_set_event() -> None:
     monitor = NetworkMonitor(settings, event, probe_fn=None, clock_fn=FakeClock())
 
     assert event.is_set()
-    assert monitor.is_online
+    assert not monitor._offline
     assert monitor.offline_since is None
 
 
@@ -113,7 +113,7 @@ async def test_success_keeps_the_event_set() -> None:
     monitor, _, _ = make_monitor([True])
     assert await monitor.probe_once() is True
     assert monitor.network_available.is_set()
-    assert monitor.is_online
+    assert not monitor._offline
 
 
 # --- blip vs confirmed offline (T-BOT-14) ---
@@ -125,7 +125,7 @@ async def test_one_failure_is_a_blip_no_event_no_offline_since() -> None:
     monitor._on_event = events.append
 
     assert await monitor.probe_once() is False
-    assert monitor.is_online
+    assert not monitor._offline
     assert monitor.network_available.is_set()  # blip never clears the event
     assert monitor.offline_since is None
     assert events == []
@@ -138,11 +138,11 @@ async def test_two_consecutive_failures_confirm_offline() -> None:
     monitor._on_event = events.append
 
     assert await monitor.probe_once() is False
-    assert monitor.is_online  # threshold not reached yet
+    assert not monitor._offline  # threshold not reached yet
 
     clock.advance(30)
     assert await monitor.probe_once() is False
-    assert not monitor.is_online
+    assert monitor._offline
     assert not monitor.network_available.is_set()
     assert monitor.offline_since == clock.now  # captured AT the threshold crossing
     assert [e["event"] for e in events] == [EVENT_NETWORK_OFFLINE]
@@ -162,7 +162,7 @@ async def test_success_after_confirmed_offline_emits_online_with_duration() -> N
 
     assert await monitor.probe_once() is True
     assert monitor.network_available.is_set()
-    assert monitor.is_online
+    assert not monitor._offline
     assert monitor.offline_since is None
     online = [e for e in events if e["event"] == EVENT_NETWORK_ONLINE]
     assert len(online) == 1
@@ -179,7 +179,7 @@ async def test_success_after_blip_emits_no_online_event() -> None:
     await monitor.probe_once()  # back to green
 
     assert [e["event"] for e in events] == []  # NO network.online
-    assert monitor.is_online
+    assert not monitor._offline
 
 
 async def test_repeated_failures_emit_offline_only_once() -> None:

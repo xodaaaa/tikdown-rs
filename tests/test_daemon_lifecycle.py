@@ -23,7 +23,7 @@ from sqlalchemy.exc import OperationalError
 import tikdown_rs.core.verify as verify_module
 import tikdown_rs.daemon.run as daemon_run
 from tikdown_rs.core.config import load_settings
-from tikdown_rs.core.daemon_state import read_status, set_stop_requested, write_heartbeat
+from tikdown_rs.core.daemon_state import _upsert, read_status, write_heartbeat
 from tikdown_rs.core.db import (
     create_db_engine,
     make_session_factory,
@@ -93,7 +93,9 @@ async def _set_stop_flag(data_dir: Path) -> None:
     engine = create_db_engine(sqlite_url_for(data_dir))
     try:
         async with make_session_factory(engine)() as session:
-            await set_stop_requested(session)
+            # Upsert: the singleton row may not exist before the daemon starts.
+            await session.execute(_upsert({"stop_requested": True}))
+            await session.commit()
     finally:
         await engine.dispose()
 
