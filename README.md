@@ -154,7 +154,13 @@ the [spec's §14.6](specs/Plan%20de%20implementacion%20tikdown-rs.md).
 
 <div align="center">
 
-<img src="docs/assets/gentleai-egdev66.jpg" alt="Post by @egdev66: 'Yo uso #gentleai de @G_Programming. ¿Y tú?'" width="480">
-<sub>Post de <a href="https://x.com/egdev66/status/2102774191925944415">@egdev66</a> en X — imagen reproducida con fines de atribución.</sub>
+<p align="center">
+  <img src="docs/assets/gentleai-egdev66.jpg" alt="" width="480">
+</p>
+<p align="center">
+  <sub>tikdown-rs was built entirely with <strong>#gentleai</strong> — verified post by
+  <a href="https://x.com/egdev66/status/2102774191925944415">@egdev66</a> on X.
+  </sub>
+</p>
 
 </div>
