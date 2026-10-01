@@ -34,6 +34,7 @@ from tikdown_rs.core.notifications.events import (
     EVENT_COOKIE_VALIDATION_PROBE_FAILED,
     EVENT_PROFILE_REFRESHED,
 )
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import Cookie, MonitoredAccount
 from tikdown_rs.services.cookies import validate_cookie
 
@@ -41,10 +42,6 @@ logger = logging.getLogger("tikdown_rs.services.maintenance")
 
 #: 7/11.2: 30-60 s between probes, drawn so the cadence is not fixed.
 _COOKIE_VALIDATION_SLEEP_RANGE = (30.0, 60.0)
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _emit_event(on_event, event: str, **fields) -> None:

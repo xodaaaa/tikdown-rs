@@ -49,6 +49,7 @@ from tikdown_rs.core.notifications.events import (
     EVENT_MONITOR_STOPPED_NO_COOKIES,
     EVENT_MONITOR_VIDEO_DISCOVERED,
 )
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import DaemonState, MonitoredAccount, Video
 from tikdown_rs.services.cookies import get_working_cookie
 from tikdown_rs.services.videos import handle_download_result, persist_download_failure
@@ -68,10 +69,6 @@ _EMPTY_COUNTS = {"downloaded": 0, "skipped": 0, "failed": 0}
 
 class _Pacer(Protocol):
     async def acquire(self) -> None: ...
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _emit_event(on_event, event: str, **fields) -> None:

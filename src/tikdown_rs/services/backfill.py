@@ -19,7 +19,6 @@ left held.
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select, text
@@ -35,6 +34,7 @@ from tikdown_rs.core.notifications import (
     EVENT_BACKFILL_PAUSED,
     EVENT_BACKFILL_STARTED,
 )
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import (
     DaemonState,
     MonitoredAccount,
@@ -49,10 +49,6 @@ logger = logging.getLogger("tikdown_rs.services.backfill")
 
 _BREAKER_THRESHOLD = 5
 _TERMINAL_VIDEO_STATUSES = ("downloaded", "skipped", "failed")
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _emit_event(on_event, event: str, **fields) -> None:
