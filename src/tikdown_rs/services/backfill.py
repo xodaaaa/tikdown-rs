@@ -34,6 +34,7 @@ from tikdown_rs.core.notifications import (
     EVENT_BACKFILL_PAUSED,
     EVENT_BACKFILL_STARTED,
 )
+from tikdown_rs.core.pacing import DownloadSemaphore
 from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import (
     DaemonState,
@@ -397,7 +398,7 @@ async def run_backfill(
     *,
     engine,
     pacer,
-    semaphore,
+    semaphore: DownloadSemaphore,
     archive: DownloadArchive,
     max_entries: int | None = None,
     on_event=None,

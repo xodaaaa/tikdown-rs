@@ -49,6 +49,7 @@ from tikdown_rs.core.notifications.events import (
     EVENT_MONITOR_STOPPED_NO_COOKIES,
     EVENT_MONITOR_VIDEO_DISCOVERED,
 )
+from tikdown_rs.core.pacing import DownloadSemaphore
 from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import DaemonState, MonitoredAccount, Video
 from tikdown_rs.models.video import VideoStatus
@@ -238,7 +239,7 @@ async def download_pendings(
     *,
     engine,
     pacer: _Pacer,
-    semaphore: asyncio.Semaphore,
+    semaphore: DownloadSemaphore,
     archive: DownloadArchive,
     network_available: asyncio.Event | None = None,
     on_event=None,

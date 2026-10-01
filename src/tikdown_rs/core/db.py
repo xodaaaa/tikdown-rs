@@ -6,6 +6,7 @@ Trampas neutralizadas: T-DB-5, T-DB-9, T-DB-14. Reglas: §3.7, §5.1, §5.6.
 import asyncio
 import collections
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from sqlalchemy import event
@@ -111,7 +112,12 @@ def _register_contention_listener(engine: AsyncEngine) -> None:
             record_db_locked_error(str(exception))
 
 
-async def retry_on_locked(fn, *, attempts: int = 5, base_delay: float = 0.05) -> None:
+async def retry_on_locked[T](
+    fn: Callable[[], Awaitable[T]],
+    *,
+    attempts: int = 5,
+    base_delay: float = 0.05,
+) -> T:
     """Bounded exponential-backoff retry for 'database is locked' (§5.1 startup).
 
     The one-time delete->WAL journal conversion takes an exclusive lock that

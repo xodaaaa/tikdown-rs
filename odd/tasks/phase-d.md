@@ -20,7 +20,7 @@ files; run_backfill = 303 lines (26 branches, 9 returns); Protocol declares
       models/video.py, monitor.py, bot/dispatcher.py display paths) +
       classification-string enum (classify_error returns 'definitive' etc. —
       ErrorCategory StrEnum) if it fits under budget; else split.
-- [ ] C3 — Protocol + typing truth: Protocol.download -> async (engine
+- [x] C3 — Protocol + typing truth: Protocol.download -> async (engine
       implementation is async); DaemonComponents object|None -> real types;
       download_pendings semaphore annotation; retry_on_locked -> None fix;
       drop the dead `uploader` param if trivially safe (grep first) or keep.
@@ -38,3 +38,5 @@ enum.values == CHECK literals so they can never drift.
 C1 evidence: two worker passes (7-member enum after CHECK contradiction resolved by owner; full 25-site sweep after first pass under-converted). Commit 80ae4c7. Review review-a6822ed8ad00cb81 approved 1/1, ack burned. Raw-SQL literals kept (documented); video-status literals deliberately excluded (different domain).
 
 C2 evidence: VideoStatus (5) + ErrorCategory (5, incl. INTEGRITY per owner decision B) StrEnums; 12 Python sites converted; static_site/status comparisons left (StrEnum == holds); raw SQL kept. Commit 71ef159. Review review-ef80ff20de3d7dd7 approved 4/4, ack burned.
+
+C3 evidence: Protocol.download -> async (callers already await), DaemonComponents concrete annotations (YtDlpEngine/None, DownloadPacer, DownloadSemaphore, TikDownBot/None), import-cycle findings none, deps/typing annotations, truthful return type generic [T], semaphore annotations truthful in monitor+backfill. Commits 4777e86. Review review-415b978c3e63c6b0 approved 1/1, ack burned.

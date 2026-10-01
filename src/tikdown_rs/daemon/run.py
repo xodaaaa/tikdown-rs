@@ -157,9 +157,9 @@ class DaemonComponents:
 
     settings: Settings
     session_factory: async_sessionmaker[AsyncSession]
-    engine: object | None  # DownloadEngine | None (degraded: no cookie)
-    pacer: object  # DownloadPacer protocol (acquire)
-    semaphore: object  # async context manager bounding concurrency
+    engine: YtDlpEngine | None  # None when degraded: no working cookie
+    pacer: DownloadPacer
+    semaphore: DownloadSemaphore
     archive: DownloadArchive
     network_monitor: NetworkMonitor
     network_available: asyncio.Event
@@ -182,7 +182,7 @@ class DaemonComponents:
     # 5.6 dedupe-per-edge: the last count seen by the heartbeat.
     last_contention_count: int = 0
     # M5 (6.1): the TikDownBot when TELEGRAM_BOT_TOKEN is set; None otherwise.
-    bot: object | None = None
+    bot: TikDownBot | None = None
     # Audit 2.2 (T-DEPLOY-25): the cookie id the engine was built from; the
     # engine freezes its blob at __init__, so rotation must be detected here.
     # None with a live engine = legacy injected engine: never rebuilt.
