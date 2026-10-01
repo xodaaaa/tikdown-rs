@@ -404,6 +404,289 @@ class _BackfillLoopState(NamedTuple):
     breaker: BackfillBreaker
 
 
+class _LoopOutcome(NamedTuple):
+    """How the per-video loop ended: an early terminal status (or None when it
+    ran to completion) and the accumulated ``done`` for the completed event."""
+
+    status: str | None
+    done: int
+
+
+async def _run_backfill_video(
+    session_factory: async_sessionmaker[AsyncSession],
+    account_id: int,
+    entry: dict,
+    *,
+    newest_date: str,
+    username: str,
+    notify_on_download: bool,
+    breaker: BackfillBreaker,
+    engine,
+    pacer,
+    semaphore: DownloadSemaphore,
+    archive: DownloadArchive,
+    ffprobe_fn: Callable[[Path], dict] | None,
+    sha256_fn: Callable[[Path], str] | None,
+    on_event,
+) -> tuple[str | None, bool]:
+    """One video attempt (9.3): pending-row upsert, download, per-video failure.
+
+    Returns (breaker_pause_status | None, new_transition): the status is
+    non-None only when the auth breaker tripped (9.6) and the caller must end
+    the whole run with it.
+    """
+    row_id, existing_status = await _get_or_create_pending_video(
+        session_factory, account_id, entry, newest_date
+    )
+    # 9.3 (B6): done counts videos reaching a terminal state IN THIS
+    # RUN; re-walked terminal rows on a resume download nothing and
+    # must not inflate backfill_done.
+    new_transition = existing_status not in _TERMINAL_VIDEO_STATUSES
+    if new_transition:
+        try:
+            await pacer.acquire()  # 4.5: the one cross-process gate
+            async with semaphore:
+                path = await engine.download(
+                    entry.get("url") or f"https://www.tiktok.com/@{username}/video/{entry['id']}",
+                    entry["id"],
+                    entry.get("uploader"),
+                    retry_index=0,
+                    archive=archive,
+                )
+            extra = {}
+            if ffprobe_fn is not None:
+                extra["ffprobe_fn"] = ffprobe_fn
+            if sha256_fn is not None:
+                extra["sha256_fn"] = sha256_fn
+            await handle_download_result(
+                session_factory,
+                row_id,
+                path,
+                entry["id"],
+                account_id,
+                notify_on_download=notify_on_download,  # T-BACKFILL-14
+                on_event=on_event,  # T-BACKFILL-13: propagated EXPLICITLY
+                archive=archive,
+                # B7 (§4.7/T-ENGINE-5): same heuristic as the monitor
+                # path — a listing entry without video duration is an
+                # expected slideshow (skipped + dedupe), NOT a
+                # degraded response.
+                expected_has_video=entry.get("duration") is not None,
+                **extra,
+            )
+        except Exception as exc:  # noqa: BLE001 - T-BACKFILL-11: ANY failure is per-video
+            # T-BACKFILL-11: one failed video NEVER aborts the feed;
+            # asyncio.CancelledError is a BaseException and passes
+            # through to the handler below untouched.
+            failure = await persist_download_failure(
+                session_factory, row_id, exc, on_event=on_event
+            )
+            logger.warning(
+                "backfill video %s failed (%s): %s",
+                entry["id"],
+                failure.error_category,
+                exc,
+            )
+            if breaker.record(exc):
+                logger.error(
+                    "backfill breaker tripped for account %s after %d consecutive auth failures",
+                    username,
+                    breaker.threshold,
+                )
+                return await _pause_for_breaker(session_factory, account_id), True
+        else:
+            # T-BACKFILL-22 (audit 2.5): no exception in the try block,
+            # so handle_download_result reached a successful terminal
+            # state (downloaded/skipped): the auth-failure streak
+            # resets — 'consecutive' includes successes.
+            breaker.reset()
+    return None, new_transition
+
+
+async def _run_backfill_loop(
+    session_factory: async_sessionmaker[AsyncSession],
+    account_id: int,
+    *,
+    username: str,
+    entries: list[dict],
+    newest_date: str,
+    scope_cursor: str | None,
+    moving_cursor: str | None,
+    done: int,
+    breaker: BackfillBreaker,
+    engine,
+    pacer,
+    semaphore: DownloadSemaphore,
+    archive: DownloadArchive,
+    ffprobe_fn: Callable[[Path], dict] | None,
+    sha256_fn: Callable[[Path], str] | None,
+    on_event,
+    network_online_fn: Callable[[], bool] | None,
+) -> _LoopOutcome:
+    """The per-video loop (9.2/9.3/9.4): cancel re-read, outage gate, cursor.
+
+    Verbatim body of ``run_backfill``'s ``for entry in entries:`` loop. Returns
+    the status the run must end with early (cancelled/paused/breaker) or None
+    when the loop consumed the feed, plus ``done`` for the completed event.
+    """
+    for entry in entries:
+        # T-BACKFILL-10: re-read the status every video (N=1, one row).
+        async with session_factory() as session:
+            account = await session.get(MonitoredAccount, account_id)
+        if account.backfill_status == BackfillStatus.CANCELLED:
+            # T-BACKFILL-8: early return, NO completed event, NO
+            # --then-monitor transition.
+            _emit_event(
+                on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
+            )
+            return _LoopOutcome(BackfillStatus.CANCELLED, done)
+
+        # M3: mid-run outage gate, consulted EVERY video BEFORE any work.
+        # An offline probe pauses with the existing 'network' reason and
+        # stops RESUMABLY: the current entry was never attempted and the
+        # cursor/done from the previous iteration stay as persisted, so
+        # nothing is burned (collect requeues when the probe recovers).
+        if network_online_fn is not None and not network_online_fn():
+            if await _pause_for_network(session_factory, account_id):
+                _emit_event(
+                    on_event,
+                    EVENT_BACKFILL_PAUSED,
+                    account_id=account_id,
+                    username=username,
+                    reason="network",
+                )
+                return _LoopOutcome(BackfillStatus.PAUSED, done)
+            # A concurrent cancel/state change won the row: the next
+            # iteration's re-read surfaces it (T-BACKFILL-10).
+            continue
+
+        upload_date = entry.get("upload_date") or ""
+        # T-BACKFILL-2: the boundary uses the SNAPSHOT taken before the
+        # loop, never the moving cursor (using the moving one stopped the
+        # run after the first video: the next listed entry is always
+        # older). §9.2 mandates a STRICTLY '<' comparison, never '=='
+        # (B6/JD-B-006): the entry equal to the cursor is re-processed --
+        # terminal rows skip the download below, and a retry-failed row
+        # reset to 'pending' is reachable again (JD-A-006). The loop
+        # breaks only at strictly older entries.
+        if upload_date and scope_cursor and upload_date < scope_cursor:
+            break
+
+        tripped, new_transition = await _run_backfill_video(
+            session_factory,
+            account_id,
+            entry,
+            newest_date=newest_date,
+            username=username,
+            notify_on_download=account.notify_on_download,
+            breaker=breaker,
+            engine=engine,
+            pacer=pacer,
+            semaphore=semaphore,
+            archive=archive,
+            ffprobe_fn=ffprobe_fn,
+            sha256_fn=sha256_fn,
+            on_event=on_event,
+        )
+        if tripped is not None:
+            return _LoopOutcome(tripped, done)
+
+        # Terminal only (9.2/9.3): downloaded/failed/skipped advance the
+        # MOVING cursor (T-BACKFILL-3: an absent date keeps the previous
+        # value; never the initial snapshot, never NULL-by-overwrite).
+        if upload_date:
+            moving_cursor = upload_date
+        if new_transition:
+            done += 1
+        if not await _persist_progress(session_factory, account_id, moving_cursor, done):
+            _emit_event(
+                on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
+            )
+            # T-BACKFILL-7: a concurrent cancel won
+            return _LoopOutcome(BackfillStatus.CANCELLED, done)
+
+    return _LoopOutcome(None, done)
+
+
+async def _finalize_backfill(
+    session_factory: async_sessionmaker[AsyncSession],
+    account_id: int,
+    *,
+    username: str | None,
+    done: int,
+    total: int,
+    on_event,
+) -> str:
+    """Terminal transition tail (9.1/9.5): CAS completed, emit, transition."""
+    async with session_factory() as session:
+        finished = await session.execute(
+            text(
+                "UPDATE monitored_accounts SET backfill_status = 'completed',"
+                " updated_at = :now"
+                " WHERE id = :id AND backfill_status = 'backfilling'"
+            ),
+            {"now": _utcnow_iso(), "id": account_id},
+        )
+        await session.commit()
+    if finished.rowcount == 0:
+        _emit_event(on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username)
+        return BackfillStatus.CANCELLED  # T-BACKFILL-8: cancel won; no transition
+    _emit_event(
+        on_event,
+        EVENT_BACKFILL_COMPLETED,
+        account_id=account_id,
+        username=username,
+        done=done,
+        total=total,
+    )
+    # 9.5: idempotent same-commit transition (safe to double-call).
+    await transition_to_monitor_after_backfill(session_factory, account_id)
+    return BackfillStatus.COMPLETED
+
+
+async def _handle_cancellation(
+    session_factory: async_sessionmaker[AsyncSession],
+    account_id: int,
+    *,
+    username: str | None,
+    network_online_fn: Callable[[], bool] | None,
+    on_event,
+) -> str:
+    """CancelledError body (9.1/T-BACKFILL-6): distinguish cause, unwedge."""
+    async with session_factory() as session:
+        state = await session.get(DaemonState, 1)
+    cause: str | None = None
+    if state is not None and state.downloads_paused:
+        cause = "disk"
+    elif network_online_fn is not None and not network_online_fn():
+        cause = "network"
+    status = BackfillStatus.PAUSED if cause else BackfillStatus.QUEUED
+    async with session_factory() as session:
+        await session.execute(
+            text(
+                "UPDATE monitored_accounts SET backfill_status = :status,"
+                " backfill_pause_reason = :reason, updated_at = :now"
+                " WHERE id = :id AND backfill_status = 'backfilling'"
+            ),
+            {
+                "status": status,
+                "reason": cause,
+                "now": _utcnow_iso(),
+                "id": account_id,
+            },
+        )
+        await session.commit()
+    if status == BackfillStatus.PAUSED:
+        _emit_event(
+            on_event,
+            EVENT_BACKFILL_PAUSED,
+            account_id=account_id,
+            username=username,
+            reason=cause,
+        )
+    return status
+
+
 async def _acquire_run_slot(
     session_factory: async_sessionmaker[AsyncSession],
     account_id: int,
@@ -535,191 +818,46 @@ async def run_backfill(
             return BackfillStatus.CANCELLED
         entries, newest_date, scope_cursor, moving_cursor, done, breaker = prep
 
-        for entry in entries:
-            # T-BACKFILL-10: re-read the status every video (N=1, one row).
-            async with session_factory() as session:
-                account = await session.get(MonitoredAccount, account_id)
-            if account.backfill_status == BackfillStatus.CANCELLED:
-                # T-BACKFILL-8: early return, NO completed event, NO
-                # --then-monitor transition.
-                _emit_event(
-                    on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
-                )
-                return BackfillStatus.CANCELLED
-
-            # M3: mid-run outage gate, consulted EVERY video BEFORE any work.
-            # An offline probe pauses with the existing 'network' reason and
-            # stops RESUMABLY: the current entry was never attempted and the
-            # cursor/done from the previous iteration stay as persisted, so
-            # nothing is burned (collect requeues when the probe recovers).
-            if network_online_fn is not None and not network_online_fn():
-                if await _pause_for_network(session_factory, account_id):
-                    _emit_event(
-                        on_event,
-                        EVENT_BACKFILL_PAUSED,
-                        account_id=account_id,
-                        username=username,
-                        reason="network",
-                    )
-                    return BackfillStatus.PAUSED
-                # A concurrent cancel/state change won the row: the next
-                # iteration's re-read surfaces it (T-BACKFILL-10).
-                continue
-
-            upload_date = entry.get("upload_date") or ""
-            # T-BACKFILL-2: the boundary uses the SNAPSHOT taken before the
-            # loop, never the moving cursor (using the moving one stopped the
-            # run after the first video: the next listed entry is always
-            # older). §9.2 mandates a STRICTLY '<' comparison, never '=='
-            # (B6/JD-B-006): the entry equal to the cursor is re-processed --
-            # terminal rows skip the download below, and a retry-failed row
-            # reset to 'pending' is reachable again (JD-A-006). The loop
-            # breaks only at strictly older entries.
-            if upload_date and scope_cursor and upload_date < scope_cursor:
-                break
-
-            row_id, existing_status = await _get_or_create_pending_video(
-                session_factory, account_id, entry, newest_date
-            )
-            # 9.3 (B6): done counts videos reaching a terminal state IN THIS
-            # RUN; re-walked terminal rows on a resume download nothing and
-            # must not inflate backfill_done.
-            new_transition = existing_status not in _TERMINAL_VIDEO_STATUSES
-            if new_transition:
-                try:
-                    await pacer.acquire()  # 4.5: the one cross-process gate
-                    async with semaphore:
-                        path = await engine.download(
-                            entry.get("url")
-                            or f"https://www.tiktok.com/@{username}/video/{entry['id']}",
-                            entry["id"],
-                            entry.get("uploader"),
-                            retry_index=0,
-                            archive=archive,
-                        )
-                    extra = {}
-                    if ffprobe_fn is not None:
-                        extra["ffprobe_fn"] = ffprobe_fn
-                    if sha256_fn is not None:
-                        extra["sha256_fn"] = sha256_fn
-                    await handle_download_result(
-                        session_factory,
-                        row_id,
-                        path,
-                        entry["id"],
-                        account_id,
-                        notify_on_download=account.notify_on_download,  # T-BACKFILL-14
-                        on_event=on_event,  # T-BACKFILL-13: propagated EXPLICITLY
-                        archive=archive,
-                        # B7 (§4.7/T-ENGINE-5): same heuristic as the monitor
-                        # path — a listing entry without video duration is an
-                        # expected slideshow (skipped + dedupe), NOT a
-                        # degraded response.
-                        expected_has_video=entry.get("duration") is not None,
-                        **extra,
-                    )
-                except Exception as exc:  # noqa: BLE001 - T-BACKFILL-11: ANY failure is per-video
-                    # T-BACKFILL-11: one failed video NEVER aborts the feed;
-                    # asyncio.CancelledError is a BaseException and passes
-                    # through to the handler below untouched.
-                    failure = await persist_download_failure(
-                        session_factory, row_id, exc, on_event=on_event
-                    )
-                    logger.warning(
-                        "backfill video %s failed (%s): %s",
-                        entry["id"],
-                        failure.error_category,
-                        exc,
-                    )
-                    if breaker.record(exc):
-                        logger.error(
-                            "backfill breaker tripped for account %s after %d "
-                            "consecutive auth failures",
-                            username,
-                            breaker.threshold,
-                        )
-                        return await _pause_for_breaker(session_factory, account_id)
-                else:
-                    # T-BACKFILL-22 (audit 2.5): no exception in the try block,
-                    # so handle_download_result reached a successful terminal
-                    # state (downloaded/skipped): the auth-failure streak
-                    # resets — 'consecutive' includes successes.
-                    breaker.reset()
-
-            # Terminal only (9.2/9.3): downloaded/failed/skipped advance the
-            # MOVING cursor (T-BACKFILL-3: an absent date keeps the previous
-            # value; never the initial snapshot, never NULL-by-overwrite).
-            if upload_date:
-                moving_cursor = upload_date
-            if new_transition:
-                done += 1
-            if not await _persist_progress(session_factory, account_id, moving_cursor, done):
-                _emit_event(
-                    on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
-                )
-                return BackfillStatus.CANCELLED  # T-BACKFILL-7: a concurrent cancel won
-
-        async with session_factory() as session:
-            finished = await session.execute(
-                text(
-                    "UPDATE monitored_accounts SET backfill_status = 'completed',"
-                    " updated_at = :now"
-                    " WHERE id = :id AND backfill_status = 'backfilling'"
-                ),
-                {"now": _utcnow_iso(), "id": account_id},
-            )
-            await session.commit()
-        if finished.rowcount == 0:
-            _emit_event(
-                on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
-            )
-            return BackfillStatus.CANCELLED  # T-BACKFILL-8: cancel won; no transition
-        _emit_event(
-            on_event,
-            EVENT_BACKFILL_COMPLETED,
-            account_id=account_id,
+        outcome = await _run_backfill_loop(
+            session_factory,
+            account_id,
             username=username,
+            entries=entries,
+            newest_date=newest_date,
+            scope_cursor=scope_cursor,
+            moving_cursor=moving_cursor,
             done=done,
-            total=len(entries),
+            breaker=breaker,
+            engine=engine,
+            pacer=pacer,
+            semaphore=semaphore,
+            archive=archive,
+            ffprobe_fn=ffprobe_fn,
+            sha256_fn=sha256_fn,
+            on_event=on_event,
+            network_online_fn=network_online_fn,
         )
-        # 9.5: idempotent same-commit transition (safe to double-call).
-        await transition_to_monitor_after_backfill(session_factory, account_id)
-        return BackfillStatus.COMPLETED
+        if outcome.status is not None:
+            return outcome.status
+
+        return await _finalize_backfill(
+            session_factory,
+            account_id,
+            username=username,
+            done=outcome.done,
+            total=len(entries),
+            on_event=on_event,
+        )
 
     except asyncio.CancelledError:
         # 9.1 (T-BACKFILL-6): distinguish the cause, unwedge the state, return.
-        async with session_factory() as session:
-            state = await session.get(DaemonState, 1)
-        cause: str | None = None
-        if state is not None and state.downloads_paused:
-            cause = "disk"
-        elif network_online_fn is not None and not network_online_fn():
-            cause = "network"
-        status = BackfillStatus.PAUSED if cause else BackfillStatus.QUEUED
-        async with session_factory() as session:
-            await session.execute(
-                text(
-                    "UPDATE monitored_accounts SET backfill_status = :status,"
-                    " backfill_pause_reason = :reason, updated_at = :now"
-                    " WHERE id = :id AND backfill_status = 'backfilling'"
-                ),
-                {
-                    "status": status,
-                    "reason": cause,
-                    "now": _utcnow_iso(),
-                    "id": account_id,
-                },
-            )
-            await session.commit()
-        if status == BackfillStatus.PAUSED:
-            _emit_event(
-                on_event,
-                EVENT_BACKFILL_PAUSED,
-                account_id=account_id,
-                username=username,
-                reason=cause,
-            )
-        return status
+        return await _handle_cancellation(
+            session_factory,
+            account_id,
+            username=username,
+            network_online_fn=network_online_fn,
+            on_event=on_event,
+        )
 
     except ConfigurationError:
         # Gate rejections (no_cookies/not_queued/slot_busy) are fail-fast
