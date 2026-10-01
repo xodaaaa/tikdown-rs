@@ -25,6 +25,7 @@ from tikdown_rs.models import (
     reserve_download_slot,
 )
 from tikdown_rs.models.monitored_account import BackfillStatus
+from tikdown_rs.models.video import ErrorCategory, VideoStatus
 
 LEGAL_VIDEO_STATUSES = ["pending", "downloaded", "failed", "cancelled", "skipped"]
 LEGAL_BACKFILL_STATUSES = [
@@ -131,6 +132,40 @@ def test_backfill_status_enum_pins_check_literals() -> None:
     assert match is not None
     literals = [part.strip().strip("'") for part in match.group(1).split(",")]
     assert literals == [status.value for status in BackfillStatus]
+
+
+def test_video_status_enum_pins_check_literals() -> None:
+    """VideoStatus values are byte-identical to the CHECK literals (C2, 3.3)."""
+    assert issubclass(VideoStatus, StrEnum)
+    check = next(
+        constraint
+        for constraint in Video.__table__.constraints
+        if getattr(constraint, "name", None) == "ck_videos_status"
+    )
+    match = re.search(r"IN \((.*?)\)", str(check.sqltext))
+    assert match is not None
+    literals = [part.strip().strip("'") for part in match.group(1).split(",")]
+    assert literals == [status.value for status in VideoStatus]
+
+
+def test_error_category_enum_covers_check_literals() -> None:
+    """ErrorCategory covers the full stored CHECK domain (C2, 4.4).
+
+    Superset, not equality: LOCAL and INFO are classifier outputs the CHECK
+    cannot store (persisted as error_category NULL, 4.7).
+    """
+    assert issubclass(ErrorCategory, StrEnum)
+    check = next(
+        constraint
+        for constraint in Video.__table__.constraints
+        if getattr(constraint, "name", None) == "ck_videos_error_category"
+    )
+    match = re.search(r"IN \((.*?)\)", str(check.sqltext))
+    assert match is not None
+    literals = [part.strip().strip("'") for part in match.group(1).split(",")]
+    assert set(literals) <= {category.value for category in ErrorCategory}
+    assert literals == ["definitive", "transient", "integrity"]
+    assert {"local", "info"} == {category.value for category in ErrorCategory} - set(literals)
 
 
 @pytest.mark.parametrize("backfill_status", LEGAL_BACKFILL_STATUSES)

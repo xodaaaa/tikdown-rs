@@ -43,13 +43,14 @@ from tikdown_rs.models import (
     release_backfill_slot,
 )
 from tikdown_rs.models.monitored_account import BackfillStatus
+from tikdown_rs.models.video import VideoStatus
 from tikdown_rs.services.cookies import get_working_cookie
 from tikdown_rs.services.videos import handle_download_result, persist_download_failure
 
 logger = logging.getLogger("tikdown_rs.services.backfill")
 
 _BREAKER_THRESHOLD = 5
-_TERMINAL_VIDEO_STATUSES = ("downloaded", "skipped", "failed")
+_TERMINAL_VIDEO_STATUSES = (VideoStatus.DOWNLOADED, VideoStatus.SKIPPED, VideoStatus.FAILED)
 
 
 def _emit_event(on_event, event: str, **fields) -> None:
@@ -163,7 +164,7 @@ async def _get_or_create_pending_video(
             # known upload_date of THIS listing (feed is newest-first), never
             # NULL — mirrors services/monitor.py's birth-path fallback.
             upload_date=entry.get("upload_date") or newest_date or "",
-            status="pending",
+            status=VideoStatus.PENDING,
             created_at=now,
             updated_at=now,
         )

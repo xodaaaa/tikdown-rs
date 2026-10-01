@@ -16,7 +16,7 @@ files; run_backfill = 303 lines (26 branches, 9 returns); Protocol declares
       models/monitored_account.py; replace literals in services/backfill.py,
       services/backfill_ops.py, models (+ bot/CLI display strings untouched —
       user-facing text is NOT enum work). DB format unchanged (StrEnum).
-- [ ] C2 — Remaining state literals: video status literals (services/videos.py,
+- [x] C2 — Remaining state literals: video status literals (services/videos.py,
       models/video.py, monitor.py, bot/dispatcher.py display paths) +
       classification-string enum (classify_error returns 'definitive' etc. —
       ErrorCategory StrEnum) if it fits under budget; else split.
@@ -36,3 +36,5 @@ must match the DB CHECK literals byte-for-byte; add a test pinning
 enum.values == CHECK literals so they can never drift.
 
 C1 evidence: two worker passes (7-member enum after CHECK contradiction resolved by owner; full 25-site sweep after first pass under-converted). Commit 80ae4c7. Review review-a6822ed8ad00cb81 approved 1/1, ack burned. Raw-SQL literals kept (documented); video-status literals deliberately excluded (different domain).
+
+C2 evidence: VideoStatus (5) + ErrorCategory (5, incl. INTEGRITY per owner decision B) StrEnums; 12 Python sites converted; static_site/status comparisons left (StrEnum == holds); raw SQL kept. Commit 71ef159. Review review-ef80ff20de3d7dd7 approved 4/4, ack burned.
