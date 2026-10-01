@@ -11,7 +11,7 @@ files; run_backfill = 303 lines (26 branches, 9 returns); Protocol declares
 
 ## Chains (each = candidate ≤ 400 diff lines + review)
 
-- [ ] C1 — Backfill status enum. `BackfillStatus` StrEnum (values == the CHECK
+- [x] C1 — Backfill status enum. `BackfillStatus` StrEnum (values == the CHECK
       literals: idle/queued/backfilling/paused/completed/cancelled) in
       models/monitored_account.py; replace literals in services/backfill.py,
       services/backfill_ops.py, models (+ bot/CLI display strings untouched —
@@ -34,3 +34,5 @@ Ruff PLR0911/0912/0915 must clear for run_backfill after C4/C5. Architecture
 test (tests/test_architecture.py) and layering must stay green. StrEnum values
 must match the DB CHECK literals byte-for-byte; add a test pinning
 enum.values == CHECK literals so they can never drift.
+
+C1 evidence: two worker passes (7-member enum after CHECK contradiction resolved by owner; full 25-site sweep after first pass under-converted). Commit 80ae4c7. Review review-a6822ed8ad00cb81 approved 1/1, ack burned. Raw-SQL literals kept (documented); video-status literals deliberately excluded (different domain).
