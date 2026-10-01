@@ -51,6 +51,7 @@ from tikdown_rs.core.notifications import (
 from tikdown_rs.core.notifications.events import EVENT_DISK_PAUSED
 from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import MonitoredAccount, Video
+from tikdown_rs.models.video import ErrorCategory, VideoStatus
 
 logger = logging.getLogger("tikdown_rs.services.videos")
 
@@ -134,7 +135,7 @@ async def _video_rows(
     if username is not None:
         query = query.where(MonitoredAccount.username == _normalize_username(username))
     if exclude_pending:
-        query = query.where(Video.status != "pending")
+        query = query.where(Video.status != VideoStatus.PENDING)
     if limit is not None:
         query = query.limit(limit)
     async with session_factory() as session:
@@ -349,7 +350,7 @@ async def _persist_terminal(
         row.error_message = _truncate(error_message) if error_message else None
         row.retry_count = retry_count
         row.updated_at = now
-        if status == "downloaded":
+        if status == VideoStatus.DOWNLOADED:
             row.local_path = file_path
             row.file_size = file_size
             row.file_hash = file_hash
@@ -434,7 +435,7 @@ async def handle_download_result(
         return await _persist_terminal(
             session_factory,
             video_row_id,
-            status="downloaded",
+            status=VideoStatus.DOWNLOADED,
             error_category=None,
             error_message=None,
             retry_count=base_retry_count,
@@ -456,7 +457,7 @@ async def handle_download_result(
         return await _persist_terminal(
             session_factory,
             video_row_id,
-            status="skipped",
+            status=VideoStatus.SKIPPED,
             error_category=None,
             error_message=None,
             retry_count=base_retry_count,
@@ -476,8 +477,8 @@ async def handle_download_result(
     return await _persist_terminal(
         session_factory,
         video_row_id,
-        status="failed",
-        error_category="integrity",
+        status=VideoStatus.FAILED,
+        error_category=ErrorCategory.INTEGRITY,
         error_message=reason,
         retry_count=base_retry_count,
         on_event=on_event,
@@ -514,7 +515,11 @@ async def persist_download_failure(
             raise ConfigurationError(f"unknown video row id: {video_row_id}")
 
     category = classify_error(exc)
-    if category not in ("definitive", "transient", "integrity"):
+    if category not in (
+        ErrorCategory.DEFINITIVE,
+        ErrorCategory.TRANSIENT,
+        ErrorCategory.INTEGRITY,
+    ):
         logger.warning(
             "video %s failed with unstashable category '%s' (%s); "
             "persisting failed with error_category NULL",
@@ -534,7 +539,7 @@ async def persist_download_failure(
     return await _persist_terminal(
         session_factory,
         video_row_id,
-        status="failed",
+        status=VideoStatus.FAILED,
         error_category=category,
         error_message=message,
         retry_count=base_retry_count,

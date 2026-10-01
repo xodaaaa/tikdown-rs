@@ -51,6 +51,7 @@ from tikdown_rs.core.notifications.events import (
 )
 from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import DaemonState, MonitoredAccount, Video
+from tikdown_rs.models.video import VideoStatus
 from tikdown_rs.services.cookies import get_working_cookie
 from tikdown_rs.services.videos import handle_download_result, persist_download_failure
 
@@ -211,7 +212,7 @@ async def discover_new_videos(
                     description=entry.get("description"),
                     duration=entry.get("duration"),
                     upload_date=entry.get("upload_date") or newest_date or "",
-                    status="pending",  # 3.3/T-DATA-1: real CHECK, real INSERT
+                    status=VideoStatus.PENDING,  # 3.3/T-DATA-1: real CHECK, real INSERT
                     created_at=now,
                     updated_at=now,
                 )
@@ -285,7 +286,7 @@ async def download_pendings(
             (
                 await session.execute(
                     select(Video)
-                    .where(Video.account_id == account.id, Video.status == "pending")
+                    .where(Video.account_id == account.id, Video.status == VideoStatus.PENDING)
                     .order_by(Video.created_at.asc())
                 )
             )

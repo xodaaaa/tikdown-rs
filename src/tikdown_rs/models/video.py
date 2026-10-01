@@ -5,10 +5,38 @@ schema: without it the monitor's discovered-video INSERT fails silently, swallow
 as a WARNING, indistinguishable from "the account posted nothing".
 """
 
+from enum import StrEnum
+
 from sqlalchemy import CheckConstraint, ForeignKey, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from tikdown_rs.models import Base
+
+
+class VideoStatus(StrEnum):
+    """Video status; values are byte-identical to the CHECK literals (3.3)."""
+
+    PENDING = "pending"
+    DOWNLOADED = "downloaded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    SKIPPED = "skipped"
+
+
+class ErrorCategory(StrEnum):
+    """Error-category domain (4.4).
+
+    DEFINITIVE/TRANSIENT/INTEGRITY are the stored CHECK values. LOCAL
+    (disk-full, T-ENGINE-27) and INFO (empty account) are classifier outputs
+    the CHECK cannot store: the row persists with error_category NULL and the
+    category stays actionable in logs (4.7).
+    """
+
+    DEFINITIVE = "definitive"
+    TRANSIENT = "transient"
+    LOCAL = "local"
+    INFO = "info"
+    INTEGRITY = "integrity"
 
 
 class Video(Base):
