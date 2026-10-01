@@ -22,7 +22,7 @@ mirror drop happens FIRST, before any further archive.py touching.
       send, catch-and-log per event; event backlog/spool stays out of scope
       per §17.1 deferral). Noop when no bot/token. Injected after bot start;
       `daemon.started` and later events become observable. Est. ~+250 lines.
-- [~] Chain 3 (split: 3a done; 3b - test-only seams - pending) — Dead code + seams. Delete: `core/backoff.py`, `JOB_IDS`,
+- [x] Chain 3 (3a + 3b done) — Dead code + seams. Delete: `core/backoff.py`, `JOB_IDS`,
       `BACKFILL_STATUSES`, `cli/cookies._open_engine`, dead branches in
       `services/maintenance.py` (ProfileData carries no following_count /
       total_likes), `YtDlpEngine.validate_cookie` + `ProbeFn` (the service in
@@ -106,3 +106,17 @@ is_online, restarting, reset_contention_window, _format_status_lines - move to
 tests/ or delete per grep) and chain 4 (HELP_TEXT real, strip internal tags from
 user strings, prepare_invocation double parse, _utcnow_iso dedup x9). Each with
 its own review cycle. Final full gate + push at the end.
+
+
+## Chain 3b evidence
+
+- Worker run: six seams removed (set_stop_requested, seconds_until_expiry,
+  NetworkMonitor.is_online, PollingSupervisor.restarting,
+  reset_contention_window, cli/daemon._format_status_lines); tests keep intent
+  via production APIs / private attrs. Commit ce501aa (13 files, -74/+44).
+  Gate green (tests green, ruff check + format clean).
+- Review review-c67dece463950333 (risk high, 13 files / 118 lines, consent granted):
+  4/4 lenses, APPROVED, no correction. Ack burned (revision ad977dca...).
+- Informational follow-ups: R2-001..005 (readability notes on relocated test
+  helpers) + R3-cookie-countdown-tautology (the moved countdown helper test is
+  now tautological — candidate for a behavior-based test later).
