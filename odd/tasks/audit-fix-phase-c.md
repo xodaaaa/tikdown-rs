@@ -32,7 +32,7 @@ mirror drop happens FIRST, before any further archive.py touching.
       `PollingSupervisor.restarting`, `reset_contention_window` (move test
       helper into tests/ importing the private global),
       `cli/daemon._format_status_lines`. Est. ~−350 lines.
-- [ ] Chain 4 — Small fixes. `HELP_TEXT` matches the real command set
+- [x] Chain 4 — Small fixes. `HELP_TEXT` matches the real command set
       (`/stats` is implemented; document /add /pause /resume /remove
       /backfill /cookies); remove internal tags (`T-ENGINE-19`, `§17.1`) from
       user-facing bot strings; `prepare_invocation` returns the passed
@@ -120,3 +120,22 @@ its own review cycle. Final full gate + push at the end.
 - Informational follow-ups: R2-001..005 (readability notes on relocated test
   helpers) + R3-cookie-countdown-tautology (the moved countdown helper test is
   now tautological — candidate for a behavior-based test later).
+
+
+## Chain 4 evidence
+
+- Worker run (stalled at the end, work completed: parent verified all 4 items +
+  gate itself). Commit 7d23fdd: HELP_TEXT real (pins the registered handler set),
+  user-facing bot strings without internal tags, prepare_invocation returns the
+  caller's Settings, utcnow_iso dedup via new core/timeutil.py (8 defs removed).
+  Gate: pytest green, ruff check + format clean.
+- Review review-bbea99f875f92794 (risk high, 13 files / 104 lines, consent granted):
+  4/4 lenses, APPROVED, no correction. Ack burned (revision 5ecb656a...).
+- Informational follow-ups: R2-help-availability (HELP_TEXT lists unavailable
+  commands — intentional), R2-help-test-drift.
+
+## PHASE C CLOSED
+
+All 4 chains merged and pushed. Final gate at each chain; totals: mirror table
+retired (rename migration 0004), notifications live, ~270 lines of dead/seam
+code removed, 8 timestamp defs -> 1, user-facing strings clean.
