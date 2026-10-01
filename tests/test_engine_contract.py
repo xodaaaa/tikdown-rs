@@ -26,7 +26,7 @@ PROTOCOL_METHODS = ("download", "extract_profile", "list_videos", "validate_cook
 class FullSignatureDouble:
     """Test double implementing ALL Protocol methods with full **kwargs surface."""
 
-    def download(
+    async def download(
         self,
         page_url: str,
         video_id: str,
@@ -83,8 +83,18 @@ def test_download_signature_double_matches_concrete() -> None:
     # Protocol change that drifts from the concrete engine fails here first.
     concrete = inspect.signature(YtDlpEngine.download)
     double = inspect.signature(FullSignatureDouble.download)
+    protocol = inspect.signature(DownloadEngine.download)
     assert list(concrete.parameters) == list(double.parameters)
+    assert list(concrete.parameters) == list(protocol.parameters)
     assert concrete.return_annotation is not inspect.Signature.empty
+
+
+def test_download_is_declared_and_implemented_async() -> None:
+    # C3: the Protocol declares download as async; the concrete engine must
+    # agree, not be a sync impl hidden behind a falsy sync Protocol.
+    assert inspect.iscoroutinefunction(DownloadEngine.download)
+    assert inspect.iscoroutinefunction(YtDlpEngine.download)
+    assert inspect.iscoroutinefunction(FullSignatureDouble.download)
 
 
 # --- core/paths (4.5, T-BACKFILL-21, T-ENGINE-14) ---

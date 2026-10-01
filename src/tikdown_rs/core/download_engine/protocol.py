@@ -49,7 +49,7 @@ class ProfileData(TypedDict):
 class DownloadEngine(Protocol):
     """The engine surface the rest of the system programs against (4.8)."""
 
-    def download(
+    async def download(
         self,
         page_url: str,
         video_id: str,
