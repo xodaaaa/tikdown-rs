@@ -42,6 +42,7 @@ from tikdown_rs.models import (
     acquire_backfill_slot,
     release_backfill_slot,
 )
+from tikdown_rs.models.monitored_account import BackfillStatus
 from tikdown_rs.services.cookies import get_working_cookie
 from tikdown_rs.services.videos import handle_download_result, persist_download_failure
 
@@ -208,7 +209,7 @@ async def _pause_for_breaker(session_factory, account_id: int) -> str:
             {"now": _utcnow_iso(), "id": account_id},
         )
         await session.commit()
-    return "paused" if result.rowcount == 1 else "cancelled"
+    return BackfillStatus.PAUSED if result.rowcount == 1 else BackfillStatus.CANCELLED
 
 
 async def _pause_for_network(
@@ -282,7 +283,7 @@ async def reconcile_pending_monitor_transitions(
                     select(MonitoredAccount.id).where(
                         MonitoredAccount.mode == "history",
                         MonitoredAccount.monitor_after_backfill.is_(True),
-                        MonitoredAccount.backfill_status == "completed",
+                        MonitoredAccount.backfill_status == BackfillStatus.COMPLETED,
                     )
                 )
             )
@@ -340,7 +341,11 @@ async def collect_queued_backfills(
             (
                 await session.execute(
                     select(MonitoredAccount)
-                    .where(MonitoredAccount.backfill_status.in_(("queued", "paused")))
+                    .where(
+                        MonitoredAccount.backfill_status.in_(
+                            (BackfillStatus.QUEUED, BackfillStatus.PAUSED)
+                        )
+                    )
                     .order_by(MonitoredAccount.id)
                 )
             )
@@ -350,7 +355,7 @@ async def collect_queued_backfills(
 
     usernames: list[str] = []
     for row in rows:
-        if row.backfill_status == "paused":
+        if row.backfill_status == BackfillStatus.PAUSED:
             if row.needs_review:
                 # B8/§9.6: a breaker pause waits for MANUAL review -- never
                 # collected, never churned into a not_queued warning loop.
@@ -435,7 +440,7 @@ async def run_backfill(
             account = await session.get(MonitoredAccount, account_id)
         if account is None:
             raise ConfigurationError(f"unknown account id: {account_id}")
-        if account.backfill_status != "queued":
+        if account.backfill_status != BackfillStatus.QUEUED:
             raise ConfigurationError(
                 f"backfill.not_queued: account {account.username} backfill_status is "
                 f"'{account.backfill_status}', expected 'queued'"
@@ -459,7 +464,7 @@ async def run_backfill(
             _emit_event(
                 on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
             )
-            return "cancelled"
+            return BackfillStatus.CANCELLED
 
         # M11/T-BACKFILL-3: newest-date fallback for absent entry dates (the
         # feed is newest-first); mirrors services/monitor.py's insert path.
@@ -478,13 +483,13 @@ async def run_backfill(
             # T-BACKFILL-10: re-read the status every video (N=1, one row).
             async with session_factory() as session:
                 account = await session.get(MonitoredAccount, account_id)
-            if account.backfill_status == "cancelled":
+            if account.backfill_status == BackfillStatus.CANCELLED:
                 # T-BACKFILL-8: early return, NO completed event, NO
                 # --then-monitor transition.
                 _emit_event(
                     on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
                 )
-                return "cancelled"
+                return BackfillStatus.CANCELLED
 
             # M3: mid-run outage gate, consulted EVERY video BEFORE any work.
             # An offline probe pauses with the existing 'network' reason and
@@ -500,7 +505,7 @@ async def run_backfill(
                         username=username,
                         reason="network",
                     )
-                    return "paused"
+                    return BackfillStatus.PAUSED
                 # A concurrent cancel/state change won the row: the next
                 # iteration's re-read surfaces it (T-BACKFILL-10).
                 continue
@@ -596,7 +601,7 @@ async def run_backfill(
                 _emit_event(
                     on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
                 )
-                return "cancelled"  # T-BACKFILL-7: a concurrent cancel won
+                return BackfillStatus.CANCELLED  # T-BACKFILL-7: a concurrent cancel won
 
         async with session_factory() as session:
             finished = await session.execute(
@@ -612,7 +617,7 @@ async def run_backfill(
             _emit_event(
                 on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
             )
-            return "cancelled"  # T-BACKFILL-8: cancel won; no transition
+            return BackfillStatus.CANCELLED  # T-BACKFILL-8: cancel won; no transition
         _emit_event(
             on_event,
             EVENT_BACKFILL_COMPLETED,
@@ -623,7 +628,7 @@ async def run_backfill(
         )
         # 9.5: idempotent same-commit transition (safe to double-call).
         await transition_to_monitor_after_backfill(session_factory, account_id)
-        return "completed"
+        return BackfillStatus.COMPLETED
 
     except asyncio.CancelledError:
         # 9.1 (T-BACKFILL-6): distinguish the cause, unwedge the state, return.
@@ -634,7 +639,7 @@ async def run_backfill(
             cause = "disk"
         elif network_online_fn is not None and not network_online_fn():
             cause = "network"
-        status = "paused" if cause else "queued"
+        status = BackfillStatus.PAUSED if cause else BackfillStatus.QUEUED
         async with session_factory() as session:
             await session.execute(
                 text(
@@ -650,7 +655,7 @@ async def run_backfill(
                 },
             )
             await session.commit()
-        if status == "paused":
+        if status == BackfillStatus.PAUSED:
             _emit_event(
                 on_event,
                 EVENT_BACKFILL_PAUSED,
@@ -683,7 +688,7 @@ async def run_backfill(
                 {"now": _utcnow_iso(), "id": account_id},
             )
             await session.commit()
-        return "failed"
+        return BackfillStatus.FAILED
 
     finally:
         async with session_factory() as session:
