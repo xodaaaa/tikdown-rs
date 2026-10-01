@@ -15,7 +15,7 @@ import pytest
 from typer.testing import CliRunner
 
 from tikdown_rs.cli.main import app
-from tikdown_rs.core.cookie_parser import clamp_expiry, seconds_until_expiry
+from tikdown_rs.core.cookie_parser import clamp_expiry
 from tikdown_rs.core.db import create_db_engine, make_session_factory, sqlite_url_for
 from tikdown_rs.core.errors import ConfigurationError, classify_error
 from tikdown_rs.core.migrations import run_migrations
@@ -321,6 +321,13 @@ def test_clamp_expiry_caps_absurd_epoch() -> None:
 
 def test_clamp_expiry_keeps_normal_value() -> None:
     assert clamp_expiry(1_700_000_000) == 1_700_000_000
+
+
+def seconds_until_expiry(expiry_ts: int, now_ts: int) -> int:
+    """Countdown helper (moved from core/cookie_parser.py, test-only there):
+    positive seconds if future, 0 if past. Deliberately NOT clamp_expiry-based:
+    a countdown must never report a clamped fake future (7)."""
+    return max(0, expiry_ts - now_ts)
 
 
 def test_seconds_until_expiry_future_is_positive() -> None:

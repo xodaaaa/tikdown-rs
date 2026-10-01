@@ -34,12 +34,6 @@ def _upsert(values: dict[str, object]):
     )
 
 
-async def set_stop_requested(session: AsyncSession) -> None:
-    """Set stop_requested=1, committing immediately (T-DB-13)."""
-    await session.execute(_upsert({"stop_requested": True}))
-    await session.commit()
-
-
 async def clear_stop_requested(session: AsyncSession) -> None:
     """Clear stop_requested, committing immediately (T-CLI-7, T-DB-13).
 

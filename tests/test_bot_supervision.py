@@ -148,11 +148,11 @@ async def test_restarting_flag_prevents_concurrent_restart():
     supervisor = _supervisor(app, max_failures=1)
     first = asyncio.create_task(supervisor._check_once())
     await asyncio.sleep(0.005)  # first check is inside its restart now
-    assert supervisor.restarting  # flag is set while the restart runs
+    assert supervisor._restarting  # flag is set while the restart runs
     await supervisor._check_once()  # concurrent entry must not restart again
     await first
     assert len(_restart_sequences(app.calls)) == 1
-    assert not supervisor.restarting
+    assert not supervisor._restarting
 
 
 async def test_failed_restart_is_retried_next_cycle_and_counter_not_reset():

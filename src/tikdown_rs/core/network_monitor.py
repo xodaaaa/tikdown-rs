@@ -82,11 +82,6 @@ class NetworkMonitor:
         self._offline = False
         self.offline_since: float | None = None
 
-    @property
-    def is_online(self) -> bool:
-        """True while the last threshold evaluation says online (8.1)."""
-        return not self._offline
-
     def _emit(self, event: str, **payload) -> None:
         if self._on_event is not None:
             self._on_event({"event": event, **payload})

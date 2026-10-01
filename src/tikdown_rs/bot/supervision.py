@@ -113,10 +113,6 @@ class PollingSupervisor:
         self._consecutive_failures = 0
 
     @property
-    def restarting(self) -> bool:
-        return self._restarting
-
-    @property
     def consecutive_failures(self) -> int:
         return self._consecutive_failures
 

@@ -28,11 +28,11 @@ from tikdown_rs.core.daemon_state import (
     record_last_known_good_ytdlp,
 )
 from tikdown_rs.core.db import (
+    _locked_at,
     create_db_engine,
     db_busy_count_5min,
     make_session_factory,
     record_db_locked_error,
-    reset_contention_window,
 )
 from tikdown_rs.core.network_monitor import NetworkMonitor
 from tikdown_rs.core.notifications import InMemoryNotificationService
@@ -529,15 +529,20 @@ async def test_profile_refresh_job_updates_counters(tmp_path, caplog) -> None:
 # --- 5.6 contention: counter + heartbeat persistence (T-DB-14) ---
 
 
+def _reset_contention_window() -> None:
+    """Test helper (moved from core/db.py): clear the process-wide lock window."""
+    _locked_at.clear()
+
+
 async def test_contention_error_injected_into_listener_increments_counter() -> None:
-    reset_contention_window()
+    _reset_contention_window()
     assert record_db_locked_error("OperationalError: database is locked") is True
     assert record_db_locked_error("some other failure") is False
     assert db_busy_count_5min() == 1
 
 
 async def test_heartbeat_persists_contention_window_to_daemon_state(tmp_path, caplog) -> None:
-    reset_contention_window()
+    _reset_contention_window()
     record_db_locked_error("database is locked")
     record_db_locked_error("database is locked")
     notifications = InMemoryNotificationService()

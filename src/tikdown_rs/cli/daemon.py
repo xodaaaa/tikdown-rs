@@ -31,7 +31,6 @@ from tikdown_rs.services.status import (
     format_status_lines,
     gather_status,
     heartbeat_age_seconds,
-    status_from_row,
 )
 
 # ponytail: the 4.1 degraded GATE for `monitor start` / `backfill run` lives
@@ -75,27 +74,6 @@ def _stop() -> None:
 def stop() -> None:
     """Request a graceful shutdown of the running daemon."""
     run_or_exit(_stop)
-
-
-def _format_status_lines(
-    row,
-    cookie_counts: dict[str, int],
-    supervised_count: int | None = None,
-    zombie_count: int | None = None,
-    recent_error_lines: list[str] | None = None,
-) -> list[str]:
-    """Compatibility seam: tests/test_monitor_state.py pins this entry point.
-
-    The logic lives in services.status (status_from_row + format_status_lines).
-    """
-    status = status_from_row(
-        row,
-        cookie_counts,
-        supervised_tasks=supervised_count,
-        ytdlp_zombie_threads=zombie_count,
-        recent_error_lines=recent_error_lines,
-    )
-    return format_status_lines(status)
 
 
 def _status() -> None:

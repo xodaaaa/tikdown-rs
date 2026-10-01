@@ -99,11 +99,6 @@ def db_busy_count_5min() -> int:
     return len(_locked_at)
 
 
-def reset_contention_window() -> None:
-    """Test helper: clear the process-wide window."""
-    _locked_at.clear()
-
-
 def _register_contention_listener(engine: AsyncEngine) -> None:
     """Engine-level handle_error listener feeding the 5.6 counter (T-DB-14)."""
 

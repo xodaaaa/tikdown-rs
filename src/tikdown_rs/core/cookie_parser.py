@@ -36,19 +36,10 @@ _MAX_EXPIRY_TS = int(datetime(2100, 12, 31, tzinfo=UTC).timestamp())
 def clamp_expiry(ts: int) -> int:
     """Clamp an absurd expiry epoch to 2100-12-31 before fromtimestamp (T-COOKIES-5).
 
-    This is the clamp for STORING expiry values; use seconds_until_expiry for
-    countdowns (7: never reuse the clamp helper for countdown).
+    This is the clamp for STORING expiry values; never reuse it for
+    countdowns -- a countdown must never report a clamped fake future (7).
     """
     return min(ts, _MAX_EXPIRY_TS)
-
-
-def seconds_until_expiry(expiry_ts: int, now_ts: int) -> int:
-    """Dedicated countdown (7): positive seconds if future, 0 if past.
-
-    Deliberately NOT implemented via clamp_expiry: they are inverse helpers and
-    a countdown must never report a clamped fake future.
-    """
-    return max(0, expiry_ts - now_ts)
 
 
 def detect_cookie_format(text: str) -> Literal["netscape", "json", "cookie-string"]:
