@@ -35,7 +35,6 @@ import os
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select, text
@@ -50,6 +49,7 @@ from tikdown_rs.core.notifications import (
     EVENT_DOWNLOAD_SKIPPED,
 )
 from tikdown_rs.core.notifications.events import EVENT_DISK_PAUSED
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import MonitoredAccount, Video
 
 logger = logging.getLogger("tikdown_rs.services.videos")
@@ -196,10 +196,6 @@ class HandleResult:
     outcome: str  # 'downloaded' | 'skipped' | 'failed'
     error_category: str | None = None
     file_path: str | None = None
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _sha256_file(path: Path) -> str:

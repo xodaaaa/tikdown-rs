@@ -119,11 +119,9 @@ MSG_NO_DAEMON_STATE = "Sin estado del daemon: ejecuta 'tikdown-rs daemon run' al
 MSG_MONITOR_PENDING = (
     "/monitor todavía no está disponible: no existe aún una ruta de servicio para cambiar el modo."
 )
-MSG_CHECK_PENDING = (
-    "/check todavía no está disponible: la sonda de red llega con el motor real (T-ENGINE-19)."
-)
+MSG_CHECK_PENDING = "/check todavía no está disponible: la sonda de red llega con el motor real."
 MSG_NOTIFY_OUT_OF_SCOPE = (
-    "Las notificaciones push de descargas están fuera del alcance base (§17.1): "
+    "Las notificaciones push de descargas están fuera del alcance base: "
     "el contrato de eventos ya existe para cablearlas en una épica futura."
 )
 MSG_COOKIE_INSTRUCTIONS = (
@@ -141,12 +139,21 @@ COOKIE_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 HELP_TEXT = (
     "<b>TikDown-rs</b>\n"
     "Comandos disponibles:\n"
+    "/start, /help — esta ayuda\n"
     "/list — cuentas monitoreadas (paginado)\n"
-    "/stats — estadísticas (próximamente)\n"
+    "/stats — estadísticas de descargas\n"
     "/disk — espacio en disco y pausa por watermark\n"
     "/status — estado del daemon\n"
     "/last — últimos videos archivados\n"
-    "/help — esta ayuda"
+    "/add — añadir cuenta (historial, sin monitoreo)\n"
+    "/backfill — encolar backfill de una cuenta\n"
+    "/pause — pausar una cuenta\n"
+    "/resume — reanudar una cuenta\n"
+    "/remove — eliminar una cuenta\n"
+    "/cookies — cómo enviarme cookies\n"
+    "/monitor — todavía no está disponible\n"
+    "/check — todavía no está disponible\n"
+    "/notify — fuera del alcance base"
 )
 
 

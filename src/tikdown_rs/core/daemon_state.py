@@ -7,22 +7,17 @@ writes that may hit an absent singleton row use native SQLite upserts (T-DB-12).
 
 import logging
 import os
-from datetime import UTC, datetime
 
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tikdown_rs.core.errors import ConfigurationError
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models.daemon_state import DaemonState
 
 logger = logging.getLogger("tikdown_rs.core.daemon_state")
 
 _ROW_ID = 1
-
-
-def _utcnow_iso() -> str:
-    """ISO8601 UTC timestamp with explicit offset (daemon_state timestamp columns)."""
-    return datetime.now(UTC).isoformat()
 
 
 def _upsert(values: dict[str, object]):

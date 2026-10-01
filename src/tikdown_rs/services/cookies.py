@@ -11,7 +11,6 @@ point that needs cookies, never in this layer: the probe is INJECTED as
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import case, select
@@ -19,13 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.cookie_parser import to_canonical_netscape, warn_missing_sid_tt
 from tikdown_rs.core.errors import ConfigurationError, classify_error
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import Cookie
 
 logger = logging.getLogger("tikdown_rs.services.cookies")
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 async def add_cookie(

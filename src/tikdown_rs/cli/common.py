@@ -40,11 +40,12 @@ def raise_unimplemented(command: str) -> None:
 
 
 async def prepare_invocation(settings: Settings) -> Settings:
-    """Migrations + fresh Settings per invocation (10.2, 5.4).
+    """Migrations + returns the caller's Settings (10.2, 5.4).
 
     T-ASYNC-4: Alembic's env.py calls asyncio.run() internally, so the migration
     itself must run via to_thread, never on the loop thread. `daemon healthcheck`
     and --version never call this: no migrations, no lock (5.4 exemption).
+    Callers pass their own load_settings() result; this no longer re-parses env.
     """
     await asyncio.to_thread(run_migrations, settings.data_dir)
-    return Settings()
+    return settings

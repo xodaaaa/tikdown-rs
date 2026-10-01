@@ -381,6 +381,17 @@ class TestRegisterHandlers:
         assert len(callbacks) == 1
         assert callbacks[0].pattern.pattern == r"^listp:"
 
+    def test_help_text_covers_every_registered_command(self, bot_factory):
+        """HELP_TEXT can't drift from the registered handler set: every /cmd is listed."""
+        bot, _ = bot_factory()
+        bot.register_handlers()
+        registered = {
+            c for h in bot.application.handlers if hasattr(h, "commands") for c in h.commands
+        }
+        assert sorted(registered) == self.ALL_COMMANDS
+        missing = [c for c in self.ALL_COMMANDS if f"/{c}" not in dispatcher.HELP_TEXT]
+        assert missing == []
+
     def test_registers_document_handler(self, bot_factory):
         # T5b: cookie upload via MessageHandler(filters.Document.ALL) — verified PTB import.
         bot, _ = bot_factory()

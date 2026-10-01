@@ -10,20 +10,16 @@ from the first schema.
 """
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.errors import ConfigurationError
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import MonitoredAccount, Video
 
 VALID_MODES = ("history", "monitor")
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _normalize(username: str) -> str:

@@ -17,13 +17,12 @@ the archive discard. The re-download itself happens when the account's
 backfill is run/queued again: run_backfill's pending flow picks the rows up.
 """
 
-from datetime import UTC, datetime
-
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.errors import ConfigurationError
+from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import MonitoredAccount
 from tikdown_rs.services.accounts import get_account
 
@@ -35,10 +34,6 @@ _QUEUEABLE = ("idle", "completed", "failed", "cancelled", "paused", "queued")
 #: non-terminal, so it is an idempotent no-op.
 _TERMINAL_BACKFILL = ("completed", "failed")
 _RETRIABLE_CATEGORIES = ("transient", "integrity")
-
-
-def _utcnow_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 async def queue_backfill(

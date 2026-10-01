@@ -159,3 +159,16 @@ def test_run_or_exit_returns_value() -> None:
     from tikdown_rs.cli.common import run_or_exit
 
     assert run_or_exit(lambda a, b: a + b, 2, 3) == 5
+
+
+async def test_prepare_invocation_returns_passed_settings_and_migrates(monkeypatch, tmp_path):
+    """Returns the caller's Settings object (no double env parse) and still migrates."""
+    from tikdown_rs.cli import common
+    from tikdown_rs.core.config import Settings
+
+    settings = Settings(data_dir=tmp_path)
+    called = []
+    monkeypatch.setattr(common, "run_migrations", lambda data_dir: called.append(data_dir))
+    result = await common.prepare_invocation(settings)
+    assert result is settings
+    assert called == [settings.data_dir]
