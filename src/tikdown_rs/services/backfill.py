@@ -20,6 +20,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 from sqlalchemy import select, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -392,6 +393,92 @@ async def collect_queued_backfills(
     return usernames
 
 
+class _BackfillLoopState(NamedTuple):
+    """Everything the per-video loop of ``run_backfill`` needs up front."""
+
+    entries: list[dict]
+    newest_date: str
+    scope_cursor: str | None
+    moving_cursor: str | None
+    done: int
+    breaker: BackfillBreaker
+
+
+async def _acquire_run_slot(
+    session_factory: async_sessionmaker[AsyncSession],
+    account_id: int,
+    on_event,
+) -> str:
+    """Gates 1-2 (9.1): a working cookie must exist, then take the CAS slot."""
+    # Gate 1 (9.1, T-BACKFILL-12): real cookies, never a silent default.
+    if await get_working_cookie(session_factory) is None:
+        _emit_event(on_event, EVENT_BACKFILL_NO_COOKIES, account_id=account_id)
+        raise ConfigurationError("backfill.no_cookies: no working cookie")
+
+    # Gate 2 (9.1, T-BACKFILL-20): cross-process CAS slot BEFORE the state
+    # check, so the concurrent second run hits slot_busy -- the exact
+    # two-backfills-on-one-account risk the slot exists to stop. NEVER
+    # proceed busy.
+    slot_owner = f"backfill:{account_id}"
+    async with session_factory() as session:
+        won = await acquire_backfill_slot(session, slot_owner)
+    if not won:
+        raise ConfigurationError("backfill.slot_busy: the backfill slot is held by another run")
+    return slot_owner
+
+
+async def _prepare_backfill_loop(
+    session_factory: async_sessionmaker[AsyncSession],
+    account_id: int,
+    *,
+    username: str,
+    engine,
+    max_entries: int | None,
+    on_event,
+) -> _BackfillLoopState | None:
+    """Mark backfilling, list the feed and load the loop's initial state.
+
+    Returns None when the run was cancelled while persisting the total
+    (T-BACKFILL-5); the caller maps that to BackfillStatus.CANCELLED so the
+    slot release (``finally``) runs exactly as before the extraction.
+    """
+    await _mark_backfilling(session_factory, account_id)
+    _emit_event(on_event, EVENT_BACKFILL_STARTED, account_id=account_id, username=username)
+
+    # Listing INSIDE the try (T-BACKFILL-6): a CancelledError during the
+    # listing must unwedge the state exactly like one mid-download.
+    # B1 (T-ASYNC-8): the listing is a blocking yt-dlp call — never on the loop.
+    entries = [
+        e for e in await asyncio.to_thread(engine.list_videos, username, max_entries) if e.get("id")
+    ]
+    # T-BACKFILL-5: the total is computed and persisted AFTER the real
+    # listing, never from a still-None variable.
+    if not await _persist_total(session_factory, account_id, len(entries)):
+        _emit_event(on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username)
+        return None
+
+    # M11/T-BACKFILL-3: newest-date fallback for absent entry dates (the
+    # feed is newest-first); mirrors services/monitor.py's insert path.
+    newest_date = max((e.get("upload_date") or "" for e in entries), default="")
+
+    # T-BACKFILL-2: the SKIP comparison uses the SNAPSHOT taken before the
+    # loop, never the moving cursor.
+    async with session_factory() as session:
+        account = await session.get(MonitoredAccount, account_id)
+    scope_cursor = account.backfill_cursor
+    moving_cursor = account.backfill_cursor
+    done = account.backfill_done
+    breaker = _BREAKERS.setdefault(account_id, BackfillBreaker())
+    return _BackfillLoopState(
+        entries=entries,
+        newest_date=newest_date,
+        scope_cursor=scope_cursor,
+        moving_cursor=moving_cursor,
+        done=done,
+        breaker=breaker,
+    )
+
+
 async def run_backfill(
     session_factory: async_sessionmaker[AsyncSession],
     account_id: int,
@@ -419,20 +506,7 @@ async def run_backfill(
     ``ffprobe_fn``/``sha256_fn`` are integrity-injection passthroughs for the
     single truth point (4.7); defaults are the real implementations.
     """
-    # Gate 1 (9.1, T-BACKFILL-12): real cookies, never a silent default.
-    if await get_working_cookie(session_factory) is None:
-        _emit_event(on_event, EVENT_BACKFILL_NO_COOKIES, account_id=account_id)
-        raise ConfigurationError("backfill.no_cookies: no working cookie")
-
-    # Gate 2 (9.1, T-BACKFILL-20): cross-process CAS slot BEFORE the state
-    # check, so the concurrent second run hits slot_busy -- the exact
-    # two-backfills-on-one-account risk the slot exists to stop. NEVER
-    # proceed busy.
-    slot_owner = f"backfill:{account_id}"
-    async with session_factory() as session:
-        won = await acquire_backfill_slot(session, slot_owner)
-    if not won:
-        raise ConfigurationError("backfill.slot_busy: the backfill slot is held by another run")
+    slot_owner = await _acquire_run_slot(session_factory, account_id, on_event)
 
     # Set by the try block; a CancelledError before that must still emit.
     username: str | None = None
@@ -449,37 +523,17 @@ async def run_backfill(
             )
         username = account.username
 
-        await _mark_backfilling(session_factory, account_id)
-        _emit_event(on_event, EVENT_BACKFILL_STARTED, account_id=account_id, username=username)
-
-        # Listing INSIDE the try (T-BACKFILL-6): a CancelledError during the
-        # listing must unwedge the state exactly like one mid-download.
-        # B1 (T-ASYNC-8): the listing is a blocking yt-dlp call — never on the loop.
-        entries = [
-            e
-            for e in await asyncio.to_thread(engine.list_videos, username, max_entries)
-            if e.get("id")
-        ]
-        # T-BACKFILL-5: the total is computed and persisted AFTER the real
-        # listing, never from a still-None variable.
-        if not await _persist_total(session_factory, account_id, len(entries)):
-            _emit_event(
-                on_event, EVENT_BACKFILL_CANCELLED, account_id=account_id, username=username
-            )
+        prep = await _prepare_backfill_loop(
+            session_factory,
+            account_id,
+            username=username,
+            engine=engine,
+            max_entries=max_entries,
+            on_event=on_event,
+        )
+        if prep is None:
             return BackfillStatus.CANCELLED
-
-        # M11/T-BACKFILL-3: newest-date fallback for absent entry dates (the
-        # feed is newest-first); mirrors services/monitor.py's insert path.
-        newest_date = max((e.get("upload_date") or "" for e in entries), default="")
-
-        # T-BACKFILL-2: the SKIP comparison uses the SNAPSHOT taken before the
-        # loop, never the moving cursor.
-        async with session_factory() as session:
-            account = await session.get(MonitoredAccount, account_id)
-        scope_cursor = account.backfill_cursor
-        moving_cursor = account.backfill_cursor
-        done = account.backfill_done
-        breaker = _BREAKERS.setdefault(account_id, BackfillBreaker())
+        entries, newest_date, scope_cursor, moving_cursor, done, breaker = prep
 
         for entry in entries:
             # T-BACKFILL-10: re-read the status every video (N=1, one row).
