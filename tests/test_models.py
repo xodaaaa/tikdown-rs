@@ -4,6 +4,8 @@ Trampas covered: T-DATA-1, T-BACKFILL-9, T-DB-7, T-DB-12. Reglas: 3.1-3.6, 3.7, 
 """
 
 import asyncio
+import re
+from enum import StrEnum
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,7 @@ from tikdown_rs.models import (
     release_backfill_slot,
     reserve_download_slot,
 )
+from tikdown_rs.models.monitored_account import BackfillStatus
 
 LEGAL_VIDEO_STATUSES = ["pending", "downloaded", "failed", "cancelled", "skipped"]
 LEGAL_BACKFILL_STATUSES = [
@@ -114,6 +117,20 @@ async def test_video_error_category_check(migrated_factory) -> None:
 
 
 # --- T-BACKFILL-9: backfill_status enum complete from the first schema ---
+
+
+def test_backfill_status_enum_pins_check_literals() -> None:
+    """BackfillStatus values are byte-identical to the CHECK literals (C1, 3.1)."""
+    assert issubclass(BackfillStatus, StrEnum)
+    check = next(
+        constraint
+        for constraint in MonitoredAccount.__table__.constraints
+        if getattr(constraint, "name", None) == "ck_monitored_accounts_backfill_status"
+    )
+    match = re.search(r"IN \((.*?)\)", str(check.sqltext))
+    assert match is not None
+    literals = [part.strip().strip("'") for part in match.group(1).split(",")]
+    assert literals == [status.value for status in BackfillStatus]
 
 
 @pytest.mark.parametrize("backfill_status", LEGAL_BACKFILL_STATUSES)

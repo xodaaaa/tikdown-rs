@@ -4,10 +4,24 @@ Trampas neutralizadas: T-BACKFILL-9, T-DATA-10. Every enum state lives in the
 CHECK from the first schema: adding a CHECK value later is a table migration.
 """
 
+from enum import StrEnum
+
 from sqlalchemy import Boolean, CheckConstraint, Integer, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from tikdown_rs.models import Base
+
+
+class BackfillStatus(StrEnum):
+    """Backfill status; values are byte-identical to the CHECK literals (3.1)."""
+
+    IDLE = "idle"
+    QUEUED = "queued"
+    BACKFILLING = "backfilling"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class MonitoredAccount(Base):

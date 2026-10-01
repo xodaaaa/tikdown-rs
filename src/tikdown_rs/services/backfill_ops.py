@@ -24,15 +24,23 @@ from tikdown_rs.core.archive import DownloadArchive
 from tikdown_rs.core.errors import ConfigurationError
 from tikdown_rs.core.timeutil import utcnow_iso as _utcnow_iso
 from tikdown_rs.models import MonitoredAccount
+from tikdown_rs.models.monitored_account import BackfillStatus
 from tikdown_rs.services.accounts import get_account
 
 #: States a (re)queue may start from: anything except a live run or a
 #: terminal result (T-BACKFILL-19: re-queueing completed/failed works;
 #: re-queueing 'backfilling' is refused).
-_QUEUEABLE = ("idle", "completed", "failed", "cancelled", "paused", "queued")
+_QUEUEABLE = (
+    BackfillStatus.IDLE,
+    BackfillStatus.COMPLETED,
+    BackfillStatus.FAILED,
+    BackfillStatus.CANCELLED,
+    BackfillStatus.PAUSED,
+    BackfillStatus.QUEUED,
+)
 #: Cancel is legal from any non-terminal state (9.4); 'cancelled' itself is
 #: non-terminal, so it is an idempotent no-op.
-_TERMINAL_BACKFILL = ("completed", "failed")
+_TERMINAL_BACKFILL = (BackfillStatus.COMPLETED, BackfillStatus.FAILED)
 _RETRIABLE_CATEGORIES = ("transient", "integrity")
 
 
@@ -53,9 +61,9 @@ async def queue_backfill(
     if account is None:
         raise ConfigurationError(f"unknown account: {username}")
     status = account.backfill_status
-    if status == "queued":
-        return "queued"
-    if status == "backfilling" or status not in _QUEUEABLE:
+    if status == BackfillStatus.QUEUED:
+        return BackfillStatus.QUEUED
+    if status == BackfillStatus.BACKFILLING or status not in _QUEUEABLE:
         raise ConfigurationError(
             f"backfill.backfilling: cannot re-queue account '{account.username}' "
             f"while its backfill_status is '{status}' (T-BACKFILL-19)"
@@ -70,7 +78,7 @@ async def queue_backfill(
             {"now": _utcnow_iso(), "id": account.id},
         )
         await session.commit()
-    return "queued"
+    return BackfillStatus.QUEUED
 
 
 async def cancel_backfill(
@@ -100,7 +108,7 @@ async def cancel_backfill(
             {"now": _utcnow_iso(), "id": account.id},
         )
         await session.commit()
-    return "cancelled"
+    return BackfillStatus.CANCELLED
 
 
 async def retry_failed(
